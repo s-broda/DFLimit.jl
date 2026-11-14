@@ -1,0 +1,47 @@
+"""
+    DFLimit
+
+The exact limiting distribution of the Dickey-Fuller t-ratio: the distribution function, density, quantiles and
+moments of the limits of the Dickey-Fuller t-ratios under local alternatives, by the exact representations of Bao,
+Broda and Kan, "The Exact Limiting Distribution of the Dickey-Fuller t-Ratio and Some Related Statistics".
+
+The numbers come from the Julia engine of the paper, the module `DFLimit.DFExact` (the file `src/DFExact.jl`, copied
+from the paper's repository by `tools/sync-engine.sh`); `DFLimit` re-exports its exported functions (`ltratio_cdf`,
+`ltratio_pdf`, `ltratio_icdf`, `ltratio_mom`, `adfmax_cdf`, `adfmax_pdf`, `adfmax_icdf`, `coef_cdf`, `coef_icdf`,
+`ltratio_region`, `ltratio_lincdf`, `power_envelope`, `ltratio_bisect`), and the functions it does not export are
+reached as `DFLimit.DFExact.cdf` and so on.  The engine is multithreaded: start Julia with `-t auto`.
+"""
+module DFLimit
+
+include("DFExact.jl")
+using .DFExact
+
+# the engine's exported names, exported from here too (the list follows the engine file when it is synced)
+for name in names(DFExact)
+    name === :DFExact || @eval export $name
+end
+
+# A precompile workload: without it the first call of each function waits for compilation, about 6 s for most of them
+# on an Apple M4 (1.4 to 8.7 s), with it a fraction of a second; it adds about 20 s to the precompilation (4.5 s to 22
+# s) and 46 MB to the cache file.  The engine's __init__ does not run while the package
+# is precompiled, so the workload builds the tables of K_0 first (k0tables!, the part of __init__ that the values depend
+# on; the rest sets the number of tasks and the vector library), and the values computed here and the caches they fill
+# are those of a loaded package (a check: the package and the engine file included directly give the same values bit for
+# bit).  __init__ itself is not called here: on x86-64 Linux and Windows it loads IntelVectorMath from the active
+# environment if it is there, which a precompilation should not do.
+import PrecompileTools
+PrecompileTools.@compile_workload begin
+    DFExact.k0tables!()
+    for cas in ("DK", "DU", "DT", "SU", "DG")
+        ltratio_cdf(-2.0, cas, -5); ltratio_pdf(-2.0, cas, -5)
+    end
+    ltratio_cdf(0.0, "DK", 2; c0 = 2)
+    ltratio_cdf(-2.0, "DU", -5; method = :double)
+    ltratio_cdf(-2.0, "DU", -5; g0 = 1.5)
+    ltratio_icdf(0.05, "DU")
+    ltratio_mom(2, "DU")
+    adfmax_cdf(-2.5, "DU"); adfmax_pdf(-2.5, "DU")
+    ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK", 0)
+end
+
+end # module

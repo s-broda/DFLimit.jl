@@ -1,0 +1,260 @@
+# The tests of DFLimit: the engine's values against values stored by the paper's code, at the tolerances of the existing
+# checks (julia/quickcheck.jl and julia/test_dfexact.jl of DF-Limit, the C engine's tests c/test, the MATLAB suite
+# public/ltratio_test.m and the tests of the R package dflimit), closed forms, and the argument errors.  The stored values
+# are in test/ref/ (the first line of each file says where it comes from).  A few minutes on a laptop; run with
+#   julia --project -e 'using Pkg; Pkg.test()'                         (one thread)
+#   JULIA_NUM_THREADS=auto julia --project -e 'using Pkg; Pkg.test()'  (all performance cores)
+using DFLimit, Test, Printf, Logging
+using SpecialFunctions: erf
+
+const D = DFLimit.DFExact
+const REF = joinpath(@__DIR__, "ref")
+
+readref(name) = [split(l) for l in eachline(joinpath(REF, name)) if !startswith(l, "#") && !isempty(strip(l))]
+num(p) = parse.(Float64, p)
+casecode(m, st) = m == 4 ? "DG" : (st == 1 ? "S" : "D") * "KUT"[Int(m)]
+# the message of the ArgumentError that f() throws ("" if it does not throw, "other: ..." for another exception)
+errmsg(f) = try; f(); ""; catch e; e isa ArgumentError ? e.msg : "other: " * sprint(showerror, e); end
+# f() without a warning: the conditional integral warns where its error estimate is not met
+nowarn(f) = @test_logs min_level = Logging.Warn f()
+
+const T0 = time()
+@printf("DFLimit tests: Julia %s, %d threads, %d workers, vector math: %s\n", VERSION, Threads.nthreads(), D.NWORKERS[], D.vecmath())
+
+@testset "DFLimit" begin
+
+@testset "exports" begin
+    ex = [:ltratio_cdf, :ltratio_pdf, :ltratio_icdf, :ltratio_mom, :adfmax_cdf, :adfmax_pdf, :adfmax_icdf, :coef_cdf,
+          :coef_icdf, :ltratio_region, :ltratio_lincdf, :power_envelope, :ltratio_bisect]
+    @test all(n -> Base.isexported(DFLimit, n), ex)
+    @test all(n -> getfield(DFLimit, n) === getfield(D, n), ex)
+    @test Set(filter(!=(:DFExact), names(D))) ⊆ Set(names(DFLimit))
+    @test D.cdf isa Function && D.tr_limdist isa Function && D.tr_adfmax isa Function
+end
+
+# the twelve points of julia/python_exact_reference.json: the line integral at c0 = 0 (quickcheck.jl, section 2)
+@testset "stored reference values (line integral, models 1-3)" begin
+    for p in readref("exact_ref.txt")
+        m = parse(Int, p[1]); c, q, Fr, fr = num(p[2:5])
+        @test D.cdf(q, m; c) ≈ Fr atol = 1e-12
+        @test D.density(q, m; c) ≈ fr rtol = 1e-10
+    end
+end
+
+# the C engine's criterion (c/test, tests/testthat of dflimit): F to 1e-11, f to 1e-9 relative or 1e-11 absolute
+@testset "line integral at c0 = 0: the six cases and DG" begin
+    for p in readref("single_ref.txt")
+        m, c, st, x, Fr, fr = num(p); cas = casecode(m, st)
+        @testset "$cas c = $c x = $x" begin
+            @test ltratio_cdf(x, cas, c; method = :single) ≈ Fr atol = 1e-11
+            @test ltratio_pdf(x, cas, c; method = :single) ≈ fr rtol = 1e-9 atol = 1e-11
+        end
+    end
+end
+
+@testset "line integral with a local null value c0" begin
+    for p in readref("gen_ref.txt")
+        m, c, c0, st, x, Fr, fr = num(p); cas = casecode(m, st)
+        @testset "$cas c = $c c0 = $c0 x = $x" begin
+            @test ltratio_cdf(x, cas, c; c0, method = :single) ≈ Fr atol = 1e-11
+            @test ltratio_pdf(x, cas, c; c0, method = :single) ≈ fr rtol = 1e-9 atol = 1e-11
+        end
+    end
+end
+
+@testset "line integral with a fixed start g0" begin
+    for p in readref("fixed_ref.txt")
+        m, c, c0, g0, st, x, Fr, fr = num(p); cas = casecode(m, st)
+        @testset "$cas c = $c c0 = $c0 g0 = $g0 x = $x" begin
+            @test ltratio_cdf(x, cas, c; c0, g0, method = :single) ≈ Fr atol = 1e-11
+            @test ltratio_pdf(x, cas, c; c0, g0, method = :single) ≈ fr rtol = 1e-9 atol = 1e-11
+        end
+    end
+end
+
+# the C engine's criterion for the conditional integral: F to 1e-10, f to 1e-8 relative or 1e-10 absolute, no warning
+@testset "conditional integral" begin
+    for p in readref("dbl_ref.txt")
+        m, c, c0, g0, st, x, Fr, fr = num(p); cas = casecode(m, st)
+        @testset "$cas c = $c c0 = $c0 g0 = $g0 x = $x" begin
+            @test nowarn(() -> ltratio_cdf(x, cas, c; c0, g0, method = :double)) ≈ Fr atol = 1e-10
+            @test nowarn(() -> ltratio_pdf(x, cas, c; c0, g0, method = :double)) ≈ fr rtol = 1e-8 atol = 1e-10
+        end
+    end
+    x = [-3.0, -1.5, 0.5]                                   # the two representations, and the names :line, :conditional
+    @test ltratio_cdf(x, "DU", -2; method = :line) == ltratio_cdf(x, "DU", -2; method = :single)
+    @test ltratio_cdf(x, "DU", -2; method = :conditional) == ltratio_cdf(x, "DU", -2; method = :double)
+    @test ltratio_cdf(x, "DU", -2; method = :line) ≈ ltratio_cdf(x, "DU", -2; method = :conditional) atol = 1e-10
+end
+
+@testset "moments" begin
+    for p in readref("mom_ref.txt")
+        m, c, c0, g0, st = num(p[1:5]); mr = num(p[6:9]); cas = casecode(m, st)
+        @test maximum(abs.(ltratio_mom(4, cas, c; c0, g0) ./ mr .- 1)) < 1e-10
+    end
+    @test ltratio_mom(2, "DU")[2] ≈ 3.05599535 atol = 1e-8                  # Nabeya (1999); quickcheck.jl, section 8
+end
+
+# far from the unit root: the lines of julia/largec_ref.txt that quickcheck.jl checks (section 15), the line integral to
+# 1e-11 and the automatic method to 1e-10; the moments to 1e-10 relative; the 5% quantile of DU to 1e-9
+@testset "far from the unit root (c = -100, -480)" begin
+    for p in readref("largec_ref.txt")
+        cas = String(p[2])
+        if p[1] == "val"
+            c, c0, z, x, Fr, fr = num(p[3:8])
+            @test ltratio_cdf(x, cas, c; c0, method = :single) ≈ Fr atol = 1e-11
+            @test ltratio_pdf(x, cas, c; c0, method = :single) ≈ fr atol = 1e-11
+            @test ltratio_cdf(x, cas, c; c0) ≈ Fr atol = 1e-10
+            @test ltratio_pdf(x, cas, c; c0) ≈ fr atol = 1e-10
+        elseif p[1] == "mom"
+            c, c0 = num(p[3:4]); mr = num(p[5:8])
+            @test maximum(abs.(ltratio_mom(4, cas, c; c0) ./ mr .- 1)) < 1e-10
+        else
+            c, c0, pr, qr = num(p[3:6])
+            q = ltratio_icdf(pr, cas, c; c0)
+            @test q ≈ qr atol = 1e-9
+            @test ltratio_cdf(q, cas, c; c0) ≈ pr atol = 1e-9
+        end
+    end
+    @test ltratio_cdf(-15.446799628855823, "DG", -480) ≈ 0.49999999999999922 atol = 1e-11    # quickcheck.jl, section 18
+    @test ltratio_pdf(-15.446799628855823, "DG", -480) ≈ 0.77592587896902709 atol = 1e-11
+end
+
+@testset "automatic method, closed forms and published values" begin
+    @test ltratio_cdf(-2.86157, "DU", -5) ≈ 0.116513562093 rtol = 1e-9        # the R package's stored value
+    @test ltratio_cdf(-2.86157, "SU", -5) ≈ 0.125 atol = 5e-4                  # the paper's table (quickcheck.jl, section 5)
+    @test ltratio_cdf(0, "DK", 2; c0 = 2) ≈ 0.650436 atol = 1e-6               # Larsson's table (section 9)
+    @test D.cdf(0.0, 2; c = 10.0, c0 = 5.0) ≈ 0.000302655553129 atol = 1e-11   # a one-dimensional inversion (section 9)
+    @test ltratio_cdf(-2, "DU", -5; g0 = 1.5) ≈ 0.864977240077167 atol = 1e-11  # the MATLAB programs (section 11)
+    @test ltratio_cdf(-3.0, "DT", -5; g0 = 2) ≈ 0.2889970388707237 atol = 1e-11 # c/test/fixed_ref.txt (section 16)
+    let c = -5.0, g0 = 1.5, v = (exp(-10) - 1) / (-10), m = 1.5 * exp(-5), r = sqrt(1 + 1.5^2)   # P[J(1)^2 <= 1 + g0^2]
+        @test ltratio_cdf(0.0, "DK", c; g0) ≈ (erf((r - m) / sqrt(2v)) + erf((r + m) / sqrt(2v))) / 2 atol = 1e-11
+    end
+    lamg = D.lam_gls(D.CBAR_GLS)                                               # case DG at c = 0: P{V(1)^2 <= 1}
+    @test ltratio_cdf(0.0, "DG", 0.0) ≈ erf(1 / sqrt(0.4 * (1 - lamg)^2)) atol = 1e-12
+    F = ltratio_cdf([-Inf, 0.0, Inf, NaN], "DK", -5)                           # non-finite x; F(0) of DK in closed form
+    @test F[1] == 0 && F[3] == 1 && isnan(F[4])
+    @test F[2] ≈ erf(1 / sqrt(2 * (exp(-10) - 1) / (-10))) atol = 1e-12
+    @test ltratio_pdf([-Inf, Inf], "DK") == [0.0, 0.0]
+    @test isinf(ltratio_pdf(-2.0, "DK"; c0 = 2.0))                             # f(-sqrt(2 c0)) = Inf in case DK
+    @test size(ltratio_cdf([-1.0 0.0; 0.5 1.0], "DK")) == (2, 2)
+    @test ltratio_cdf(Float64[], "DU") == Float64[]
+    @test ltratio_cdf(-1, "dk") == ltratio_cdf(-1.0, "DK")
+end
+
+@testset "quantiles" begin
+    @test ltratio_icdf(0.05, "DU") ≈ -2.86156886 atol = 1e-7                  # quickcheck.jl, section 12
+    @test D.quantile(0.05, 2) ≈ -2.861568864 atol = 1e-8                      # section 4
+    @test ltratio_icdf(0.05, "DK") ≈ -1.94087 atol = 1e-5                     # the published 5% critical value
+    for (q5, cas) in ((-1.94087325, "DK"), (-2.86156886, "DU"), (-3.41045363, "DT"))   # nine-digit 5% points (ltratio_test.m)
+        @test ltratio_cdf(q5, cas) ≈ 0.05 atol = 2e-9
+    end
+    @test ltratio_icdf(0.05, "DG") ≈ -2.8456308262 atol = 1e-8               # ltratio_test.m
+    q = ltratio_icdf([0.01, 0.05, 0.10], "DU")
+    @test ltratio_cdf(q, "DU") ≈ [0.01, 0.05, 0.10] atol = 1e-9
+    q = ltratio_icdf([0.1, 0.9], "ST", -10)
+    @test ltratio_cdf(q, "ST", -10) ≈ [0.1, 0.9] atol = 1e-9
+end
+
+# the application functions against the stored values of c/test/app_ref.txt (as in the R package: F, f, P to 1e-10),
+# quickcheck.jl (section 19) and the MATLAB suite (public/ltratio_test.m, section 10)
+@testset "ADFmax" begin
+    for p in readref("app_ref.txt")
+        p[1] == "adfmax" || continue
+        m, st, c, x, Fr, fr = num(p[2:7]); cas = casecode(m, st)
+        @test adfmax_cdf(x, cas, c) ≈ Fr atol = 1e-10
+        @test adfmax_pdf(x, cas, c) ≈ fr atol = 1e-10
+    end
+    F = adfmax_cdf([-2.5, -Inf, Inf, NaN], "DU", 0)
+    @test F[1] ≈ 0.042709500744894657 atol = 1e-12
+    @test F[2] == 0 && F[3] == 1 && isnan(F[4])
+    q = adfmax_icdf(0.05, "DU")
+    @test q ≈ -2.4354164994325092 atol = 1e-9
+    @test adfmax_cdf(q, "DU") ≈ 0.05 atol = 1e-9
+end
+
+@testset "coefficient statistic" begin
+    @test coef_cdf(-14.0, "DU", -5) ≈ 0.1938495145682877 atol = 1e-10
+    @test coef_cdf(-14.0, "SU", -10) ≈ 0.45401150754561903 atol = 1e-10
+    @test coef_cdf(-16.59, "DG", -13.5) ≈ 0.51132404681639121 atol = 1e-10
+    @test coef_icdf(0.05, "DU") ≈ -14.093590831267115 atol = 1e-7
+    @test round(coef_icdf(0.05, "DK"), digits = 3) == -8.039                   # the paper: -8.039, -14.094, -21.711
+    @test round(coef_icdf(0.05, "DT"), digits = 3) == -21.711
+    @test coef_cdf(-5, "DT", -2; c0 = 1) ≈ ltratio_cdf(0, "DT", -2; c0 = -4) rtol = 1e-13   # the definition
+    @test coef_cdf([-Inf, NaN, Inf], "DK")[[1, 3]] == [0.0, 1.0] && isnan(coef_cdf(NaN, "DK"))
+end
+
+@testset "regions, lincdf, power envelope, bisection" begin
+    for p in readref("app_ref.txt")
+        p[1] == "region" || continue
+        ty, p1, p2, v0, c, Pr = num(p[2:7])
+        bnd = ty == 1 ? (type = "line", a = p1, b = p2, v0 = v0) : ty == 2 ? (type = "parabola", x = p1, c0 = p2, v0 = v0) :
+                        (type = "wap", k = p1, omega = p2, v0 = v0)
+        @test ltratio_region(bnd, "DK", c) ≈ Pr atol = 1e-10
+    end
+    @test ltratio_region((type = "line", a = -3.5, b = -0.2639), "DK", 0) ≈ 0.049996781931320872 atol = 1e-12
+    @test ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK", -10) ≈ 0.75806440265373276 atol = 1e-12
+    @test ltratio_region((type = "parabola", x = -1.94087), "DK", -7) ≈ ltratio_cdf(-1.94087, "DK", -7; method = :single) atol = 1e-11
+    # a function g (check_applications.jl holds the general boundaries to 1e-10)
+    @test ltratio_region((type = "fun", g = v -> -1.94087 * sqrt(v)), "DK", -7) ≈ ltratio_cdf(-1.94087, "DK", -7; method = :single) atol = 1e-10
+    @test ltratio_lincdf(-0.2639, -3.5, "DK", 0) ≈ 0.049996781931325174 atol = 1e-12
+    E = power_envelope([-7.0, 0.0])
+    @test E[1] ≈ 0.49940198260314117 atol = 1e-10
+    @test E[2] == 0.05
+    @test power_envelope(-13.5, "DG") ≈ 0.51438424492233736 atol = 1e-10
+    @test ltratio_bisect(x -> x^3 - 2, 0, 2, 1e-12) ≈ cbrt(2) atol = 1e-12
+    @test_throws ErrorException ltratio_bisect(x -> x^2 + 1, -1, 1)
+end
+
+# the values do not depend on the number of tasks (the order of summation can change the last digit); with one thread the
+# tasks run in turn, which still exercises the threaded loops
+@testset "number of tasks" begin
+    nw = D.NWORKERS[]
+    x = [-2.0, 0.0]
+    try
+        D.NWORKERS[] = 1
+        F1 = ltratio_cdf(x, "DT", -3); f1 = ltratio_pdf(x, "DK", -3); Fd1 = ltratio_cdf(x, "SU", -3; method = :double)
+        D.NWORKERS[] = max(nw, 3)
+        @test ltratio_cdf(x, "DT", -3) ≈ F1 rtol = 1e-14
+        @test ltratio_pdf(x, "DK", -3) ≈ f1 rtol = 1e-14
+        @test ltratio_cdf(x, "SU", -3; method = :double) ≈ Fd1 rtol = 1e-14
+    finally
+        D.NWORKERS[] = nw
+    end
+end
+
+# the argument errors (quickcheck.jl, sections 12, 16 and 18, and the R package's interface tests)
+@testset "argument errors" begin
+    @test errmsg(() -> ltratio_cdf(0, "DU", -600)) == D.CMIN_MSG
+    @test errmsg(() -> ltratio_pdf(-20.0, "SK", -700)) == D.CMIN_MSG
+    @test errmsg(() -> ltratio_mom(2, "DT", -551)) == D.CMIN_MSG
+    @test errmsg(() -> ltratio_icdf(0.05, "DG", -551)) == D.CMIN_MSG
+    @test errmsg(() -> ltratio_cdf(-17.0, "DU", -550)) == ""
+    @test errmsg(() -> ltratio_cdf(-2.0, "DK", 0; g0 = 2.5)) == D.FIXED_MSG
+    @test errmsg(() -> ltratio_pdf(-2.0, "DU", -10; g0 = 2)) == D.FIXED_MSG
+    @test errmsg(() -> ltratio_cdf(-9.0, "DT", -110; g0 = 0.5)) == D.FIXED_MSG
+    @test errmsg(() -> ltratio_mom(2, "DU", 3; g0 = 1)) == D.FIXED_MSG
+    @test occursin("requires c < 0", errmsg(() -> ltratio_cdf(0, "SU", 1)))
+    @test occursin("applies to cases DK, DU, DT", errmsg(() -> ltratio_cdf(0, "SU", -5; g0 = 1)))
+    @test occursin("not available for case DG", errmsg(() -> ltratio_mom(2, "DG")))
+    @test occursin("line integral representation only", errmsg(() -> ltratio_cdf(0, "DG"; method = :double)))
+    @test occursin("(0, 1)", errmsg(() -> ltratio_icdf(1, "DU")))
+    @test occursin("finite real scalar", errmsg(() -> ltratio_cdf(0, "DU", NaN)))
+    @test occursin("finite real scalar", errmsg(() -> ltratio_cdf(0, "DU", 0; c0 = Inf)))
+    @test occursin("the case must be", errmsg(() -> ltratio_cdf(0, "XX")))
+    @test occursin("method must be", errmsg(() -> ltratio_cdf(0, "DU"; method = :fast)))
+    @test occursin("positive integer", errmsg(() -> ltratio_mom(0, "DU")))
+    @test occursin("the case must be one of DU, DT, SU, ST", errmsg(() -> adfmax_cdf(0, "DK")))
+    @test occursin("requires c < 0", errmsg(() -> adfmax_cdf(0, "SU", 1)))
+    @test occursin("(0, 1)", errmsg(() -> adfmax_icdf(1.5, "DU")))
+    @test occursin("(0, 1)", errmsg(() -> coef_icdf(0, "DU")))
+    @test occursin("needs the field b", errmsg(() -> ltratio_region((type = "line", a = 1))))
+    @test occursin("unknown boundary type", errmsg(() -> ltratio_region((type = "circle",))))
+    @test occursin("the case must be DK", errmsg(() -> ltratio_region((type = "line", a = -3.5, b = -0.2639), "DU")))
+    @test occursin("the case must be DK or DG", errmsg(() -> ltratio_lincdf(0.0, 1.0, "DU")))
+    @test occursin("the case must be DK (or DU) or DG", errmsg(() -> power_envelope(-5, "DT")))
+end
+
+end # @testset "DFLimit"
+
+@printf("DFLimit tests: %.0f s\n", time() - T0)

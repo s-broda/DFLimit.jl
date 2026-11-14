@@ -1,0 +1,36 @@
+# Pkg.test() of DFLimit on Linux, macOS and Windows with the current stable Julia release.
+# Started by hand only (Actions tab, "Run workflow", or gh workflow run CI.yml): the account's Actions minutes are
+# limited, so nothing runs on a push or a pull request.
+name: CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} (Julia ${{ matrix.version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        version: ['1']
+    env:
+      JULIA_NUM_THREADS: auto
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.version }}
+
+      - uses: julia-actions/cache@v2
+
+      - uses: julia-actions/julia-buildpkg@v1
+
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: false
