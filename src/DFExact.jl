@@ -4353,7 +4353,9 @@ function region_g(bnd)
     elseif ty == "parabola"
         x = Float64(need(:x)); c0v = bfield(bnd, :c0); c0 = c0v === nothing ? 0.0 : Float64(c0v); return v -> x * sqrt(v) + c0 * v
     elseif ty == "wap"
-        k = Float64(need(:k)); w = Float64(need(:omega)); return v -> g_wap(v, k, w)
+        k = Float64(need(:k)); w = Float64(need(:omega))
+        k > 0 && w > 0 || throw(ArgumentError("ltratio_region: the weighted-average-power boundary needs k > 0 and omega > 0"))
+        return v -> g_wap(v, k, w)
     end
     throw(ArgumentError("ltratio_region: unknown boundary type $ty"))
 end

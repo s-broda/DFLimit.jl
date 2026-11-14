@@ -250,6 +250,7 @@ end
     @test occursin("(0, 1)", errmsg(() -> coef_icdf(0, "DU")))
     @test occursin("needs the field b", errmsg(() -> ltratio_region((type = "line", a = 1))))
     @test occursin("unknown boundary type", errmsg(() -> ltratio_region((type = "circle",))))
+    @test occursin("k > 0 and omega > 0", errmsg(() -> ltratio_region((type = "wap", k = -1, omega = 1))))
     @test occursin("the case must be DK", errmsg(() -> ltratio_region((type = "line", a = -3.5, b = -0.2639), "DU")))
     @test occursin("the case must be DK or DG", errmsg(() -> ltratio_lincdf(0.0, 1.0, "DU")))
     @test occursin("the case must be DK (or DU) or DG", errmsg(() -> power_envelope(-5, "DT")))
