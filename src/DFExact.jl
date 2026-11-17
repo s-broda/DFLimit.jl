@@ -1527,7 +1527,7 @@ end
 function startflag(start::Symbol, c::Float64)
     start == :zero && return false
     start == :stationary || error("start must be :zero or :stationary")
-    c < 0 || error("the stationary start needs c < 0")
+    c <= CSTAT || throw(ArgumentError(STAT_MSG))                  # (the range of the stationary start: CSTAT)
     true
 end
 
@@ -1583,8 +1583,12 @@ function cdf(qin::Float64, model::Int; c::Float64 = 0.0, tau = nothing, start::S
     (c0 != 0 || g0 != 0 || gen) && return value_gen(2, q, model, c, c0, tau, stat; g0, kw...)
     V = Val(kernel(model, stat))
     e1r1 = kernel(model, stat) == 2 ? k0first(model, c, stat, tau) : (Inf, Inf)
+    # (the K_0 layouts of the distribution function at tau = 1 only, as those of M1: their constant part, M0 less the ray
+    # over X > 1/2 on a fixed layout, misses the slow decay of the kernel along that ray at a smaller tau, which only case
+    # SK has, tau = t_*/2 < 1 for c > -1.2: an error the same at every x, 2e-8 at c = -0.5, 1e-4 at -0.1, 0.15 at -0.001;
+    # the adaptive rules, which the C engine uses throughout, are exact there)
     batch = !usebatch(c, q, tau) ? nothing : (kernel(model, stat) == 1 ? (tau == 1.0 ? m1batch(q, false, tau) : nothing) :
-                                              (BATCHK0[] ? k0batch(q, false, tau, e1r1) : nothing))
+                                              ((BATCHK0[] && tau == 1.0) ? k0batch(q, false, tau, e1r1) : nothing))
     outer(model, c, q, tau, (t, s1, s2, M0, part) -> inner_cdf(V, t, q, s1, s2, M0; part = part, e1 = e1r1[1]), t -> 1 / t; stat, batch, kw...)
 end
 
@@ -1844,7 +1848,7 @@ end
 #   "DK"  regression of y_t on y_{t-1}          (tau),      start g0
 #   "DU"  regression on 1 and y_{t-1}            (tau_mu),   start g0
 #   "DT"  regression on 1, t and y_{t-1}         (tau_tau),  start g0
-#   "SK", "SU", "ST"  the same regressions with y_0 from the stationary distribution, J(0) ~ N(0, -1/(2c)), c < 0
+#   "SK", "SU", "ST"  the same regressions with y_0 from the stationary distribution, J(0) ~ N(0, -1/(2c)), c <= -1e-4 (CSTAT)
 const CASES = ("DK", "DU", "DT", "SK", "SU", "ST", "DG")                 # DG: GLS-detrended, trend, zero start (Section 6.2 of the paper)
 """the method of `method = :auto` at the point x: the single integral at c0 = 0 (its fixed node layouts make it the faster
 one by 2-20x, zero or stationary start, any c) and with a fixed start g0 != 0 (the noncentral kernel, 2-6x faster than
@@ -1886,11 +1890,26 @@ fixed_ok(model::Int, c::Float64, g0::Float64) = model == 1 ? (c <= 2 && abs(g0) 
     model == 3 ? (-100 <= c <= 2 && abs(g0) <= 3 && (c * g0)^2 / 2 <= 7200) : true
 const FIXED_MSG = "with a fixed start g0 != 0 the programs are checked in case DK for c <= 2, |g0| <= 2 (|g0| <= 1 for c > 0), in case DU for -100 <= c <= 2, |g0| <= 1.5 and (c g0)^2/2 <= 4050, in case DT for -100 <= c <= 2, |g0| <= 3 and (c g0)^2/2 <= 7200"
 const CMIN_MSG = "c must be at least -550 (the range in which the programs are checked; the moments fail from about c = -600, the line integral from about c = -650)"
+"""the end of the range of c with a stationary start: c <= CSTAT, or an error with STAT_MSG, in ltratio_args (ltratio_cdf,
+ltratio_pdf, ltratio_icdf, ltratio_mom, coef_cdf, coef_icdf), adfmax_cdf, adfmax_pdf, adfmax_icdf and in the engine
+functions with a stationary start (startflag, tr_adfmax); the same check and message in the C engine (DFL_CSTAT, in
+dfl_check_args and dfl_double) and the MATLAB programs (LTRATIO_ARGS, ADFMAX_DIST, TR_LIMDIST, TR_LIMMOM, DFX_CORE).  The
+start J(0) ~ N(0, -1/(2c)) has a variance that grows without bound as c -> 0-, and in case SK the law of V spreads over
+scales from 1 to 1/|c|.  Measured in November 2026 against the exact P(t <= 0) = P(Z1 Z2 <= -c/sqrt(1 - e^{2c})), the
+Gil-Pelaez inversion of U - yV (the coefficient statistic) and the two representations against each other: down to
+c = -1e-5 the automatic choice is within 1e-12 in case SK (distribution function, density, coefficient statistic,
+moments); from |c| ~ 1e-4 the double integral flags points at which it is off by up to 2e-8 (the automatic choice
+takes the single integral's value there), and at c = -1e-6, where the end t_* ~ |c| of the domain of M_V lies inside the
+step 1e-5 of the finite difference for E V, the double integral is off by 1e-3 without a flag (and with it the tails of the
+automatic choice, by 4e-5).  Cases SU, ST, whose regressions remove the start, are within 1e-12 down to c = -1e-6
+(ADFmax too); one bound serves the three cases."""
+const CSTAT = -1e-4
+const STAT_MSG = "a stationary start (cases SK, SU, ST) requires c <= -1e-4: closer to zero the variance -1/(2c) of the start is too large for the quadrature"
 """
     ltratio_args(cas, c; c0, g0, method) -> (model, stat, c0, g0, method)
 
 Validation of the arguments: the case ("DK", "DU", "DT", "SK", "SU", "ST"), the local-to-unity parameter c (finite, at
-least CMIN = -550; a stationary start requires c < 0), the local null value c0, the fixed start g0 (fixed-start cases only) and the method
+least CMIN = -550; a stationary start requires c <= CSTAT = -1e-4), the local null value c0, the fixed start g0 (fixed-start cases only) and the method
 (:auto, the default: the faster representation at each x; :single, also accepted as :line; :double, also accepted as
 :conditional).
 """
@@ -1900,7 +1919,7 @@ function ltratio_args(cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0
     isfinite(c) || throw(ArgumentError("c must be a finite real scalar"))
     c >= CMIN || throw(ArgumentError(CMIN_MSG))
     stat = cas[1] == 'S'
-    stat && !(c < 0) && throw(ArgumentError("a stationary start (cases SK, SU, ST) requires c < 0"))
+    stat && !(c <= CSTAT) && throw(ArgumentError(STAT_MSG))
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
     isfinite(g0) || throw(ArgumentError("g0 must be a finite real scalar"))
     g0 != 0 && stat && throw(ArgumentError("g0 (a fixed start) applies to cases DK, DU, DT only"))
@@ -1952,7 +1971,7 @@ end
     ltratio_cdf(x, cas, c = 0; c0 = 0, g0 = 0, method = :auto)
 
 The limit as n -> inf of P[t <= x] for the least squares t-ratio t of the hypothesis phi = 1 + c0/n under phi = 1 + c/n,
-case `cas` ("DK", "DU", "DT": fixed start g0, default 0; "SK", "SU", "ST": stationary start, c < 0; "DG": the GLS-detrended
+case `cas` ("DK", "DU", "DT": fixed start g0, default 0; "SK", "SU", "ST": stationary start, c <= -1e-4 (CSTAT); "DG": the GLS-detrended
 trend case of Elliott, Rothenberg and Stock, cbar = -13.5, zero start, line integral only, so that :auto cannot recompute its
 tails by the double integral and far in the tails the values carry the line integral's absolute error).  x may be an array.
 Non-finite x: 0 at -Inf, 1 at Inf, NaN at NaN.  method: :auto (the faster of the two representations at each x, see
@@ -3803,7 +3822,7 @@ end
 double integral; returns (F, info)"""
 function double_start(x::Vector{Float64}, model::Int, c::Float64, c0::Float64, g0::Float64, stat::Bool, pdfm::Bool;
                       M::Int = 64, Nv::Int = 96, Nl::Int = 96, plen::Float64 = 2.0, otol::Float64 = 1e-12, maxlev::Int = 12, errtol::Float64 = 1e-10,
-                      blo::Float64 = 8.0, bhi::Float64 = 6.0, mumin::Float64 = 4.5, tdec::Float64 = 41.5)
+                      blo::Float64 = 8.0, bhi::Float64 = 6.0, bmin::Float64 = 3e-3, mumin::Float64 = 4.5, tdec::Float64 = 41.5)
     t0 = time()
     s02 = stat ? -1 / (2c) : 0.0
     stat && (g0 = 0.0)
@@ -3941,7 +3960,10 @@ function double_start(x::Vector{Float64}, model::Int, c::Float64, c0::Float64, g
     end
     OR = outer_rules(M)
     nx = length(x); F = zeros(nx); err = zeros(nx); nun = zeros(Int, nx); nref = zeros(Int, nx); nbad = zeros(Int, nx); brk = Vector{Vector{Float64}}(undef, nx)
-    lo = log(EB) - blo; hi = log(EB) + bhi
+    # the lower end in log b: E V e^{-blo}, with a stationary start at most bmin (as in case DK of double_zero, dzlo): in case
+    # SK, E V ~ 1/(2|c|) as c -> 0-, while V keeps the mass of the start's chi-square law near 0, and E V e^{-8} left out
+    # 1e-4 of F at c = -0.005 and 1e-3 at c = -0.001 without a flag (cases SU, ST, whose E V stays below 1, are unchanged)
+    lo = stat ? min(log(bmin), log(EB) - blo) : log(EB) - blo; hi = log(EB) + bhi
     blo_ = exp(lo); brng = exp(hi) - blo_
     q0 = dkfixed ? (1 + g0^2) / 2 : 0.5                                # edge (DK) or kink: a(b) + g0^2/2 = 0
     for i in 1:nx
@@ -4185,11 +4207,16 @@ P_V(c, v) = gilpelaez(cf_V(c, GPU), GPU, GPW, v)                     # P(V < v) 
 quant_lin(c, a, p) = (phi = cf_lin(c, a, GPU); ltratio_bisect(b -> gilpelaez(phi, GPU, GPW, b) - p, -1e4, 1e4, 1e-11))
 quant_V(c, p) = (phi = cf_V(c, GPU); ltratio_bisect(v -> gilpelaez(phi, GPU, GPW, v) - p, 1e-6, 50.0, 1e-12))
 
+# the weight a of the point-optimal test of Elliott, Rothenberg and Stock (1996) against cbar < 0, which rejects for small
+# U - aV: case DK (and DU), log likelihood ratio cbar U - cbar^2 V/2, a = cbar/2; case DG, the invariant statistic
+# cbar^2 V_g + (1 - cbar) J_g(1)^2 of the data GLS-detrended at cbar, with J_g(1)^2 = 2 U_g + 1, a = cbar^2/(2 (cbar - 1))
+po_weight(cbar::Real, cas::AbstractString) = cas == "DG" ? cbar * cbar / (2 * (cbar - 1)) : cbar / 2
+
 # the characteristic function of U - aV in the GLS-detrended trend case at the detrending parameter cbar (the
-# point-optimal test against cbar detrends at cbar, so the envelope needs cbar = c; the DF-GLS tests of model 4 fix
-# cbar = -13.5): M(s,t) = e^{-(s+c)/2} (cosh th |I - Q Sig|)^{-1/2} (1 - s/s_1)^{-1/2} with Sig and cosh th from the
-# engine's Girsanov forms of case T, Q = diag(c,0,0) - 2t Gam(lam), the determinant and 1 - s/s_1 unwrapped along u
-# (cf_X of julia/application/power.jl, model 4)
+# point-optimal test against cbar detrends at cbar and weighs V by a = cbar^2/(2 (cbar - 1)), so the envelope needs
+# cbar = c; the DF-GLS tests of model 4 fix cbar = -13.5): M(s,t) = e^{-(s+c)/2} (cosh th |I - Q Sig|)^{-1/2}
+# (1 - s/s_1)^{-1/2} with Sig and cosh th from the engine's Girsanov forms of case T, Q = diag(c,0,0) - 2t Gam(lam),
+# the determinant and 1 - s/s_1 unwrapped along u (cf_X of julia/application/power.jl, model 4)
 function cf_gls(c::Float64, a::Float64, u::Vector{Float64}; cbar::Float64 = CBAR_GLS)
     D = Vector{ComplexF64}(undef, length(u)); E = similar(D)
     lam = lam_gls(cbar); v = ComplexF64.(VGLS)
@@ -4239,10 +4266,12 @@ end
 
 The limit of P(U - aV <= b) under phi = 1 + c/n (b a number or an array), zero start, no drift, with U = int J dJ and
 V = int J^2 as in `ltratio_cdf`: case "DK" (no deterministic terms, and the constant case with GLS demeaning, whose limit
-is the same) or "DG" (the GLS-detrended trend case of Elliott, Rothenberg and Stock, detrended at `cbar`).  With
-a = cbar/2, cbar < 0, the point-optimal test of Elliott, Rothenberg and Stock against cbar rejects for U - aV < b (its
-log likelihood ratio is cbar U - cbar^2 V/2); see `power_envelope`.  a = NaN gives P(V <= b) (case DK).  By the inversion
-formula of Gil-Pelaez (`tr_gilpelaez`), to about 1e-11.  As LTRATIO_LINCDF of the MATLAB programs.
+is the same) or "DG" (the GLS-detrended trend case of Elliott, Rothenberg and Stock, detrended at `cbar`).  The
+point-optimal test of Elliott, Rothenberg and Stock against cbar < 0 rejects for U - aV < b: in case DK with a = cbar/2
+(its log likelihood ratio is cbar U - cbar^2 V/2), in case DG, with the data detrended at cbar, with
+a = cbar^2/(2 (cbar - 1)) (it rejects for small cbar^2 V + (1 - cbar) J(1)^2, J(1)^2 = 2U + 1); see `power_envelope`.
+a = NaN gives P(V <= b) (case DK).  By the inversion formula of Gil-Pelaez (`tr_gilpelaez`), to about 1e-11.  As
+LTRATIO_LINCDF of the MATLAB programs.
 
     ltratio_lincdf(-0.2639, -3.5, "DK", 0)          # 0.05: the size of the point-optimal test at cbar = -7
 """
@@ -4259,9 +4288,10 @@ The asymptotic power envelope of Elliott, Rothenberg and Stock (1996): the power
 point-optimal level-`alpha` test against c itself, zero start, no drift: case "DK" (no deterministic terms; also the
 constant case, "DU", where the point-optimal test uses the GLS-demeaned data and the envelope is the same curve) and case
 "DG" (the trend case, the point-optimal test against c with the data GLS-detrended at c).  The test against cbar rejects
-for small U - aV, a = cbar/2 (`ltratio_lincdf`): its critical value is the alpha-quantile at c = 0 (`ltratio_bisect` on
-[-50, 50] to 1e-9) and the envelope its power at cbar = c; alpha for c >= 0.  To about 1e-10.  As POWER_ENVELOPE of the
-MATLAB programs.
+for small U - aV (`ltratio_lincdf`), a = cbar/2 in case DK and a = cbar^2/(2 (cbar - 1)) in case DG (where the limit
+of the invariant statistic of Elliott, Rothenberg and Stock is cbar^2 V + (1 - cbar) J(1)^2, J(1)^2 = 2U + 1): its
+critical value is the alpha-quantile at c = 0 (`ltratio_bisect` on [-50, 50] to 1e-9) and the envelope its power at
+cbar = c; alpha for c >= 0.  To about 1e-10.  As POWER_ENVELOPE of the MATLAB programs.
 
     power_envelope(-7, "DK")                        # 0.4994: at cbar = -7 the envelope has power one half
 """
@@ -4271,7 +4301,7 @@ function power_envelope(c, cas::AbstractString = "DK"; alpha::Real = 0.05, kw...
     one(ck) = begin
         ck = Float64(ck)
         ck < 0 || return Float64(alpha)
-        a = ck / 2
+        a = po_weight(ck, cas)
         _, phi0 = tr_gilpelaez(0.0, a, cas, 0.0; cbar = ck, kw...)
         b = ltratio_bisect(b -> tr_gilpelaez(b, a, cas, 0.0; cbar = ck, phi = phi0, kw...)[1] - alpha, -50.0, 50.0, 1e-9)
         tr_gilpelaez(b, a, cas, ck; cbar = ck, kw...)[1]
@@ -4729,20 +4759,20 @@ end
 
 The engine of `adfmax_cdf` and `adfmax_pdf` (MATLAB: TR_ADFMAX) at one finite point x: the conditional integral with the
 boundary |R| <= 1/2 + x sqrt(V), cases "DU", "DT" (zero start, the Girsanov forms of the inner inversion) and "SU", "ST"
-(stationary start, c < 0).  refl = false drops the reflected term (with trunc = false: the t-ratio, a check of this outer
+(stationary start, c <= -1e-4, CSTAT).  refl = false drops the reflected term (with trunc = false: the t-ratio, a check of this outer
 integral against the engine's own).  Options: M, Nv, plen, otol, maxlev, stepw, bmin, bhi (zero start); M, Nv, Nl, plen,
 otol, maxlev, blo, bhi, mumin, tdec (stationary start).  info: the error estimate and the counts of the rule.
 """
 function tr_adfmax(x::Real, cas::String, c::Real; pdf::Bool = false, kw...)
     model, stat = casemodel(cas)
-    stat && !(c < 0) && throw(ArgumentError("a stationary start requires c < 0"))
+    stat && !(c <= CSTAT) && throw(ArgumentError(STAT_MSG))
     stat ? stat_two(Float64(x), model, Float64(c); pdf, kw...) : zero_two(Float64(x), model, Float64(c); pdf, kw...)
 end
 function adfmax_vals(pdf::Bool, x, cas::AbstractString, c::Real; kw...)
     cas = uppercase(String(cas))
     cas in ("DU", "DT", "SU", "ST") || throw(ArgumentError("adfmax: the case must be one of DU, DT, SU, ST"))
     c = checkc("adfmax", c)
-    cas[1] == 'S' && !(c < 0) && throw(ArgumentError("adfmax: a stationary start (cases SU, ST) requires c < 0"))
+    cas[1] == 'S' && !(c <= CSTAT) && throw(ArgumentError(STAT_MSG))
     one(xk) = isnan(xk) ? NaN : xk == Inf ? (pdf ? 0.0 : 1.0) : xk == -Inf ? 0.0 :
               (v = tr_adfmax(Float64(xk), cas, c; pdf, kw...)[1]; (pdf && v < 0) ? 0.0 : v)
     x isa Number ? one(x) : map(one, x)
@@ -4752,7 +4782,7 @@ end
 
 The limit as n -> inf of P[ADFmax <= x] under phi = 1 + c/n, no drift, for the larger of the Dickey-Fuller t-ratios of
 the forward regression (y_t on y_{t-1}) and of the reverse regression (y_t on y_{t+1}) of Leybourne (1995), with a
-constant ("DU", "SU") or a constant and a trend ("DT", "ST"), zero start ("D") or stationary start ("S", c < 0).  In the
+constant ("DU", "SU") or a constant and a trend ("DT", "ST"), zero start ("D") or stationary start ("S", c <= -1e-4).  In the
 limit both regressions have the denominator V and the numerators U and -U - 1, so that ADFmax => (|R| - 1/2)/sqrt(V),
 R = U + 1/2, and {ADFmax <= x} = {|R| <= 1/2 + x sqrt(V)}, a region between two curves of the plane (Section 6.2 of the
 paper), by the conditional integral (`tr_adfmax`, whose options are passed on).  x may be an array; F = 0 at -Inf, 1 at

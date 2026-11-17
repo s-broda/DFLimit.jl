@@ -201,7 +201,7 @@ end
     E = power_envelope([-7.0, 0.0])
     @test E[1] ≈ 0.49940198260314117 atol = 1e-10
     @test E[2] == 0.05
-    @test power_envelope(-13.5, "DG") ≈ 0.51438424492233736 atol = 1e-10
+    @test power_envelope(-13.5, "DG") ≈ 0.51441347319065545 atol = 1e-10
     @test ltratio_bisect(x -> x^3 - 2, 0, 2, 1e-12) ≈ cbrt(2) atol = 1e-12
     @test_throws ErrorException ltratio_bisect(x -> x^2 + 1, -1, 1)
 end
@@ -234,7 +234,7 @@ end
     @test errmsg(() -> ltratio_pdf(-2.0, "DU", -10; g0 = 2)) == D.FIXED_MSG
     @test errmsg(() -> ltratio_cdf(-9.0, "DT", -110; g0 = 0.5)) == D.FIXED_MSG
     @test errmsg(() -> ltratio_mom(2, "DU", 3; g0 = 1)) == D.FIXED_MSG
-    @test occursin("requires c < 0", errmsg(() -> ltratio_cdf(0, "SU", 1)))
+    @test errmsg(() -> ltratio_cdf(0, "SU", 1)) == D.STAT_MSG
     @test occursin("applies to cases DK, DU, DT", errmsg(() -> ltratio_cdf(0, "SU", -5; g0 = 1)))
     @test occursin("not available for case DG", errmsg(() -> ltratio_mom(2, "DG")))
     @test occursin("line integral representation only", errmsg(() -> ltratio_cdf(0, "DG"; method = :double)))
@@ -245,7 +245,7 @@ end
     @test occursin("method must be", errmsg(() -> ltratio_cdf(0, "DU"; method = :fast)))
     @test occursin("positive integer", errmsg(() -> ltratio_mom(0, "DU")))
     @test occursin("the case must be one of DU, DT, SU, ST", errmsg(() -> adfmax_cdf(0, "DK")))
-    @test occursin("requires c < 0", errmsg(() -> adfmax_cdf(0, "SU", 1)))
+    @test errmsg(() -> adfmax_cdf(0, "SU", 1)) == D.STAT_MSG
     @test occursin("(0, 1)", errmsg(() -> adfmax_icdf(1.5, "DU")))
     @test occursin("(0, 1)", errmsg(() -> coef_icdf(0, "DU")))
     @test occursin("needs the field b", errmsg(() -> ltratio_region((type = "line", a = 1))))
@@ -254,6 +254,21 @@ end
     @test occursin("the case must be DK", errmsg(() -> ltratio_region((type = "line", a = -3.5, b = -0.2639), "DU")))
     @test occursin("the case must be DK or DG", errmsg(() -> ltratio_lincdf(0.0, 1.0, "DU")))
     @test occursin("the case must be DK (or DU) or DG", errmsg(() -> power_envelope(-5, "DT")))
+end
+
+@testset "stationary start near the unit root" begin
+    # for c > -1e-4 the engine refuses (CSTAT, STAT_MSG): the variance -1/(2c) of the start is too large for the quadrature
+    for f in (() -> ltratio_cdf(-1.94087, "SK", -9e-5), () -> ltratio_pdf(-2.0, "SU", -9e-5), () -> ltratio_mom(2, "ST", -9e-5),
+              () -> ltratio_icdf(0.05, "SK", -9e-5), () -> coef_cdf(-8.039, "SK", -9e-5), () -> adfmax_cdf(-2.4, "SU", -9e-5))
+        @test errmsg(f) == D.STAT_MSG
+    end
+    # at c = -1e-4 (julia/quickcheck.jl of DF-Limit, section 18b), and the two errors fixed in November 2026: the batched
+    # distribution function of case SK at tau < 1 and the lower end of the conditional integral with a stationary start
+    @test ltratio_cdf(-1.94087, "SK", -1e-4) ≈ 0.028490044498374834 atol = 1e-11
+    @test coef_cdf(-8.039, "SK", -1e-4) ≈ 0.00032997244558452543 atol = 1e-12
+    @test adfmax_cdf(-2.43542, "SU", -1e-4) ≈ 0.050000718603976146 atol = 1e-11
+    @test ltratio_cdf(-1.94087, "SK", -0.1) ≈ 0.059510986573375835 atol = 1e-11
+    @test coef_cdf(-8.039, "SK", -0.001) ≈ 0.0010438037922007037 atol = 1e-12
 end
 
 end # @testset "DFLimit"

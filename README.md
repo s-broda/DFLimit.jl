@@ -30,7 +30,7 @@ unchanged; the same functions, with the same names and arguments, exist in MATLA
 | `power_envelope(c, cas = "DK"; alpha)` | the asymptotic power envelope of Elliott, Rothenberg and Stock (1996), case DK (= DU) or DG |
 | `ltratio_bisect(f, lo, hi, tol = 1e-9)` | bisection, as used by `power_envelope` |
 
-The case `cas` is a two-letter code: `D` (fixed start, `g0`, default 0) or `S` (stationary start, c < 0),
+The case `cas` is a two-letter code: `D` (fixed start, `g0`, default 0) or `S` (stationary start, c <= -1e-4),
 followed by `K` (no deterministic terms, tau), `U` (intercept, tau_mu) or `T` (intercept and trend, tau_tau);
 `"DG"` is the GLS-detrended trend case (DF-GLS, cbar = -13.5). `method` is `:auto` (the faster representation at
 each point), `:single` or `:line` (the line integral, Theorem 2) or `:double` or `:conditional` (the conditional
