@@ -1759,8 +1759,8 @@ Q = v/eta - u/2 + u/{2 S^2 eta (eta - u)}, S = sinh th/th."""
 function qstart(model::Int, c::Float64, u::ComplexF64, v::ComplexF64)
     G = girsanov(model, c, v)
     if model == 1
-        S = exp(G.lsh)
-        return v / G.eta - u / 2 + u / (2 * S * S * G.eta * (G.eta - u))
+        # (1/S^2 = e^{-2 lsh}: S = e^{lsh} overflows at large tilts, c <= -280 in the moments, where S * S = Inf + NaN im)
+        return v / G.eta - u / 2 + u * exp(-2 * G.lsh) / (2 * G.eta * (G.eta - u))
     end
     K = model == 2 ? KDU : KDT
     M = G.N - u .* (K * G.Sg)
@@ -1850,16 +1850,43 @@ end
 #   "DT"  regression on 1, t and y_{t-1}         (tau_tau),  start g0
 #   "SK", "SU", "ST"  the same regressions with y_0 from the stationary distribution, J(0) ~ N(0, -1/(2c)), c <= -1e-4 (CSTAT)
 const CASES = ("DK", "DU", "DT", "SK", "SU", "ST", "DG")                 # DG: GLS-detrended, trend, zero start (Section 6.2 of the paper)
-"""the method of `method = :auto` at the point x: the single integral at c0 = 0 (its fixed node layouts make it the faster
-one by 2-20x, zero or stationary start, any c) and with a fixed start g0 != 0 (the noncentral kernel, 2-6x faster than
-the double integral and without its limit c <= 2); with c0 != 0 and a zero start the double integral, except for
-c0 > 0 at x >= 0, where X(v) has no positive root, the single integral has no breakpoint and takes 0.2-5 ms in C and
-about 1 ms here against 1-60 ms for the double integral.  Elsewhere with c0 != 0 the double integral is the faster
-one at every c, measured point by point over c in [-5, 5], c0 in {-5, -1, 1, 3} and x in [-4, 32] in the three cases
-(by 2-10x in C; with c0 < 0 the single integral's saddle part costs up to 1 s at x ~ 8 with c0 = -1, and here its
-general kernel is 5-90x slower).  The tails below 1e-3 are recomputed by the double integral (ltratio_dist), except
-where autodouble excludes it: there the single integral serves everywhere."""
-automethod(model::Int, stat::Bool, c::Float64, c0::Float64, g0::Float64, x::Float64) =
+"""where the contour integral fails with a fixed start (cases DU, DT): c > 1 with c0 < 0 (the far upper tail) and, in case
+DU, c > 1.5 with c0 > 3; automethod takes the conditional integral there (ctr_fails in dfl_api.c, LTRATIO_METHOD)"""
+ctr_fails(model::Int, c::Float64, c0::Float64) = (c > 1 && c0 < 0) || (model == 2 && c > 1.5 && c0 > 3)
+"""the method of `method = :auto` at the point x: the fastest representation that one evaluation (verified = false) gives
+to well below 1e-5 (1e-8 on the grid of the rule), measured in November 2026 by warm timings of each representation over
+1155 points (the six cases with zero, fixed and stationary starts, c in {-100, -30, -10, -5, -2, 0, 2, 5}, c0 in {0, c, the
+opposite sign}, x = mean + sd {-4, -2, 0, 2, 4}) and scans of c0 of both signs far from the unit root.  With a fixed start
+the contour integral in cases DU, DT (7-15 ms on ten threads against 0.24-0.80 s for the conditional and 0.03-0.36 s for the
+line integral) and the line integral in case DK; at c0 = 0 the line integral (0.5-10 ms); with c0 != 0 the conditional integral (one path) where its one
+evaluation holds: c0 < 0 with a zero start (cases DU, DT; case DK for c <= -5) and a stationary start for -50 <= c < 0
+(case SK for c <= -0.5) and c0 > 0 with a zero start at x < 0 for c >= 0 (cases DU, DT), otherwise the line integral (a zero
+start with c0 > 0 elsewhere: at x >= 0 it has no breakpoint and is the faster one, and for c < 0 the one evaluation of the
+conditional integral is off by up to 1.5e-2 at x < 0, a fault the verified agreement rule only flags; case DK with c0 < 0 for c > -5, off by up
+to 1.2e-2 in the upper tail at c = 2; c < -100 with a zero start and c < -50 with a stationary start, autodouble).  With
+verified = true the rule of automethod_verified (the rule before), with the fallbacks and the recomputation of the tails of
+ltratio_dist.  With a fixed start in cases DU, DT and c0 < 0 above c = 1 the conditional integral (the contour integral fails
+in the far upper tail there), and in case DU with c0 > 3 above c = 1.5 (the contour integral fails outright at c = 2 for
+c0 >= 5 and g0 >= 1, 4e-8 off at c0 = 4.5, 4e-9 at c = 1.75, c0 = 20)."""
+function automethod(model::Int, stat::Bool, c::Float64, c0::Float64, g0::Float64, x::Float64)
+    # (cases DU, DT with c0 < 0 above c = 1: the contour integral fails in the far upper tail, by 2e-6 to 30 at mean + 6 sd at
+    # c = 2, which the verified pair flags; the conditional integral is clean there)
+    g0 != 0 && return (model == 2 || model == 3) && !stat ? (ctr_fails(model, c, c0) ? :double : :contour) : :single
+    (c0 == 0 || !autodouble(stat, c, c0, g0)) && return :single
+    stat && return (model == 1 && c > -0.5) ? :single : :double        # (case SK near c = 0: one path off by 3e-3 at c = -0.01, 2e-7 at -0.1)
+    (model == 1 && c > -5) && return :single
+    # (a zero start with c0 > 0: the line integral, except at x < 0 for c >= 0 in cases DU, DT, where the conditional
+    # integral is 5 to 60 times faster and good to 1e-11; below the unit root its one evaluation is off by up to 1.5e-2)
+    c0 > 0 && return (c >= 0 && x < 0) ? :double : :single
+    :double
+end
+"""the method of `method = :auto` with verified = true (the rule before the default became one evaluation, November 2026):
+with a fixed start g0 != 0 in cases DU, DT the contour integral; the single integral at c0 = 0 and with a fixed start in
+case DK; with c0 != 0 and a zero start the double integral, except for c0 > 0 at x >= 0, where X(v) has no positive root and
+the single integral has no breakpoint; the tails below 1e-3 recomputed by the double integral and its flagged points given
+the single integral's value (ltratio_dist), except where autodouble excludes the double integral"""
+automethod_verified(model::Int, stat::Bool, c::Float64, c0::Float64, g0::Float64, x::Float64) =
+    ((model == 2 || model == 3) && g0 != 0 && !stat) ? :contour :
     !autodouble(stat, c, c0, g0) ? :single :
     (model == 1 && c0 > 0 && g0 == 0 && abs(x + sqrt(2c0)) <= 1e-12 * max(1.0, abs(x))) ? :single :       # the infinite density of case DK: the single integral returns Inf there without a flag
     (c0 != 0 && g0 == 0 && !(c0 > 0 && x >= 0)) ? :double : :single
@@ -1911,7 +1938,7 @@ const STAT_MSG = "a stationary start (cases SK, SU, ST) requires c <= -1e-4: clo
 Validation of the arguments: the case ("DK", "DU", "DT", "SK", "SU", "ST"), the local-to-unity parameter c (finite, at
 least CMIN = -550; a stationary start requires c <= CSTAT = -1e-4), the local null value c0, the fixed start g0 (fixed-start cases only) and the method
 (:auto, the default: the faster representation at each x; :single, also accepted as :line; :double, also accepted as
-:conditional).
+:conditional; :contour, the contour integral, for a fixed start g0 != 0 in cases DU, DT only).
 """
 function ltratio_args(cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto)
     cas = uppercase(String(cas))
@@ -1924,8 +1951,9 @@ function ltratio_args(cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0
     isfinite(g0) || throw(ArgumentError("g0 must be a finite real scalar"))
     g0 != 0 && stat && throw(ArgumentError("g0 (a fixed start) applies to cases DK, DU, DT only"))
     method == :line && (method = :single); method == :conditional && (method = :double)   # the paper's names (as in the MATLAB programs)
-    method in (:auto, :single, :double) || throw(ArgumentError("method must be :auto, :single (:line) or :double (:conditional)"))
+    method in (:auto, :single, :double, :contour) || throw(ArgumentError("method must be :auto, :single (:line), :double (:conditional) or :contour"))
     model = cas == "DG" ? 4 : findfirst(==(cas[2]), "KUT")
+    method == :contour && !((model == 2 || model == 3) && g0 != 0 && !stat) && throw(ArgumentError(CONTOUR_MSG))
     if model == 4                                                     # the GLS-detrended trend case: the line integral only
         method == :double && throw(ArgumentError("case DG has the line integral representation only"))
         g0 != 0 && throw(ArgumentError("g0 (a fixed start) applies to cases DK, DU, DT only"))
@@ -1934,18 +1962,58 @@ function ltratio_args(cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0
     g0 != 0 && !fixed_ok(model, Float64(c), Float64(g0)) && throw(ArgumentError(FIXED_MSG))
     model, stat, Float64(c0), Float64(g0), method
 end
+const CONTOUR_MSG = "method :contour (the contour integral) applies to a fixed start g0 != 0 in cases DU, DT"
 
-function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, kw...)
+function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, verified::Bool = false, kw...)
     model, stat, c0, g0, method = ltratio_args(cas, c; c0, g0, method)
     start = stat ? :stationary : :zero
     xs = x isa Number ? [Float64(x)] : Float64.(vec(collect(x)))
     F = [isnan(xk) ? NaN : xk == Inf ? (kind == 2 ? 1.0 : 0.0) : xk == -Inf ? 0.0 : 0.0 for xk in xs]
     fin = findall(isfinite, xs)
-    dbl = [k for k in fin if method == :double || (method == :auto && automethod(model, stat, Float64(c), c0, g0, xs[k]) == :double)]
-    sgl = setdiff(fin, dbl)
+    mth(k) = method == :auto ? (verified ? automethod_verified : automethod)(model, stat, Float64(c), c0, g0, xs[k]) : method
+    ctr = [k for k in fin if mth(k) == :contour]
+    dbl = [k for k in fin if mth(k) == :double]
+    sgl = setdiff(fin, dbl, ctr)
     single(k) = kind == 2 ? cdf(xs[k], model; c = Float64(c), c0, g0, start, kw...) : density(xs[k], model; c = Float64(c), c0, g0, start, kw...)
+    if !verified
+        # the default: one evaluation by one method at each point (no second evaluation, no refinement driven by an
+        # estimate, no fallback, no recomputation); a warning where the parameters lie in a regime known to be brittle
+        brittle_warn(model, stat, Float64(c), c0, g0, method, kind, xs[fin])
+        if !isempty(ctr)
+            Fc, _ = tr_contour(xs[ctr], model, Float64(c); c0, g0, pdf = kind == 1, warn = false, verified = false)
+            for (j, k) in enumerate(ctr); F[k] = Fc[j]; end
+        end
+        if !isempty(dbl)
+            Fd, _ = tr_limdist(xs[dbl], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = false, verified = false, kw...)
+            for (j, k) in enumerate(dbl); F[k] = Fd[j]; end
+        end
+        for k in sgl; F[k] = single(k); end
+        kind == 1 && (F[F .< 0] .= 0.0)                               # a density below the error of the method
+        return x isa Number ? F[1] : reshape(F, size(x))
+    end
+    # verified = true: the error estimates, the status, the fallbacks and the recomputation of the tails (the behaviour
+    # before the default became one evaluation, November 2026)
+    if !isempty(ctr)
+        # the contour integral; with method = :auto a point at which it reports that its error estimate is not met gets
+        # the double integral's value, and where that is flagged too the single integral's
+        Fc, infoc = tr_contour(xs[ctr], model, Float64(c); c0, g0, pdf = kind == 1, warn = method == :contour, verified = true)
+        for (j, k) in enumerate(ctr); F[k] = Fc[j]; end
+        if method == :auto
+            fb = [ctr[j] for j in eachindex(ctr) if infoc.status[j] != 0]
+            if !isempty(fb)
+                Fd, infod = tr_limdist(xs[fb], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = false, verified = true, kw...)
+                for (j, k) in enumerate(fb); F[k] = infod.status[j] == 0 ? Fd[j] : single(k); end
+            end
+            # the tails, as for the single integral below: values below 1e-3 by the double integral
+            tl = [ctr[j] for j in eachindex(ctr) if infoc.status[j] == 0 && (kind == 1 ? abs(Fc[j]) : Fc[j]) < 1e-3]
+            if !isempty(tl)
+                Ft, infot = tr_limdist(xs[tl], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = false, verified = true, kw...)
+                for (j, k) in enumerate(tl); infot.status[j] == 0 && (F[k] = Ft[j]); end
+            end
+        end
+    end
     if !isempty(dbl)
-        Fd, info = tr_limdist(xs[dbl], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = method == :double, kw...)
+        Fd, info = tr_limdist(xs[dbl], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = method == :double, verified = true, kw...)
         for (j, k) in enumerate(dbl)
             # a point chosen by the rule at which the double integral reports that its error estimate is not met gets the
             # single integral's value (with method = :double the flagged value is returned, with a warning)
@@ -1959,7 +2027,7 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
     if method == :auto && autodouble(stat, Float64(c), c0, g0)
         tl = [k for k in sgl if (kind == 1 ? abs(F[k]) : F[k]) < 1e-3]
         if !isempty(tl)
-            Ft, info = tr_limdist(xs[tl], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = false, kw...)
+            Ft, info = tr_limdist(xs[tl], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = false, verified = true, kw...)
             for (j, k) in enumerate(tl); info.status[j] == 0 && (F[k] = Ft[j]); end   # (where the double integral flags the point, the single integral's value stays)
         end
     end
@@ -1967,19 +2035,79 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
     x isa Number ? F[1] : reshape(F, size(x))
 end
 
+"""the regimes in which the one-evaluation default (verified = false) is known to be brittle, decided from the parameters
+alone (no computed diagnostics): a warning, once per call, that names the regime and suggests verified = true"""
+function brittle_warn(model::Int, stat::Bool, c::Float64, c0::Float64, g0::Float64, method::Symbol, kind::Int, xs)
+    used = method == :auto ? Set(automethod(model, stat, c, c0, g0, x) for x in xs) : Set([method])
+    msg = brittle_msg(model, stat, c, c0, g0, used)
+    msg === nothing && return nothing
+    seen = BRITTLE_SEEN[]
+    seen === nothing ? (@warn msg) : push!(seen, msg)
+    nothing
+end
+# (ltratio_icdf, coef_cdf and coef_icdf evaluate the distribution many times: they collect the messages and warn once each)
+const BRITTLE_SEEN = Ref{Union{Nothing,Set{String}}}(nothing)
+"""f() with the warnings of brittle_warn collected and given once each at the end"""
+function brittle_once(f)
+    BRITTLE_SEEN[] === nothing || return f()                 # (nested: the outermost caller warns)
+    BRITTLE_SEEN[] = Set{String}()
+    r = try; f(); finally; msgs = BRITTLE_SEEN[]; BRITTLE_SEEN[] = nothing; foreach(m -> @warn(m), sort!(collect(msgs))); end
+    r
+end
+"""the message of brittle_warn for the methods used (a set of :single, :double, :contour), or nothing.  The boundaries lie
+where the one evaluation stops being good to about 1e-5 absolute, with a margin (November 2026): the contour integral with
+c0 > 0 below c = -15 (6e-6 at c = -27, c0 = 2.3, (c g0)^2/2 = 146); the conditional integral with a zero start and c0 > 0
+for c < 0 (1.5e-2 at c = -40, c0 = 2 in case DK, 2e-5 at c = -5, c0 = 0.5 in case DU), in case DK with c0 != 0 for c > -5
+(1.2e-2 at c = 2, c0 = -10), with a zero start below c = -100 (3e-3 at c = -480) and a stationary start below c = -50, in
+case SK for c > -0.5 (3e-3 at c = -0.01), and with a fixed start below c = -20 in case DK (4e-6 at c = -25, 3e-5 at
+c = -27.5, g0 = 2) and below c = -30 in cases DU, DT (1.4e-8 at c = -30, 1.2e-4 at c = -50)."""
+function brittle_msg(model::Int, stat::Bool, c::Float64, c0::Float64, g0::Float64, used)
+    cas = model == 4 ? "DG" : string(stat ? 'S' : 'D', "KUT"[model])
+    hint = "; verified = true checks each value"
+    if :contour in used && c0 > 0 && c < -15
+        return "$cas, fixed start, c0 > 0 far from the unit root (c < -15): the contour integral by one evaluation may be off by up to about 1e-5$hint"
+    end
+    if :contour in used && c > 1 && c0 < 0
+        return "$cas, fixed start, c0 < 0 at c > 1: the contour integral by one evaluation fails in the far upper tail$hint"
+    end
+    if :contour in used && model == 2 && c > 1.5 && c0 > 3
+        return "$cas, fixed start, c0 > 3 at c > 1.5: the contour integral by one evaluation fails (the automatic method takes the conditional integral there)$hint"
+    end
+    if :double in used
+        reg = g0 != 0 ? ((model == 1 && c < -20) ? "fixed start far from the unit root (c < -20)" :
+                         (model != 1 && c < -30) ? "fixed start far from the unit root (c < -30)" : nothing) :
+              (!stat && c0 > 0 && c < 0) ? "c0 > 0 below the unit root" :
+              (!stat && model == 1 && c0 != 0 && c > -5) ? "case DK with c0 != 0 near or above the unit root (c > -5)" :
+              (!stat && c < -100) ? "c < -100" :
+              (stat && c < -50) ? "a stationary start with c < -50" :
+              (stat && model == 1 && c > -0.5) ? "case SK near the unit root (c > -0.5)" : nothing
+        reg === nothing || return "$cas, $reg: the conditional integral by one evaluation may be off by more than 1e-5$hint"
+    end
+    nothing
+end
+
 """
-    ltratio_cdf(x, cas, c = 0; c0 = 0, g0 = 0, method = :auto)
+    ltratio_cdf(x, cas, c = 0; c0 = 0, g0 = 0, method = :auto, verified = false)
 
 The limit as n -> inf of P[t <= x] for the least squares t-ratio t of the hypothesis phi = 1 + c0/n under phi = 1 + c/n,
-case `cas` ("DK", "DU", "DT": fixed start g0, default 0; "SK", "SU", "ST": stationary start, c <= -1e-4 (CSTAT); "DG": the GLS-detrended
-trend case of Elliott, Rothenberg and Stock, cbar = -13.5, zero start, line integral only, so that :auto cannot recompute its
-tails by the double integral and far in the tails the values carry the line integral's absolute error).  x may be an array.
-Non-finite x: 0 at -Inf, 1 at Inf, NaN at NaN.  method: :auto (the faster of the two representations at each x, see
-`automethod`; the values of the single integral below 1e-3 are recomputed by the double integral, and a point at which
-the double integral reports that its error estimate is not met gets the single integral's value; with a stationary start
-at c < -50, and with c0 != 0 and a zero start at c < -100, the single integral throughout, see `autodouble`), :single (the single
-integral of Theorem 2; with a fixed start the noncentral kernel) or :double (the double integral of Theorem S1 of the Supplementary Material, whose
-flagged values are returned with a warning).  Further keywords go to the engine (tau, hu, N, pfac, ...).
+case `cas` ("DK", "DU", "DT": fixed start g0, default 0; "SK", "SU", "ST": stationary start, c <= -1e-4 (CSTAT); "DG": the
+GLS-detrended trend case of Elliott, Rothenberg and Stock, cbar = -13.5, zero start, line integral only).  x may be an
+array.  Non-finite x: 0 at -Inf, 1 at Inf, NaN at NaN.  method: :auto (the fastest representation that one evaluation
+gives to well below 1e-5 at each point, see `automethod`), :single (the line integral of Theorem 2; with a fixed start
+the noncentral kernel, a triple integral in cases DU, DT), :double (the conditional integral of Theorem S1 of the
+Supplementary Material) or :contour (the contour integral representation, `tr_contour`: Theorem 1 with the integral over
+v in closed form and the paths in s and t deformed, a double integral with an explicit integrand, for a fixed start
+g0 != 0 in cases DU, DT only).
+
+verified = false (the default): one evaluation by one method at each point, no second evaluation, no refinement driven
+by an estimate, no fallback and no recomputation; a warning, once per call, where the parameters lie in a regime in which
+one evaluation is known to be brittle (`brittle_msg`).  verified = true: the conditional integral with the agreement of
+two paths and the refinement of their rules, the contour integral as two structurally different evaluations refined
+until they agree, error estimates and a status (their flagged values come with a warning with :double and :contour),
+and with :auto the rule of `automethod_verified`, the flagged values given another representation's and the values
+below 1e-3 recomputed by the conditional integral, at 1 to 4 times the cost of the default (about 1.8 with the contour
+integral; more in the tails below 1e-3, which it recomputes).  Further keywords go to the engine
+(tau, hu, N, pfac, ...).
 
     ltratio_cdf(-2.86, "DU")                        # P[tau_mu <= -2.86] at the unit root
     ltratio_cdf(-1.94087, "DK", -5)                 # power of the 5% test of tau at c = -5
@@ -2005,6 +2133,9 @@ as the derivative, safeguarded by bisection, started at the normal approximation
 """
 function ltratio_icdf(p, cas::AbstractString, c::Real = 0; tol::Real = 1e-10, c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, kw...)
     model, = ltratio_args(cas, c; c0, g0, method)
+    brittle_once(() -> ltratio_icdf_(p, cas, c, model; tol, c0, g0, method, kw...))   # (a brittle regime warned once, not at every step)
+end
+function ltratio_icdf_(p, cas::AbstractString, c::Real, model::Int; tol::Real, c0::Real, g0::Real, method::Symbol, kw...)
     if model == 4                                                     # (no moments for case DG: a rough start, the search is safeguarded)
         mu = -1.9 + 0.1min(c, 0.0); sd = 0.8
     else
@@ -3311,7 +3442,12 @@ consistent with it, the discrepancy within ten times the sum of the two estimate
 at all, is no evidence against a resolved one); otherwise the inconsistent paths and the best one are recomputed with the node
 count doubled, up to three more times, until two agree or all are consistent, and if they still disagree the best
 value is returned with the smallest inconsistent discrepancy as its error, which the outer rule then reports."""
-function agreepaths(evalpath, np::Int, NN::Int, tol::Float64)
+# the path of the one-evaluation conditional integral (verified = false): the second (the vertical line pathT), which
+# the oscillating tails that alias on the parabola do not fool (case DK, c = 0..5, c0 != 0: the parabola alone was off by
+# up to 1e304, the line by at most 4.5e-3 at c = 5 and 1e-5 for c <= 2, 19 of 798 values above 1e-8, November 2026)
+const ONEPATH = Ref(2)
+function agreepaths(evalpath, np::Int, NN::Int, tol::Float64; verified::Bool = true)
+    verified || return evalpath(min(ONEPATH[], np), NN)              # (one evaluation: one path once)
     I = fill(NaN, np); E = fill(Inf, np); N = fill(NN, np)
     scale(p, q) = max(1.0, abs(I[p]), abs(I[q]))
     agree(p, q) = isfinite(I[p]) && isfinite(I[q]) && abs(I[p] - I[q]) <= 2tol * scale(p, q)
@@ -3361,7 +3497,7 @@ function dksaddles(b::Float64, a::Float64, c::Float64, pdfm::Bool, prev)
 end
 """H = E[delta(V - b) 1{R <= a}] (pdf: dH/da) for the pair (b, a), case DK with a zero start: three paths, each with a
 nested-rule error estimate, refined by doubling; the best is kept."""
-function dkpair(b::Float64, a::Float64, c::Float64, pdfm::Bool, NN::Int; sad = nothing)
+function dkpair(b::Float64, a::Float64, c::Float64, pdfm::Bool, NN::Int; sad = nothing, verified::Bool = true)
     a > 0 || return 0.0, 0.0
     v = a - c * b; tol = 1e-13
     k0 = pdfm ? 3 : 0
@@ -3383,7 +3519,7 @@ function dkpair(b::Float64, a::Float64, c::Float64, pdfm::Bool, NN::Int; sad = n
         end
         I, E
     end
-    agreepaths(evalpath, pdfm ? 2 : 3, NN, tol)
+    agreepaths(evalpath, pdfm ? 2 : 3, NN, tol; verified)
 end
 
 # ---------- cases DU, DT, zero start: the closed form of E[e^{sV} delta(R - r)] ----------
@@ -3491,7 +3627,7 @@ function iisaddle(b::Float64, r::Float64, c::Float64, model::Int, prev)
 end
 """cdf: G(r,b) = (1/2 pi i) int J(s;r) e^{-s b}/s ds (Re s > 0), pdf: h(r,b) = (1/2 pi i) int J(s;r) e^{-s b} ds, for the
 pair (b, r), cases DU and DT with a zero start"""
-function iipair(b::Float64, r::Float64, c::Float64, model::Int, pdfm::Bool, NN::Int; sad = nothing)
+function iipair(b::Float64, r::Float64, c::Float64, model::Int, pdfm::Bool, NN::Int; sad = nothing, verified::Bool = true)
     tol = 1e-13
     r = rfloor(r, c)                                                # (log singularity of g at r = 0)
     lk(S) = iilog(S, b, c, model, r)
@@ -3519,7 +3655,7 @@ function iipair(b::Float64, r::Float64, c::Float64, model::Int, pdfm::Bool, NN::
         end
         I, E
     end
-    agreepaths(evalpath, 2, NN, tol)
+    agreepaths(evalpath, 2, NN, tol; verified)
 end
 """P[k1 Z1^2 + k2 Z2^2 <= a], k1 > 0 > k2 real: 2 int_{l0}^inf phi(l; s2) erf(sqrt((2a + l^2)/(2 s1))) dl"""
 function Pk0(k1::Float64, k2::Float64, a::Float64)
@@ -3666,8 +3802,11 @@ dzlo(model::Int, c::Float64, EB::Float64, bmin::Float64, blo::Float64) =
 const DZDEP = 3.0
 """cases DK, DU, DT with a zero start by the double integral; returns (F, info)"""
 function double_zero(x::Vector{Float64}, model::Int, c::Float64, c0::Float64, pdfm::Bool; M::Int = model == 1 ? 32 : 64, plen::Float64 = 2.0,
-                     Nv::Int = 96, otol::Float64 = 1e-12, maxlev::Int = 12, stepw::Float64 = 0.1, errtol::Float64 = 1e-10, blo::Float64 = 8.0, bhi::Float64 = 6.0, bmin::Float64 = 3e-3)
+                     Nv::Int = 96, otol::Float64 = 1e-12, maxlev::Int = 12, stepw::Float64 = 0.1, errtol::Float64 = 1e-10, blo::Float64 = 8.0, bhi::Float64 = 6.0, bmin::Float64 = 3e-3,
+                     verified::Bool = true, maxlev1::Int = 12)
     t0 = time()
+    verified || (maxlev = min(maxlev, maxlev1))       # (one evaluation keeps the adaptive outer rule: without its bisection the
+                                                      # values far from the unit root were off by up to 1e-2; maxlev1 = 0 drops it)
     EB = EVdk(c)
     lo = dzlo(model, c, EB, bmin, blo); hi = log(EB) + bhi
     OR = outer_rules(M)
@@ -3700,10 +3839,10 @@ function double_zero(x::Vector{Float64}, model::Int, c::Float64, c0::Float64, pd
         tmap!(j -> begin
             b = B[j]; xx = x[IX[j]]; a = 0.5 + xx * sqrt(b) + c0 * b
             if model == 1
-                h, e = dkpair(b, a, c, pdfm, Nv; sad = sads[j])
+                h, e = dkpair(b, a, c, pdfm, Nv; sad = sads[j], verified)
                 pdfm && (h *= sqrt(b); e *= sqrt(b))
             else
-                h, e = iipair(b, a, c, model, pdfm, Nv; sad = sads[j])
+                h, e = iipair(b, a, c, model, pdfm, Nv; sad = sads[j], verified)
                 fac = pdfm ? sqrt(b) : xx / (2sqrt(b)) + c0
                 h *= fac; e *= abs(fac)
             end
@@ -3822,8 +3961,9 @@ end
 double integral; returns (F, info)"""
 function double_start(x::Vector{Float64}, model::Int, c::Float64, c0::Float64, g0::Float64, stat::Bool, pdfm::Bool;
                       M::Int = 64, Nv::Int = 96, Nl::Int = 96, plen::Float64 = 2.0, otol::Float64 = 1e-12, maxlev::Int = 12, errtol::Float64 = 1e-10,
-                      blo::Float64 = 8.0, bhi::Float64 = 6.0, bmin::Float64 = 3e-3, mumin::Float64 = 4.5, tdec::Float64 = 41.5)
+                      blo::Float64 = 8.0, bhi::Float64 = 6.0, bmin::Float64 = 3e-3, mumin::Float64 = 4.5, tdec::Float64 = 41.5, verified::Bool = true, maxlev1::Int = 12)
     t0 = time()
+    verified || (maxlev = min(maxlev, maxlev1))       # (one evaluation keeps the adaptive outer rule; maxlev1 = 0 drops it)
     s02 = stat ? -1 / (2c) : 0.0
     stat && (g0 = 0.0)
     st = stat && model == 1                                           # case SK (closed form)
@@ -4074,7 +4214,7 @@ function double_start(x::Vector{Float64}, model::Int, c::Float64, c0::Float64, g
             I = zeros(nb); Ih = zeros(nb)
             for j in 1:nb; I[j], Ih[j] = pathint(j, Nv); DBG[] && println("  I = ", I[j], " Ih = ", Ih[j]); end
             sc = maximum(abs, I) + floatmin(); tabs = 1e-11 / brng
-            for rf in 1:2
+            for rf in 1:(verified ? 2 : 0)
                 bad = [j for j in 1:nb if abs(I[j] - Ih[j]) > 1e-9sc && abs(I[j] - Ih[j]) > tabs]
                 isempty(bad) && break
                 for j in bad; I[j], Ih[j] = pathint(j, Nv * 2^rf); end
@@ -4109,27 +4249,630 @@ function double_start(x::Vector{Float64}, model::Int, c::Float64, c0::Float64, g
 end
 
 """
-    tr_limdist(x, model, c; c0 = 0.0, g0 = 0.0, start = :zero, pdf = false, opts...) -> (F, info)
+    tr_limdist(x, model, c; c0 = 0.0, g0 = 0.0, start = :zero, pdf = false, verified = false, opts...) -> (F, info)
 
 The limiting distribution function (or density, pdf = true) by the double integral of Theorem S1 of the Supplementary Material at the points x (a
-vector), with a fixed start g0 or a stationary start.  info.status is 0 where the computation is clean, otherwise 1
-(sign violations on the path) plus 2 (unresolved inner integrals, or an error estimate above errtol); a nonzero
-status gives a warning.  Options: M (outer nodes per piece), Nv (nodes on the contour), Nl (nodes of the integral over l
+vector), with a fixed start g0 or a stationary start.  verified = false (the default): one evaluation, one path per inner
+inversion (the vertical line, ONEPATH) at the first rule and no recomputation of unresolved columns; the adaptive outer
+rule in log b stays.  verified = true: the agreement of two paths (three for the distribution function in case DK), the
+doubling of their rules and the recomputation, on which info.status rests: 0 where the
+computation is clean, otherwise 1 (sign violations on the path) plus 2 (unresolved inner integrals, or an error estimate
+above errtol); a nonzero status then gives a warning.  Options: M (outer nodes per piece), Nv (nodes on the contour), Nl (nodes of the integral over l
 for the noncentral probability), plen, otol, maxlev, stepw, errtol, blo, bhi, bmin, mumin, tdec.
 """
-function tr_limdist(x::Vector{Float64}, model::Int, c::Float64; c0::Float64 = 0.0, g0::Float64 = 0.0, start::Symbol = :zero, pdf::Bool = false, warn::Bool = true, kw...)
+function tr_limdist(x::Vector{Float64}, model::Int, c::Float64; c0::Float64 = 0.0, g0::Float64 = 0.0, start::Symbol = :zero, pdf::Bool = false, warn::Bool = true,
+                    verified::Bool = false, kw...)
     stat = startflag(start, c)
     stat && g0 != 0 && error("a fixed start g0 applies to the zero-start cases only")
     if !stat && g0 == 0
-        F, info = double_zero(x, model, c, c0, pdf; kw...)
+        F, info = double_zero(x, model, c, c0, pdf; verified, kw...)
     else
-        F, info = double_start(x, model, c, c0, g0, stat, pdf; kw...)
+        F, info = double_start(x, model, c, c0, g0, stat, pdf; verified, kw...)
     end
-    if warn && any(!=(0), info.status)
+    if warn && verified && any(!=(0), info.status)
         iw = findfirst(!=(0), info.status)
         @warn "tr_limdist: $(count(!=(0), info.status)) of $(length(x)) points with nonzero status (first: x = $(x[iw]), status $(info.status[iw]), error estimate $(info.err[iw])); the result may be inaccurate there"
     end
     F, info
+end
+
+# =====================================================================================================================
+# The contour integral representation: a fixed start g0 != 0 in cases DU, DT as a double integral with an explicit
+# integrand (November 2026).  Theorem 1 of the paper, with the v-integral in closed form and, for each t, the line in s
+# replaced by two U-shaped paths around the roots of D(., t); the line in t replaced by a hyperbola opening to the right.
+#
+#   f(x) = (1/2 pi i) int_C I_f(t) dt,   F(x) = (1/2 pi i) int_C I_F(t) dt/t,
+#   I_f(t) = (1/2 pi i) [ int_{G+} Mt(s,t) W+_f(s,t) ds + int_{G-} Mt(s,t) W-_f(s,t) ds ]                       (= P Phi^f_x)
+#   I_F(t) = (1/2 pi i) [ int_{G+} Mt (W+_F + (1 - e^{-s/2})/s) ds + int_{G-} Mt (W-_F - 1/s) ds ]             (= P Phi_x)
+#
+# Mt(s,t) = e^{s/2} M_{g0}(s,t) = P(t) [(s1 - s)(s - s2)]^{-1/2} exp{g0^2 Q(s,t)}, s1 the root of D(., t) with Re s1 > 0 at
+# t = tau (continued along C), s2 the other, principal branches of both square roots (their cuts run horizontally from s1
+# to +inf and from s2 to -inf), Q(s,t) = KQ (t + s^2/2 + c s)/((s1 - s)(s - s2)), KQ = c^{2d} e^c g(z) P^2 (d = 1 in case
+# DU, 2 in case DT; Proposition 2).  The axis {v > 0} is split at the positive roots of X(v) = c0 v^2 + x v + 1/2 into V+
+# (X > 0) and V- (X < 0), and
+#   W+-_f = int_{V+-} 2 v^2 e^{-t v^2 - s X(v)} dv,   W+-_F = int_{V+-} X'(v) e^{-t v^2 - s X(v)} dv,
+# incomplete Gaussian integrals in closed form (ctr_h, ctr_moments).  The term Psi_t(1/2) = int_{-inf}^{1/2} phi_t of
+# Theorem 2 is split at X = 0: the kernel of (0, 1/2), (1 - e^{-s/2})/s, is entire and rides on G+, the kernel of
+# (-inf, 0), -1/s, needs Re s < 0 and rides on G-.  On G+ the factor e^{-s X(v)}, X >= 0, is bounded, on G- likewise with
+# X <= 0, so the v-integrals never enter their Gaussian regime except on the short vertical segments; this is what defeats
+# the plain vertical lines of Theorem 1.  With a fixed start the roots are essential singularities of Mt (Q has simple
+# poles there), so the paths cannot be collapsed onto the cuts; they pass the roots at a distance chosen by ctr_place.
+#
+# At each point t the pieces whose Gaussian factor is below e^{-50} from their start, Re(t) a^2 > 50, are dropped
+# (ctr_active); without a minus piece the density has no path G-.
+#
+# The paths (ctr_upath).  G+ is the U-shape around s1 opening to the right: the vertical segment Re s = sig, |Im s - Im
+# s1| <= d, d = Re s1 - sig, and the two horizontal rays from its corners to +inf; G- is the mirror image around s2,
+# opening to the left (d = sig - Re s2).  The segment is split at the points level with the focus points (the origin,
+# where the kernels and 1/s vary on the scale |sig|, the other root, and the branch point s = -t/c0 of a semi-infinite
+# v-kernel when c0 != 0) and graded toward each of them by Gauss-Legendre panels of n nodes whose lengths grow by the factor 3 from
+# the horizontal distance of the focus point (at least 1e-6 d; a focus point whose level lies within its own scale of the
+# level of one with a smaller scale is dropped); between two focus points the sub-interval is split at
+# its midpoint.  On each ray r = rho u/(1 - u), u in (0, 1), Gauss-Legendre with n nodes; rho = max(d, rs), rs the slowest
+# decay scale of the v-kernel along the ray, the largest over the pieces of 1/min(max|X|, |X(v0)|) (v0 = -x/(2 c0) the
+# vertex of the parabola when it lies inside the piece: near a tangency X stays close to zero there; semi-infinite
+# pieces cut where e^{-Re(t) v^2} = e^{-18}) and of |c0|/X'(v_j)^2 at an end v_j of a piece that is a root of X (the
+# kernel decays like s^(-1/2) up to there), and for the distribution function on G+ at least 2 (the kernel
+# (1 - e^{-s/2})/s); when rho > 2d the ray has two scales: Gauss-Legendre panels from the corner, of first length d and
+# growing by 3, up to r = rho, and the map r = rho + rho u/(1 - u) beyond.
+#
+# The placement (ctr_place).  The abscissa sig of each U-shape minimizes over the admissible interval (between the
+# roots, 1e-3 |Re s1 - Re s2| away from them, on the correct side of -t/c0 for a semi-infinite kernel, and sig < 0 for G-
+# of the distribution function) the objective
+#   B(sig) = max over 8 probe points p of the U [ log|Mt(p)| + kb(Re p) ] + sum over focus points f of 0.5 log(1 + d/dist(f)),
+# kb(sig) = max over v in the pieces of Re(-t v^2) - sig X(v) (the exponent of the v-kernel; for the distribution function
+# at least max(0, -sig/2) on G+ and 0 on G-, the kernels of Psi_t(1/2)), the probes the centre and
+# the two corners of the segment, the points of the rays beside the root and one d further, and the point of the segment
+# level with the other root; the minimization scans d on a geometric grid of 24 points from the smallest to the largest
+# admissible distance (the objective is not unimodal) and refines between the neighbours of the best one by 12 steps of
+# golden section.  B is a bound of the largest term of the quadrature (the cancellation) plus the cost of grading.
+#
+# The outer contour (ctr_value).  C: t(u) = tau + a (cosh u - 1) + i b sinh u, u in R, conjugate symmetric, vertical at
+# t = tau (the line of Theorem 2), asymptotically at the angle phi = phi(c) (45 degrees for c >= -10, rising linearly to 70
+# degrees at c = -40, 70 below), a = b cot phi, b = 0.9 min(tau, t_* - tau)/sin(y), y = min(0.5, 0.9 (pi/2 - phi)) the
+# half-width of the strip of analyticity in u that the step is designed for; along C the edge factors e^{-t v_j^2} of
+# the roots v_j of X decay instead of oscillating.  F = (h/pi) sum' Im{I_F(t_k) t'(u_k)/t_k}, likewise f, the trapezoidal
+# rule in u >= 0 with h = 2 pi y/(37 + 37 y tan phi) (the error e^{-2 pi y/h} below e^{-37} also against the phase of the
+# edge factors, 37 tan phi per unit of u where they have fallen to e^{-37}), up to |t - tau| = 1e5 or until the terms
+# stay below 1e-18.  The branches of P(t) and the labels of the roots are continued along C on 8 points per step.
+#
+# Accuracy and the error estimate: two structurally different evaluations, A as above and B with the asymptotic angle of
+# the hyperbola larger by 7.5 degrees (so that every point t differs) and the weight 1 of the grading cost in the
+# placement (so that the U-shapes and their panels differ), A with n = 64 nodes per panel and per ray and B with 48; the
+# error estimate is |A - B| plus 10 eps times the sums of the largest terms (the cancellation); while it exceeds 1e-10 the
+# next level is added to both (A 96, 128, 192; B 64, 96, 128) and the estimate formed anew; the value is A at the last
+# level, and the status is 2 where the estimate still exceeds 1e-10 or the value is not finite.  Node refinement on fixed
+# paths would not expose a structurally wrong value (a path in the wrong place reproduces its error under refinement),
+# and two evaluations on different paths with the same rule can share an under-resolution; the difference changes both.
+# =====================================================================================================================
+
+const CTR_LEVELS = (64, 96, 128, 192)   # nodes per panel and per ray of evaluation A: the levels of the refinement
+const CTR_LEVELS_B = (48, 64, 96, 128)  # ... of evaluation B (one level lower, so that the difference also changes the rule)
+const CTR_DPHI = pi / 24          # evaluation B: the asymptotic angle of its hyperbola exceeds that of A by 7.5 degrees
+const CTR_PEN_B = 1.0             # ... and its placement weighs the grading cost by 1 (A: CTR_PEN)
+const CTR_NGRID = 24              # the grid of the placement scan
+const CTR_MARG = 1e-3             # the admissible abscissas keep this fraction of |Re s1 - Re s2| from the roots
+const CTR_PEN = 0.5               # the weight of the grading cost in the placement objective
+const CTR_RMAX = 1e5              # the outer contour ends at |t - tau| = CTR_RMAX
+const CTR_SUB = 8                 # points per outer step for the continuation of the branches
+const CTR_ERRTOL = 1e-10
+
+"""h_k(z) = int_0^inf u^k exp(-u^2 - 2 z u) du, k = 0, 1, 2, for Re z >= 0: for |z| < 6, h_0 = (sqrt(pi)/2) erfcx(z) and
+the recurrence 2 h_k + 2 z h_{k-1} = (k - 1) h_{k-2} (+1 for k = 1) forward (it loses about 4|z|^4 times the relative
+accuracy of erfcx in h_2, at most ~1e-11); for |z| >= 6 the asymptotic series sum_j (-1)^j (k + 2j)!/(j! (2z)^{k+2j+1}) to
+its smallest term (error ~|z|^5 e^{-|z|^2}, below 1e-11 also near the imaginary axis, where erfcx carries the Stokes
+term).  A continued fraction for h_k/h_{k-1} does not converge near the imaginary axis."""
+@inline function ctr_h(z::ComplexF64)
+    if abs(z) < 6
+        h0 = (sqrt(pi) / 2) * erfcx(z)
+        h1 = (1 - 2z * h0) / 2
+        return h0, h1, (h0 - 2z * h1) / 2
+    end
+    w = 1 / (2z); w2 = w * w
+    a0 = w; a1 = w2; a2 = 2 * w2 * w
+    s0 = a0; s1 = a1; s2 = a2
+    j = 0
+    while true
+        r0 = -(2j + 1) * (2j + 2) / (j + 1) * w2
+        r1 = -(2j + 2) * (2j + 3) / (j + 1) * w2
+        r2 = -(2j + 3) * (2j + 4) / (j + 1) * w2
+        !(abs(r2) < 1) && break                         # (also at z = NaN, which would loop forever)
+        a0 *= r0; a1 *= r1; a2 *= r2
+        s0 += a0; s1 += a1; s2 += a2
+        j += 1
+        (abs(a0) < 1e-17 * abs(s0) && abs(a2) < 1e-17 * abs(s2)) && break
+    end
+    s0, s1, s2
+end
+"""the remainders R_m(a) = int_a^inf v^m e^{-t v^2 - s X(v)} dv less the full-line Gaussian when it belongs to a, m = 0, 1,
+2, and the flag n_a (1: the full-line term, the saddle, lies beyond a in the Stokes sense, Re z_a < 0): z_a = sa a +
+beta/(2 sa), sa = sqrt(alpha), alpha = t + c0 s, beta = x s, Ea = e^{-t a^2 - s X(a)}; for Re z_a < 0, h_k(z) = G_k(z) -
+(-1)^k h_k(-z), G_k the full-line moments.  Each remainder is of the size of the integrand at a."""
+@inline function ctr_rend(a::Float64, sa::ComplexF64, beta::ComplexF64, Ea::ComplexF64)
+    z = sa * a + beta / (2sa)
+    if real(z) >= 0
+        n = 0; g0, g1, g2 = ctr_h(z)
+    else
+        n = 1; h0, h1, h2 = ctr_h(-z); g0 = -h0; g1 = h1; g2 = -h2
+    end
+    i1 = 1 / sa; i2 = i1 * i1; i3 = i2 * i1
+    n, Ea * i1 * g0, Ea * (a * i1 * g0 + i2 * g1), Ea * (a * a * i1 * g0 + 2a * i2 * g1 + i3 * g2)
+end
+"""int over the pieces (a, b) (b may be Inf) of v^m e^{-t v^2 - s X(v)} dv, m = 0, 1, 2, X(v) = c0 v^2 + q v + 1/2: the
+endpoint remainders, and the full-line Gaussian sqrt(pi/alpha) e^{beta^2/(4 alpha) - s/2} {1, -beta/(2 alpha), beta^2/(4
+alpha^2) + 1/(2 alpha)} as often as the flags at the lower ends exceed those at the upper ends (never as a difference of
+two large terms).  Valid for any alpha with a finite piece; a semi-infinite one needs Re alpha > 0."""
+function ctr_moments(t::ComplexF64, s::ComplexF64, c0::Float64, q::Float64, pcs)
+    alpha = t + c0 * s; beta = q * s; sa = sqrt(alpha)
+    M0 = zero(ComplexF64); M1 = zero(ComplexF64); M2 = zero(ComplexF64); nf = 0
+    @inbounds for (a, b) in pcs
+        na, R0, R1, R2 = ctr_rend(a, sa, beta, exp(-t * a * a - s * (c0 * a * a + q * a + 0.5)))
+        M0 += R0; M1 += R1; M2 += R2; nf += na
+        if isfinite(b)
+            nb, S0, S1, S2 = ctr_rend(b, sa, beta, exp(-t * b * b - s * (c0 * b * b + q * b + 0.5)))
+            M0 -= S0; M1 -= S1; M2 -= S2; nf -= nb
+        end
+    end
+    if nf != 0
+        G0 = sqrt(pi) / sa * exp(beta * beta / (4alpha) - s / 2); b2 = beta / (2alpha)
+        M0 += nf * G0; M1 -= nf * b2 * G0; M2 += nf * (b2 * b2 + 1 / (2alpha)) * G0
+    end
+    M0, M1, M2
+end
+"""the v-kernel of the density (kind 1, 2 v^2) or the distribution function (kind 2, X'(v) = q + 2 c0 v)"""
+@inline function ctr_kernel(kind::Int, t::ComplexF64, s::ComplexF64, c0::Float64, q::Float64, pcs)
+    isempty(pcs) && return zero(ComplexF64)
+    M0, M1, M2 = ctr_moments(t, s, c0, q, pcs)
+    kind == 1 ? 2M2 : q * M0 + 2c0 * M1
+end
+"""the pieces of {v > 0} with X(v) = c0 v^2 + q v + 1/2 > 0 (plus) and < 0 (minus), split at the positive roots of X (a
+double root, x = -sqrt(2 c0), is no split: X >= 0 touches zero there)"""
+function ctr_pieces(q::Float64, c0::Float64)
+    if c0 == 0
+        r = q < 0 ? [-0.5 / q] : Float64[]
+    else
+        dsc = q * q - 2c0
+        r = dsc <= 0 ? Float64[] : sort([x for x in ((-q - sqrt(dsc)) / (2c0), (-q + sqrt(dsc)) / (2c0)) if x > 0])
+    end
+    bk = [0.0; r; Inf]
+    plus = Tuple{Float64,Float64}[]; minus = Tuple{Float64,Float64}[]
+    for j in 1:length(bk)-1
+        isodd(j) ? push!(plus, (bk[j], bk[j+1])) : push!(minus, (bk[j], bk[j+1]))
+    end
+    Tuple(plus), Tuple(minus)
+end
+
+"""the pieces that are not negligible at a point t of the outer contour: a piece (a, b) whose Gaussian factor is below
+e^{-50} from its start, Re(t) a^2 > 50, contributes less than e^{-50} on the paths (where |e^{-s X}| <= 1) and is dropped
+(far out, at x -> 0- with c0 = 0, the root of X runs off to 1/(2|x|) and the kernel of its piece vanishes, which would
+leave the placement without a measure of the size of Mt)"""
+ctr_active(pcs, tr::Float64) = Tuple(p for p in pcs if tr * p[1] * p[1] <= 50)
+
+"""the data of a point t of the outer contour: the roots (s1 the one that is Re > 0 at tau, s2 the other; case DK has s1
+only, r1 = true), P(t), KQ = c^{2d} e^c g(z) P^2 (cases DU, DT) and, in case DK, K1 = t/s1, K2 = 1/(2 s1 S^2) with
+S = e^{-c}/P^2 = sinh(th)/th (Proposition 2: g0^2 Q = g0^2 (K1 + K2 s/(s1 - s)))"""
+struct CtrT
+    t::ComplexF64; s1::ComplexF64; s2::ComplexF64; P::ComplexF64; KQ::ComplexF64; K1::ComplexF64; K2::ComplexF64; r1::Bool
+end
+"""log Mt(s,t) - log P: -(log(s1 - s) + log(s - s2))/2 + g0^2 Q(s,t) in cases DU, DT, -log(s1 - s)/2 + g0^2 (K1 + K2 s/(s1 - s))
+in case DK (principal logarithms)"""
+@inline function ctr_logM(d::CtrT, s::ComplexF64, g0::Float64, c::Float64)
+    a = d.s1 - s
+    d.r1 && return -log(a) / 2 + g0 * g0 * (d.K1 + d.K2 * s / a)
+    b = s - d.s2
+    -(log(a) + log(b)) / 2 + g0 * g0 * d.KQ * (d.t + s * s / 2 + c * s) / (a * b)
+end
+"""max over v in the pieces of Re(-t v^2) - sig X(v): +Inf when a semi-infinite piece has a growing Gaussian"""
+function ctr_kbound(tr::Float64, sig::Float64, c0::Float64, q::Float64, pcs)
+    m = -Inf
+    for (a, b) in pcs
+        A = tr + sig * c0
+        h(v) = -A * v * v - sig * q * v - sig / 2
+        if A > 0
+            m = max(m, h(clamp(-sig * q / (2A), a, b)))
+        else
+            isfinite(b) || return Inf
+            m = max(m, h(a), h(b))
+        end
+    end
+    isempty(pcs) ? 0.0 : m
+end
+"""the slowest decay scale along the rays of the v-kernel of the pieces: for each piece 1/min(max|X|, |X(v0)|), v0 = -q/(2 c0)
+the vertex of the parabola when it lies inside the piece (near a tangency, x ~ -sqrt(2 c0), X stays close to zero there
+and e^{-s X} decays slowly), and |c0|/X'(v_j)^2 at an end that is a root v_j of X (the kernel decays like s^(-1/2) up to
+there; without it the pieces beside a near-tangency, where the vertex is not, were under-resolved alike in both
+evaluations: up to 2e-9 off with estimates of 3e-11, November 2026); semi-infinite pieces cut where e^{-Re(t) v^2} =
+e^{-18}; 0 without pieces"""
+function ctr_xscale(tr::Float64, c0::Float64, q::Float64, pcs)
+    isempty(pcs) && return 0.0
+    sc = 0.0
+    for (a, b) in pcs
+        bb = isfinite(b) ? b : a + 6 / sqrt(tr)
+        m = 0.0
+        for k in 0:32
+            v = a + (bb - a) * k / 32
+            m = max(m, abs(c0 * v * v + q * v + 0.5))
+        end
+        sp = 0.0
+        if c0 != 0
+            v0 = -q / (2c0)
+            a < v0 < b && (m = min(m, abs(c0 * v0 * v0 + q * v0 + 0.5)))
+            # at an end that is a root v_j of X the kernel decays like s^(-1/2) (the Gaussian width of c0 (v - v_j)^2) up
+            # to |s| ~ |c0|/X'(v_j)^2 before the slope takes over: near a tangency of X (two close roots) on the pieces
+            # beside it as well as between them, where the vertex is not inside the piece
+            for e in (a, b)
+                (e > 0 && isfinite(e)) || continue
+                sp = max(sp, abs(c0) / max((2c0 * e + q)^2, 1e-12))
+            end
+        end
+        sc = max(sc, 1 / max(m, 1e-12), sp)
+    end
+    sc
+end
+"""the largest of log|Mt| + kb(Re s) + extra(s) over the 8 probe points of the U-shape around sk at sig (so the other root)"""
+function ctr_bound(d::CtrT, g0::Float64, c::Float64, sk::ComplexF64, so::ComplexF64, sig::Float64, side::Int, kb, extra)
+    dd = abs(real(sk) - sig); y0 = imag(sk)
+    yo = clamp(imag(so), y0 - dd, y0 + dd)
+    m = -Inf
+    for s in (complex(sig, y0), complex(sig, y0 + dd), complex(sig, y0 - dd), complex(real(sk), y0 + dd), complex(real(sk), y0 - dd),
+              complex(real(sk) + side * dd, y0 + dd), complex(real(sk) + side * dd, y0 - dd), complex(sig, yo))
+        m = max(m, real(ctr_logM(d, s, g0, c)) + kb(real(s)) + extra(s))
+    end
+    m
+end
+"""golden-section minimum of f on [a, b], n steps"""
+function ctr_golden(f, a::Float64, b::Float64, n::Int)
+    g = (sqrt(5) - 1) / 2
+    x1 = b - g * (b - a); x2 = a + g * (b - a); f1 = f(x1); f2 = f(x2)
+    for _ in 1:n
+        if f1 < f2
+            b = x2; x2 = x1; f2 = f1; x1 = b - g * (b - a); f1 = f(x1)
+        else
+            a = x1; x1 = x2; f1 = f2; x2 = a + g * (b - a); f2 = f(x2)
+        end
+    end
+    f1 < f2 ? x1 : x2
+end
+"""the abscissa of the U-shape around sk (side +1: opening right, -1: left) in the admissible interval [lo, hi]: the
+minimum of the objective B (ctr_bound plus the grading cost toward the focus points), scanned on a geometric grid of
+CTR_NGRID distances d = |Re sk - sig| and refined by 12 golden-section steps between the neighbours of the best"""
+function ctr_place(d::CtrT, g0::Float64, c::Float64, sk::ComplexF64, so::ComplexF64, side::Int, lo::Float64, hi::Float64, kb, extra, foc, pen::Float64)
+    f(sig) = begin
+        v = ctr_bound(d, g0, c, sk, so, sig, side, kb, extra)
+        dd = abs(real(sk) - sig)
+        for p in foc
+            dist = abs(complex(sig - real(p), max(0.0, abs(imag(p) - imag(sk)) - dd)))
+            v += pen * log(1 + dd / max(dist, 1e-300))
+        end
+        v
+    end
+    side == 1 ? (dmin = real(sk) - hi; dmax = real(sk) - lo) : (dmin = lo - real(sk); dmax = hi - real(sk))
+    dmin = max(dmin, 1e-3 * dmax)
+    # an empty admissible interval (the branch point -t/c0 or the condition Re s < 0 of G- beyond the root; not met in the
+    # supported region, met for c > 2): NaN, so that the value is not finite and flagged (status 2)
+    (dmax > 0 && dmin < dmax) || return NaN
+    best = Inf; jb = 1; sgs = Vector{Float64}(undef, CTR_NGRID)
+    for k in 1:CTR_NGRID
+        dk = dmin * (dmax / dmin)^((k - 1) / (CTR_NGRID - 1))
+        sgs[k] = side == 1 ? real(sk) - dk : real(sk) + dk
+        v = f(sgs[k]); v < best && (best = v; jb = k)
+    end
+    a = sgs[max(jb - 1, 1)]; b = sgs[min(jb + 1, CTR_NGRID)]
+    ctr_golden(f, min(a, b), max(a, b), 12)
+end
+"""int of f(sig + i y) i dy over the interval between st and en (upward, whichever is larger) by Gauss-Legendre panels
+(n nodes) graded from st: the first length h0 (h0 = Inf: one panel), growing by the factor 3; returns (sum, max |term|)"""
+function ctr_seg(f, sig::Float64, st::Float64, en::Float64, h0::Float64, z, w, n::Int)
+    len = abs(en - st); dir = en >= st ? 1.0 : -1.0
+    acc = zero(ComplexF64); mx = 0.0
+    a = 0.0; h = isfinite(h0) ? min(h0, len) : len
+    while a < len * (1 - 1e-14)
+        b = min(a + h, len); (len - b) < 0.5h && (b = len)
+        for k in 1:n
+            val = f(complex(sig, st + dir * (a + (b - a) * z[k]))) * (im * (b - a) * w[k])
+            acc += val; mx = max(mx, abs(val))
+        end
+        a = b; h *= 3
+    end
+    acc, mx
+end
+"""(1/2 pi i) int over the U-shape around sk with its segment at sig (side +1 opening right, -1 left) of f(s) ds: the
+segment split and graded toward the focus points (panels of n Gauss-Legendre nodes, lengths growing by 3), the rays
+r = rho u/(1 - u) with n nodes, rho = max(d, rscale), and when rho > 2d graded panels from the corner (first length d) up
+to r = rho and the map r = rho + rho u/(1 - u) beyond; pw = 2: the maps r = rho (u/(1 - u))^2 (rank one, case DK, where
+Mt decays only like r^{-1/2} and the integrand like r^{-3/2}: the map u/(1 - u) leaves a singularity (1 - u)^{-1/2} at
+u = 1); returns (value, max |term|/(2 pi))"""
+function ctr_upath(f, sk::ComplexF64, sig::Float64, side::Int, n::Int, rscale::Float64, foc, pw::Int = 1)
+    dd = abs(real(sk) - sig); y0 = imag(sk); ylo = y0 - dd; yhi = y0 + dd
+    rho = max(dd, rscale)
+    z, w = rule(n)
+    acc = zero(ComplexF64); mx = 0.0
+    # the breakpoints: the ends (no grading) and the focus levels with their first panel lengths
+    nf = length(foc)
+    lev = [clamp(imag(p), ylo, yhi) for p in foc]; hs = [max(abs(sig - real(p)), 1e-6dd) for p in foc]
+    # the focus points in the order of their scales: one whose level lies within its own scale of a level already kept is
+    # dropped (the panels graded from that finer level resolve it), so that two nearby levels never leave a coarse panel
+    # next to a fine feature (at a real t the origin and the other root are level; just off the axis they are not)
+    kl = Float64[]; kh = Float64[]
+    for k in sortperm(hs)
+        any(abs(lev[k] - y) <= hs[k] for y in kl) && continue
+        push!(kl, lev[k]); push!(kh, hs[k])
+    end
+    pts = [(ylo, Inf)]
+    for k in sortperm(kl)
+        if abs(kl[k] - pts[end][1]) <= 1e-12 * max(dd, 1.0)
+            pts[end] = (pts[end][1], min(pts[end][2], kh[k]))
+        else
+            push!(pts, (kl[k], kh[k]))
+        end
+    end
+    abs(yhi - pts[end][1]) <= 1e-12 * max(dd, 1.0) || push!(pts, (yhi, Inf))
+    for k in 1:length(pts)-1
+        A, hA = pts[k]; B, hB = pts[k+1]
+        B - A <= 0 && continue
+        if !isfinite(hA) && !isfinite(hB)
+            v, m = ctr_seg(f, sig, A, B, Inf, z, w, n); acc += v; mx = max(mx, m)
+        elseif !isfinite(hA)
+            v, m = ctr_seg(f, sig, B, A, hB, z, w, n); acc += v; mx = max(mx, m)
+        elseif !isfinite(hB)
+            v, m = ctr_seg(f, sig, A, B, hA, z, w, n); acc += v; mx = max(mx, m)
+        else
+            M = (A + B) / 2
+            v, m = ctr_seg(f, sig, A, M, hA, z, w, n); acc += v; mx = max(mx, m)
+            v, m = ctr_seg(f, sig, B, M, hB, z, w, n); acc += v; mx = max(mx, m)
+        end
+    end
+    for (yc, dir) in ((yhi, 1), (ylo, -1))
+        cs = complex(sig, yc); sgn = side == 1 ? dir : -dir
+        r0 = 0.0
+        R = rho
+        if rho > 2dd
+            # two scales: graded panels from the corner (first length d, growing by 3) up to R = rho, the map beyond
+            a = 0.0; h = dd
+            while a < R * (1 - 1e-14)
+                b = min(a + h, R); (R - b) < 0.5h && (b = R)
+                for k in 1:n
+                    val = f(cs + side * (a + (b - a) * z[k])) * (sgn * (b - a) * w[k])
+                    acc += val; mx = max(mx, abs(val))
+                end
+                a = b; h *= 3
+            end
+            r0 = R
+        end
+        for k in 1:n
+            u = z[k]
+            if pw == 1
+                r = r0 + rho * u / (1 - u); dr = rho / (1 - u)^2
+            else                                            # (r^{-3/2} decay in case DK: r = R + R (u/(1-u))^2)
+                y = u / (1 - u); r = r0 + R * y * y; dr = 2R * y / (1 - u)^2
+            end
+            val = f(cs + side * r) * (sgn * dr * w[k])
+            acc += val; mx = max(mx, abs(val))
+        end
+    end
+    acc / (2pi * im), mx / (2pi)
+end
+"""the inner function I_f(t) (kind 1) or I_F(t) (kind 2) at one point t of the outer contour, with n nodes per panel/ray,
+the abscissas (sp, sm) given; returns (value, max |term|)"""
+function ctr_inner_n(kind::Int, d::CtrT, q::Float64, c0::Float64, c::Float64, g0::Float64, sc::Float64, plus, minus, n::Int, sp, sm, foc_p, foc_m, rs_p, rs_m)
+    t = d.t
+    usem = !d.r1 && (!isempty(minus) || kind == 2)
+    # no admissible abscissa (ctr_place: NaN): the value is NaN, hence flagged
+    (isnan(sp) || (usem && isnan(sm))) && return complex(NaN, NaN), 0.0
+    # the kernels in the scaled variable sc s (X~ = sc X with X = c0 v^2 + q v + 1/2; sc = 1 in cases DU, DT, 1 + g0^2 in
+    # case DK) and the kernel of Psi_t(x0), x0 = sc/2, on G+
+    x0 = sc / 2; kf = kind == 2 ? sc : 1.0
+    psi(s) = kind == 2 ? (abs(s) < 1e-8 ? x0 - x0 * x0 * s / 2 : -expm1(-x0 * s) / s) : zero(s)
+    vp, mp = ctr_upath(s -> exp(ctr_logM(d, s, g0, c)) * (kf * ctr_kernel(kind, t, sc * s, c0, q, plus) + psi(s)), d.s1, sp, 1, n, rs_p, foc_p, d.r1 ? 2 : 1)
+    vm = zero(ComplexF64); mm = 0.0
+    if usem
+        vm, mm = ctr_upath(s -> exp(ctr_logM(d, s, g0, c)) * (ctr_kernel(kind, t, s, c0, q, minus) - (kind == 2 ? 1 / s : zero(s))), d.s2, sm, -1, n, rs_m, foc_m)
+    end
+    d.P * (vp + vm), abs(d.P) * max(mp, mm)
+end
+"""the placement at one point t: (sp, sm, focus points, ray scales)"""
+function ctr_layout(kind::Int, d::CtrT, q::Float64, c0::Float64, c::Float64, g0::Float64, sc::Float64, plus, minus, pen::Float64 = CTR_PEN)
+    d.r1 && return ctr_layout1(kind, d, q, c0, c, g0, sc, plus, pen)
+    t = d.t; s1 = d.s1; s2 = d.s2; tr = real(t)
+    lo = real(s2); hi = real(s1); L = hi - lo
+    sb = c0 == 0 ? zero(ComplexF64) : -t / c0
+    none(s) = 0.0
+    semip = c0 > 0 && any(!isfinite(b) for (a, b) in plus)
+    focp = semip ? (zero(ComplexF64), sb, s2) : (zero(ComplexF64), s2)
+    lop = lo + CTR_MARG * L; semip && (lop = max(lop, real(sb) + CTR_MARG * L))
+    # the exponent bound of the kernel on G+ (and on G- below): for the distribution function also that of the kernels of
+    # Psi_t(1/2), (1 - e^{-s/2})/s (at most max(0, -sig/2)) and -1/s (0), so that a negligible v-kernel (a piece far out)
+    # does not leave the placement blind to Mt
+    kbp = kind == 2 ? (x -> max(ctr_kbound(tr, x, c0, q, plus), max(0.0, -x / 2))) : (x -> ctr_kbound(tr, x, c0, q, plus))
+    sp = ctr_place(d, g0, c, s1, s2, 1, lop, hi - CTR_MARG * L, kbp, none, focp, pen)
+    semim = c0 < 0 && any(!isfinite(b) for (a, b) in minus)
+    focm = semim ? (zero(ComplexF64), sb, s1) : (zero(ComplexF64), s1)
+    sm = NaN
+    if !isempty(minus) || kind == 2
+        him = hi - CTR_MARG * L; semim && (him = min(him, real(sb) - CTR_MARG * L))
+        kind == 2 && (him = min(him, -CTR_MARG * L))                       # Re s < 0 on G- (the kernel -1/s)
+        kbm = kind == 2 ? (x -> max(ctr_kbound(tr, x, c0, q, minus), 0.0)) : (x -> ctr_kbound(tr, x, c0, q, minus))
+        sm = ctr_place(d, g0, c, s2, s1, -1, lo + CTR_MARG * L, him, kbm, none, focm, pen)
+    end
+    # (the kernel (1 - e^{-s/2})/s of the distribution function on G+ decays on the scale 2 = 1/X(0))
+    sp, sm, focp, focm, kind == 2 ? max(ctr_xscale(tr, c0, q, plus), 2.0) : ctr_xscale(tr, c0, q, plus), ctr_xscale(tr, c0, q, minus)
+end
+"""the placement in case DK (rank one: the U-shape G+ around s1 only; Mt is analytic to its left, so that the part of
+Psi_t(x0) below zero and the pieces with X < 0 vanish): the abscissa in (Re s1 - L, Re s1), L = 2 max(|s1|, 1), on the
+right side of the branch point -t/c0 of a semi-infinite piece, the focus points 0 and -t/c0; the kernels in the scaled
+variable sc s (q, c0 the coefficients of X = X~/sc)"""
+function ctr_layout1(kind::Int, d::CtrT, q::Float64, c0::Float64, c::Float64, g0::Float64, sc::Float64, plus, pen::Float64)
+    t = d.t; s1 = d.s1; tr = real(t)
+    L = 2 * max(abs(s1), 1.0); lo = real(s1) - L; hi = real(s1)
+    sb = c0 == 0 ? zero(ComplexF64) : -t / (c0 * sc)
+    none(s) = 0.0
+    semip = c0 > 0 && any(!isfinite(b) for (a, b) in plus)
+    focp = semip ? (zero(ComplexF64), sb) : (zero(ComplexF64),)
+    lop = lo + CTR_MARG * L; semip && (lop = max(lop, real(sb) + CTR_MARG * L))
+    kbp = kind == 2 ? (x -> max(ctr_kbound(tr, sc * x, c0, q, plus), max(0.0, -sc * x / 2))) : (x -> ctr_kbound(tr, sc * x, c0, q, plus))
+    sp = ctr_place(d, g0, c, s1, complex(lo, imag(s1)), 1, lop, hi - CTR_MARG * L, kbp, none, focp, pen)
+    rs = ctr_xscale(tr, c0, q, plus) / sc
+    sp, NaN, focp, (zero(ComplexF64),), kind == 2 ? max(rs, 2 / sc) : rs, 0.0
+end
+
+"""the asymptotic angle of the outer hyperbola: 45 degrees for c >= -10, rising linearly to 70 degrees at c = -40, 70
+below (far from the unit root the mass factor E e^{tV} grows with Re t over a longer range before Im t damps it)"""
+ctr_phi(c::Float64) = (45 + 25 * clamp((-c - 10) / 30, 0.0, 1.0)) * pi / 180
+"""the outer contour of model, c (variant 1: evaluation A, angle ctr_phi(c); variant 2: evaluation B, angle ctr_phi(c) +
+CTR_DPHI): the nodes u_k = k h, the per-point data along it (branches continued on CTR_SUB points per step) and the
+derivative t'(u_k); cached per (model, c, variant)"""
+const CTRPATH = Dict{Tuple{Int,Float64,Int,Float64},Any}()
+const CTRLOCK = ReentrantLock()
+"""the hyperbola at the asymptotic angle phi: (tau, a, b, h, K, the points on CTR_SUB points per step)"""
+function ctr_hyp(model::Int, c::Float64, phi::Float64)
+    tau = model == 1 ? default_tau(1, c, 1.0) : default_tau(model, c); ts = tstar(model, c)
+    y = min(0.5, 0.9 * (pi / 2 - phi))
+    b = 0.9 * min(tau, ts - tau) / sin(y); a = b / tan(phi)
+    h = 2pi * y / (37 + 37 * tan(phi) * y)
+    # (case DK down to c = -550: up to 10 c^2, the scale on which the transform of V decays)
+    K = ceil(Int, asinh((model == 1 ? max(CTR_RMAX, 10c^2) : CTR_RMAX) / hypot(a, b)) / h)
+    ud = [k * h / CTR_SUB for k in 0:CTR_SUB*K]
+    tau, a, b, h, K, [complex(tau + a * (cosh(u) - 1), b * sinh(u)) for u in ud]
+end
+"""case DK: the asymptotic angles of evaluations A and B.  Far from the unit root the mass factor M_V(t) = Mt(0, t) grows
+along a flat hyperbola, like e^{cot(phi)^2 m^2/(2 s^2)} with m, s^2 the mean and the variance of V (m^2/(2 s^2) ~ |c| (1 +
+g0^2)^2/(4 (1 + 2 g0^2))), and the O(1) terms of the distribution function cancel to its value (1e34 at c = -200, g0 = 2 on
+70 degrees): A takes the smallest of the angles CTR_PHI1 at which the largest term |M_V(t) t'(u)/t| h/pi of the outer rule
+is at most 2, B the next one at least 5 degrees steeper with the same property (or the steepest)"""
+const CTR_PHI1 = (45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 78.0, 80.0, 82.0, 84.0, 85.0, 86.0, 87.0, 88.0)
+function ctr_phi1(c::Float64, g0::Float64)
+    ok = Float64[]
+    for phd in CTR_PHI1
+        tau, a, b, h, K, tt = ctr_hyp(1, c, phd * pi / 180)
+        P, s1e, _, _ = tparts(1, c, tt)
+        mv = 0.0
+        for k in 0:K
+            j = CTR_SUB * k + 1; t = tt[j]
+            iS = P[j]^2 * exp(c)
+            d = CtrT(t, s1e[j], complex(NaN), P[j], zero(ComplexF64), t / s1e[j], iS * iS / (2 * s1e[j]), true)
+            mv = max(mv, abs(P[j] * exp(ctr_logM(d, zero(ComplexF64), g0, c)) * complex(a * sinh(k * h), b * cosh(k * h)) / t) * h / pi)
+        end
+        (isfinite(mv) && mv <= 2) && push!(ok, phd)
+        (length(ok) >= 1 && phd >= ok[1] + 5) && break
+    end
+    isempty(ok) && return CTR_PHI1[end] * pi / 180, (CTR_PHI1[end] + 1) * pi / 180
+    iB = findfirst(>=(ok[1] + 5), ok)
+    ok[1] * pi / 180, (iB === nothing ? min(ok[1] + 5, 89.0) : ok[iB]) * pi / 180
+end
+function ctr_path(model::Int, c::Float64, variant::Int = 1, g0::Float64 = 0.0)
+    gk = model == 1 ? g0 : 0.0
+    lock(CTRLOCK) do; get!(CTRPATH, (model, c, variant, gk)) do
+        phi = model == 1 ? ctr_phi1(c, g0)[variant] : ctr_phi(c) + (variant == 2 ? CTR_DPHI : 0.0)
+        tau, a, b, h, K, tt = ctr_hyp(model, c, phi)
+        P, s1e, s2e, _ = tparts(model, c, tt)                       # (engine labels: s1e the root with Re < 0 at tau)
+        T = Vector{CtrT}(undef, K + 1); dt = Vector{ComplexF64}(undef, K + 1)
+        for k in 0:K
+            j = CTR_SUB * k + 1; t = tt[j]
+            if model == 1                                           # (case DK: s1e the root; 1/S = P^2 e^c)
+                iS = P[j]^2 * exp(c)
+                T[k+1] = CtrT(t, s1e[j], complex(NaN), P[j], zero(ComplexF64), t / s1e[j], iS * iS / (2 * s1e[j]), true)
+            else
+                KQ = (model == 2 ? c^2 : c^4) * exp(c) * gstat(model, c * c - 2t) * P[j]^2
+                T[k+1] = CtrT(t, s2e[j], s1e[j], P[j], KQ, zero(ComplexF64), zero(ComplexF64), false)
+            end
+            dt[k+1] = complex(a * sinh(k * h), b * cosh(k * h))
+        end
+        (T = T, dt = dt, h = h, tau = tau, a = a, b = b, phi = phi)
+    end; end
+end
+"""one evaluation of the contour integral (variant 1: A, 2: B) at the first level: the outer nodes processed in chunks of
+32 until a chunk whose terms all stay below 1e-18; returns the per-node data for further levels"""
+function ctr_eval(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g0::Float64, variant::Int)
+    C = ctr_path(model, c, variant, g0)
+    # case DK: X~(v) = c0 v^2 + x v + x0, x0 = (1 + g0^2)/2, as sc X with X = (c0/sc) v^2 + (x/sc) v + 1/2, sc = 2 x0
+    sc = model == 1 ? 1 + g0 * g0 : 1.0; c0s = c0 / sc; qs = x / sc
+    plus, minus = ctr_pieces(qs, c0s)
+    model == 1 && (minus = ())
+    pen = variant == 2 ? CTR_PEN_B : CTR_PEN
+    K1 = length(C.T); NL = length(CTR_LEVELS)
+    G = zeros(K1, NL); gm = zeros(K1)
+    lay = Vector{Any}(undef, K1)
+    done = 0; CH = 32
+    while done < K1
+        k1 = done + 1; k2 = min(done + CH, K1)
+        tmap!(j -> begin
+            k = k1 + j - 1; d = C.T[k]
+            pl = ctr_active(plus, real(d.t)); mi = ctr_active(minus, real(d.t))
+            lay[k] = (pl, mi, ctr_layout(kind, d, qs, c0s, c, g0, sc, pl, mi, pen))
+            wt = kind == 1 ? C.dt[k] : C.dt[k] / d.t
+            I, mx = ctr_inner_n(kind, d, qs, c0s, c, g0, sc, pl, mi, (variant == 2 ? CTR_LEVELS_B : CTR_LEVELS)[1], lay[k][3]...)
+            G[k, 1] = imag(I * wt); gm[k] = mx * abs(wt)
+            0
+        end, zeros(Int, k2 - k1 + 1), k2 - k1 + 1)
+        done = k2
+        (maximum(abs, view(G, k1:k2, 1)) < 1e-18 && maximum(view(gm, k1:k2)) < 1e-18) && break
+    end
+    w = fill(C.h / pi, done); w[1] /= 2
+    (C = C, G = G, gm = gm, lay = lay, done = done, w = w, levels = variant == 2 ? CTR_LEVELS_B : CTR_LEVELS, sc = sc, qs = qs, c0s = c0s)
+end
+"""the next level l of an evaluation (all its nodes)"""
+function ctr_level!(E, kind::Int, x::Float64, c0::Float64, c::Float64, g0::Float64, l::Int)
+    tmap!(j -> begin
+        d = E.C.T[j]; wt = kind == 1 ? E.C.dt[j] : E.C.dt[j] / d.t
+        I, _ = ctr_inner_n(kind, d, E.qs, E.c0s, c, g0, E.sc, E.lay[j][1], E.lay[j][2], E.levels[l], E.lay[j][3]...)
+        E.G[j, l] = imag(I * wt); 0
+    end, zeros(Int, E.done), E.done)
+end
+ctr_sum(E, l::Int) = sum(E.w[k] * E.G[k, l] for k in 1:E.done)
+"""f(x) (kind 1) or F(x) (kind 2) by the contour integral: (value, error estimate, status, number of outer nodes, level).
+Two structurally different evaluations: A (hyperbola at the angle ctr_phi(c), placement weight CTR_PEN, CTR_LEVELS[1]
+nodes per panel and per ray) and B (the angle larger by CTR_DPHI, so that every t differs, the placement weight CTR_PEN_B,
+so that the U-shapes and panels differ, and one level fewer nodes, CTR_LEVELS_B[1]); the error estimate is |A - B| plus
+10 eps times the sums of the largest terms of both (the cancellation); while it exceeds CTR_ERRTOL the next level is added
+to both at all their nodes, up to CTR_LEVELS[end]; the value is A at the last level, the status 2 where the estimate still
+exceeds CTR_ERRTOL or the value is not finite.  A value is accepted only when two evaluations on different outer and
+inner paths with different rules agree: an error in the placement of one of them (a structurally wrong value, which a
+finer rule on the same paths would reproduce) does not pass, nor does an under-resolution that both paths share (which
+two evaluations with the same rule could reproduce: the density at the near-double root DT, c = -7.53, c0 = 1.84,
+x = -1.92 was off by 8e-10 in A and B at 64 nodes alike)."""
+function ctr_value(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g0::Float64; verified::Bool = true)
+    A = ctr_eval(kind, x, model, c, c0, g0, 1)
+    verified || return ctr_sum(A, 1), NaN, isfinite(ctr_sum(A, 1)) ? 0 : 2, A.done, 1      # (one evaluation: A at level 1)
+    B = ctr_eval(kind, x, model, c, c0, g0, 2)
+    canc = 10 * eps() * (sum(A.w[k] * A.gm[k] for k in 1:A.done) + sum(B.w[k] * B.gm[k] for k in 1:B.done))
+    l = 1; err = abs(ctr_sum(A, 1) - ctr_sum(B, 1)) + canc
+    while err > CTR_ERRTOL && l < length(CTR_LEVELS)
+        l += 1
+        ctr_level!(A, kind, x, c0, c, g0, l); ctr_level!(B, kind, x, c0, c, g0, l)
+        err = abs(ctr_sum(A, l) - ctr_sum(B, l)) + canc
+    end
+    v = ctr_sum(A, l)
+    v, err, (err > CTR_ERRTOL || !isfinite(v)) ? 2 : 0, A.done + B.done, l
+end
+
+"""
+    tr_contour(x, model, c; c0 = 0.0, g0, pdf = false, warn = true, verified = false) -> (F, info)
+
+The limiting distribution function (or density, pdf = true) by the contour integral representation (a double integral
+with an explicit integrand) at the points x (a vector), with a fixed start g0 != 0 in cases DU, DT (model 2, 3; model 1,
+case DK, is an experimental rank-one version, not used by the user-level functions).  verified = false (the default): one
+evaluation, A at its first level (info.err NaN, info.status 0, 2 only where the value is not finite).  verified = true:
+info.err holds the error estimates (the difference of the two evaluations A and B on different paths with different rules,
+plus the cancellation; see `ctr_value`), info.status is 0 where the estimate is at most 1e-10, otherwise 2; a nonzero
+status gives a warning.  info.nodes counts the outer nodes of both evaluations.
+"""
+function tr_contour(x::Vector{Float64}, model::Int, c::Float64; c0::Float64 = 0.0, g0::Float64 = 0.0, pdf::Bool = false, warn::Bool = true,
+                    verified::Bool = false)
+    (model in (1, 2, 3)) && g0 != 0 || error("the contour integral applies to a fixed start g0 != 0 in cases DK, DU, DT (models 1, 2, 3)")
+    t0 = time()
+    n = length(x); F = zeros(n); err = zeros(n); status = zeros(Int, n); nodes = zeros(Int, n)
+    for k in 1:n
+        if !isfinite(x[k])
+            F[k] = isnan(x[k]) ? NaN : (x[k] > 0 && !pdf) ? 1.0 : 0.0
+            continue
+        end
+        F[k], err[k], status[k], nodes[k], _ = ctr_value(pdf ? 1 : 2, x[k], model, c, c0, g0; verified)
+    end
+    if warn && any(!=(0), status)
+        iw = findfirst(!=(0), status)
+        @warn "tr_contour: $(count(!=(0), status)) of $n points with nonzero status (first: x = $(x[iw]), error estimate $(err[iw])); the result may be inaccurate there"
+    end
+    F, (time = time() - t0, err = err, status = status, nodes = nodes)
 end
 
 # =====================================================================================================================
@@ -4844,7 +5587,7 @@ in every case and with every start and option of `ltratio_cdf` (method, g0).  As
 """
 function coef_cdf(y, cas::AbstractString, c::Real = 0; c0::Real = 0.0, kw...)
     one(yk) = isnan(yk) ? NaN : yk == Inf ? 1.0 : yk == -Inf ? 0.0 : ltratio_cdf(0.0, cas, c; c0 = c0 + yk, kw...)
-    y isa Number ? one(y) : map(one, y)
+    brittle_once(() -> y isa Number ? one(y) : map(one, y))   # (the brittle regimes that c0 + y passes, each warned once)
 end
 """
     coef_icdf(p, cas, c = 0; tol = 1e-9, c0 = 0, opts...) -> y
@@ -4856,6 +5599,7 @@ of regula falsi on a bracket grown from [-40, 10] to the width `tol`, about ten 
     coef_icdf(0.05, "DK")                           # -8.039, the 5% critical value of rho^
 """
 function coef_icdf(p, cas::AbstractString, c::Real = 0; tol::Real = 1e-9, kw...)
+    BRITTLE_SEEN[] === nothing && return brittle_once(() -> coef_icdf(p, cas, c; tol, kw...))
     one(pk) = begin
         0 < pk < 1 || throw(ArgumentError("coef_icdf: p must lie in (0, 1)"))
         f(x) = coef_cdf(x, cas, c; kw...) - pk

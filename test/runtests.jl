@@ -72,19 +72,68 @@ end
     end
 end
 
-# the C engine's criterion for the conditional integral: F to 1e-10, f to 1e-8 relative or 1e-10 absolute, no warning
+# the contour integral (a fixed start in cases DU, DT; the choice of :auto there): F, f to max(1e-12, the stored error
+# estimate), no warning; :auto gives the same value (above 1e-3, where it does not recompute by the conditional integral)
+@testset "contour integral with a fixed start g0" begin
+    for p in readref("contour_ref.txt")
+        m, c, c0, g0, x, Fr, fr, eF, ef = num(p); cas = casecode(m, 0)
+        @testset "$cas c = $c c0 = $c0 g0 = $g0 x = $x" begin
+            # verified: the stored values (the checked computation); the default (one evaluation) within 5e-9
+            F = nowarn(() -> ltratio_cdf(x, cas, c; c0, g0, method = :contour, verified = true)); f = nowarn(() -> ltratio_pdf(x, cas, c; c0, g0, method = :contour, verified = true))
+            @test F ≈ Fr atol = max(1e-12, eF)
+            @test f ≈ fr atol = max(1e-12, ef)
+            (F >= 1e-3 && f >= 1e-3) && @test ltratio_cdf(x, cas, c; c0, g0, verified = true) == F
+            @test ltratio_cdf(x, cas, c; c0, g0, method = :contour) ≈ Fr atol = 5e-9
+            @test ltratio_pdf(x, cas, c; c0, g0, method = :contour) ≈ fr atol = 5e-9
+        end
+    end
+    @test errmsg(() -> ltratio_cdf(-2.0, "DK", -5; g0 = 1, method = :contour)) == D.CONTOUR_MSG
+    @test errmsg(() -> ltratio_cdf(-2.0, "DU", -5; method = :contour)) == D.CONTOUR_MSG
+end
+
+# the C engine's criterion for the conditional integral with verified = true: F to 1e-10, f to 1e-8 relative or 1e-10
+# absolute, no warning; the default (one evaluation) to 5e-7 in F and 1e-5 absolute or 1e-6 relative in f, outside the
+# regimes in which it warns (DFExact.brittle_msg)
 @testset "conditional integral" begin
     for p in readref("dbl_ref.txt")
         m, c, c0, g0, st, x, Fr, fr = num(p); cas = casecode(m, st)
         @testset "$cas c = $c c0 = $c0 g0 = $g0 x = $x" begin
-            @test nowarn(() -> ltratio_cdf(x, cas, c; c0, g0, method = :double)) ≈ Fr atol = 1e-10
-            @test nowarn(() -> ltratio_pdf(x, cas, c; c0, g0, method = :double)) ≈ fr rtol = 1e-8 atol = 1e-10
+            @test nowarn(() -> ltratio_cdf(x, cas, c; c0, g0, method = :double, verified = true)) ≈ Fr atol = 1e-10
+            @test nowarn(() -> ltratio_pdf(x, cas, c; c0, g0, method = :double, verified = true)) ≈ fr rtol = 1e-8 atol = 1e-10
+            if D.brittle_msg(Int(m), st == 1, c, c0, g0, Set([:double])) === nothing
+                @test ltratio_cdf(x, cas, c; c0, g0, method = :double) ≈ Fr atol = 5e-7
+                @test ltratio_pdf(x, cas, c; c0, g0, method = :double) ≈ fr rtol = 1e-6 atol = 1e-5
+            end
         end
     end
     x = [-3.0, -1.5, 0.5]                                   # the two representations, and the names :line, :conditional
     @test ltratio_cdf(x, "DU", -2; method = :line) == ltratio_cdf(x, "DU", -2; method = :single)
     @test ltratio_cdf(x, "DU", -2; method = :conditional) == ltratio_cdf(x, "DU", -2; method = :double)
     @test ltratio_cdf(x, "DU", -2; method = :line) ≈ ltratio_cdf(x, "DU", -2; method = :conditional) atol = 1e-10
+end
+
+# the default (one evaluation) and verified = true (the checked computation before November 2026: stored values of that
+# engine); the warnings of the brittle regimes where they should fire, once per call, and not elsewhere
+@testset "one evaluation and verified" begin
+    for (cas, c, c0, g0, x, F, f) in (("DU", -5.0, 2.0, 0.0, -3.0, 0.1976948237625359, 0.4648778393052269),
+                                      ("DK", -10.0, -5.0, 0.0, -2.0, 0.16726497409337868, 0.3125724838563969),
+                                      ("DT", -5.0, 0.0, 2.0, -3.0, 0.28899703887072636, 0.4636733678782745),
+                                      ("SU", -5.0, -5.0, 0.0, -1.0, 0.44272919976045844, 0.4264723317698583))
+        @test ltratio_cdf(x, cas, c; c0, g0, verified = true) ≈ F atol = 1e-14
+        @test ltratio_pdf(x, cas, c; c0, g0, verified = true) ≈ f atol = 1e-14
+        @test ltratio_cdf(x, cas, c; c0, g0) ≈ F atol = 1e-9
+        @test ltratio_pdf(x, cas, c; c0, g0) ≈ f atol = 1e-9
+    end
+    @test_logs (:warn, r"one evaluation") ltratio_cdf(-3.0, "DU", -5; c0 = 2.0, method = :double)
+    @test_logs (:warn, r"one evaluation") ltratio_cdf(-5.0, "DU", -20; c0 = 2.0, g0 = 0.5)
+    @test_logs (:warn, r"one evaluation") ltratio_icdf([0.05, 0.5], "DU", -20; c0 = 2.0, g0 = 0.5)
+    @test_logs min_level = Logging.Warn ltratio_cdf(-3.0, "DU", -5; c0 = 2.0)
+    @test_logs min_level = Logging.Warn ltratio_cdf(-3.0, "DU", -5; c0 = 2.0, method = :double, verified = true)
+    @test_logs min_level = Logging.Warn ltratio_cdf(-2.0, "DU", -5; g0 = 1.5)
+    @test_logs (:warn, r"contour integral by one evaluation fails") ltratio_cdf(-8.4, "DU", 2; c0 = 5.0, g0 = 1.5, method = :contour)
+    # case DU with a fixed start, c0 > 3 at c > 1.5: the contour integral fails there, :auto takes the conditional integral
+    Fa = @test_logs min_level = Logging.Warn ltratio_cdf(-8.4075, "DU", 2; c0 = 5.0, g0 = 1.5)
+    @test Fa ≈ ltratio_cdf(-8.4075, "DU", 2; c0 = 5.0, g0 = 1.5, method = :double, verified = true) atol = 1e-9
 end
 
 @testset "moments" begin
