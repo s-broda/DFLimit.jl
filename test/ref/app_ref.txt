@@ -1,4 +1,4 @@
-# c/test/app_ref.txt of DF-Limit (Julia reference values of julia/application/): adfmax model stat c x F f; region type p1 p2 v0 c P (as in tests/testthat/ref/ of the R package dflimit)
+# c/test/app_ref.txt of dflimit-matlab (Julia reference values of the application functions): adfmax model stat c x F f; region type p1 p2 v0 c P (as in tests/testthat/ref/ of the R package dflimit)
 adfmax 2 0 0 -2.5 0.042709500744894657 0.10563355056449016
 adfmax 2 0 -10 -2 0.84660467728154176 0.47919536731182549
 adfmax 2 0 0 0.5 0.97360346864697844 0.067409030309788218

@@ -13,8 +13,8 @@ a fixed or a stationary initial observation; for the t-ratio centred at the unit
 and for the GLS-detrended trend case of Elliott, Rothenberg and Stock (1996). It also has the ADFmax test of
 Leybourne (1995), the coefficient statistic, the probabilities of regions {U <= g(V)} of the limit experiment
 (point-optimal and weighted-average-power tests), the distribution of the linear form U - aV and the asymptotic power
-envelope. The numbers come from the multithreaded Julia engine of the paper, `DFExact.jl`, which the package holds
-unchanged; the same functions, with the same names and arguments, exist in MATLAB and, all but `ltratio_lincdf`,
+envelope. The numbers come from the multithreaded Julia engine of the paper, `DFExact.jl`, whose home is this package
+(`src/`); the same functions, with the same names and arguments, exist in MATLAB and, all but `ltratio_lincdf`,
 `power_envelope` and the boundary type `"fun"` of `ltratio_region`, in R.
 
 | function | computes |
@@ -51,7 +51,8 @@ the module `DFLimit.DFExact`, among them the representations, which take the mod
 G: the line integral `DFLimit.DFExact.cdf(q, model; c, c0, g0, start = :zero)` (`start = :stationary` for a
 stationary start), `DFLimit.DFExact.density` and `DFLimit.DFExact.moments(model; c, c0, g0, start)`, the
 conditional integral `DFLimit.DFExact.tr_limdist(x, model, c; c0, g0, start, pdf)` and the contour integral
-`DFLimit.DFExact.tr_contour(x, model, c; c0, g0, pdf)` (see `julia/README.md` of the paper's repository).
+`DFLimit.DFExact.tr_contour(x, model, c; c0, g0, pdf)` (the comments of `src/DFExact.jl` describe them, and
+`dev/README.md` the range of c in which the rules are set).
 
 ## Example
 
@@ -115,18 +116,20 @@ Pkg.add(url = "https://github.com/s-broda/DFLimit.jl")
 or, from a local clone, `Pkg.develop(path = "/path/to/DFLimit.jl")`. The dependencies (SpecialFunctions, QuadGK,
 PrecompileTools) are installed with it. The first `using DFLimit` precompiles the package, which takes about half a
 minute: it runs a few of the functions once, so that their first call in a session does not wait several seconds for
-compilation. `Pkg.test("DFLimit")` runs the tests (a few minutes; they compare the values with values stored by the
-paper's code).
+compilation. `Pkg.test("DFLimit")` runs the tests (about six minutes; they compare the values with values stored by the
+paper's code, and end with the engine's own checks in `test/engine/`). The longer checks of the engine and the scripts that
+write its stored values are in `dev/` (see `dev/README.md`).
 
 ## Other implementations
 
-The paper's repository has the same functions as MATLAB programs (`public/`), the C engine (`c/`, with a MEX gateway
-for MATLAB) and the Julia engine of this package (`julia/`, with its checks and the scripts that reproduce the tables
-and figures of the paper). The R package [`dflimit`](https://github.com/s-broda/dflimit) is built on the C engine.
+The same functions exist as MATLAB programs in the package dflimit-matlab, which also holds the C engine, a port of
+this engine checked against its values, with a MEX gateway for MATLAB. The R package
+[`dflimit`](https://github.com/s-broda/dflimit) and the Python package dflimit-py are built on that C engine. The paper's
+repository has the scripts that reproduce the tables and figures of the paper (`julia/replication/`, on this package).
 
 ## Licence and citation
 
 MIT (see `LICENSE`). Please cite the paper when using the package.
 
-The engine in `src/DFExact.jl` and `src/df_series.jl` is copied from the directory `julia/` of the paper's repository
-by `tools/sync-engine.sh` (the upstream commit is in `UPSTREAM`); do not edit those files here.
+The engine in `src/DFExact.jl` and `src/df_series.jl` was developed in the directory `julia/` of the paper's repository up
+to DF-Limit commit b484d4f; this package is its home since.

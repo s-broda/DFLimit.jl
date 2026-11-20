@@ -1,7 +1,8 @@
 # The tests of DFLimit: the engine's values against values stored by the paper's code, at the tolerances of the existing
-# checks (julia/quickcheck.jl and julia/test_dfexact.jl of DF-Limit, the C engine's tests c/test, the MATLAB suite
-# public/ltratio_test.m and the tests of the R package dflimit), closed forms, and the argument errors.  The stored values
-# are in test/ref/ (the first line of each file says where it comes from).  A few minutes on a laptop; run with
+# checks (test/engine/quickcheck.jl and test/engine/test_dfexact.jl, the C engine's tests c/test of dflimit-matlab, the
+# MATLAB suite matlab/ltratio_test.m there and the tests of the R package dflimit), closed forms, and the argument errors;
+# then the engine's own checks, test/engine/quickcheck.jl and test/engine/test_dfexact.jl.  The stored values are in
+# test/ref/ (the first line of each file says where it comes from) and test/engine/.  About six minutes on a laptop; run with
 #   julia --project -e 'using Pkg; Pkg.test()'                         (one thread)
 #   JULIA_NUM_THREADS=auto julia --project -e 'using Pkg; Pkg.test()'  (all performance cores)
 using DFLimit, Test, Printf, Logging
@@ -32,7 +33,7 @@ const T0 = time()
     @test D.cdf isa Function && D.tr_limdist isa Function && D.tr_adfmax isa Function
 end
 
-# the twelve points of julia/python_exact_reference.json: the line integral at c0 = 0 (quickcheck.jl, section 2)
+# the twelve points of test/engine/python_exact_reference.json: the line integral at c0 = 0 (quickcheck.jl, section 2)
 @testset "stored reference values (line integral, models 1-3)" begin
     for p in readref("exact_ref.txt")
         m = parse(Int, p[1]); c, q, Fr, fr = num(p[2:5])
@@ -144,7 +145,7 @@ end
     @test ltratio_mom(2, "DU")[2] ≈ 3.05599535 atol = 1e-8                  # Nabeya (1999); quickcheck.jl, section 8
 end
 
-# far from the unit root: the lines of julia/largec_ref.txt that quickcheck.jl checks (section 15), the line integral to
+# far from the unit root: the lines of test/engine/largec_ref.txt that quickcheck.jl checks (section 15), the line integral to
 # 1e-11 and the automatic method to 1e-10; the moments to 1e-10 relative; the 5% quantile of DU to 1e-9
 @testset "far from the unit root (c = -100, -480)" begin
     for p in readref("largec_ref.txt")
@@ -206,7 +207,7 @@ end
 end
 
 # the application functions against the stored values of c/test/app_ref.txt (as in the R package: F, f, P to 1e-10),
-# quickcheck.jl (section 19) and the MATLAB suite (public/ltratio_test.m, section 10)
+# quickcheck.jl (section 19) and the MATLAB suite (matlab/ltratio_test.m of dflimit-matlab, section 10)
 @testset "ADFmax" begin
     for p in readref("app_ref.txt")
         p[1] == "adfmax" || continue
@@ -311,13 +312,22 @@ end
               () -> ltratio_icdf(0.05, "SK", -9e-5), () -> coef_cdf(-8.039, "SK", -9e-5), () -> adfmax_cdf(-2.4, "SU", -9e-5))
         @test errmsg(f) == D.STAT_MSG
     end
-    # at c = -1e-4 (julia/quickcheck.jl of DF-Limit, section 18b), and the two errors fixed in November 2026: the batched
+    # at c = -1e-4 (test/engine/quickcheck.jl, section 18b), and the two errors fixed in November 2026: the batched
     # distribution function of case SK at tau < 1 and the lower end of the conditional integral with a stationary start
     @test ltratio_cdf(-1.94087, "SK", -1e-4) ≈ 0.028490044498374834 atol = 1e-11
     @test coef_cdf(-8.039, "SK", -1e-4) ≈ 0.00032997244558452543 atol = 1e-12
     @test adfmax_cdf(-2.43542, "SU", -1e-4) ≈ 0.050000718603976146 atol = 1e-11
     @test ltratio_cdf(-1.94087, "SK", -0.1) ≈ 0.059510986573375835 atol = 1e-11
     @test coef_cdf(-8.039, "SK", -0.001) ≈ 0.0010438037922007037 atol = 1e-12
+end
+
+# the engine's own checks (test/engine/, from the directory julia/ of the paper's repository, where the engine was
+# developed): quickcheck.jl (K_0 against AMOS, node doubling, contour independence, closed forms, the applications, the
+# contour integral, the default and verified) and test_dfexact.jl (all the stored values far from the unit root and of
+# the contour integral).  Each is a script that prints its comparisons and raises an error when a check fails; it runs
+# here in a module of its own.
+@testset "engine check $f" for f in ("quickcheck.jl", "test_dfexact.jl")
+    @test (Base.include(Module(), joinpath(@__DIR__, "engine", f)); true)
 end
 
 end # @testset "DFLimit"

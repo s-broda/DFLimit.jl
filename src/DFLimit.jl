@@ -5,8 +5,8 @@ The exact limiting distribution of the Dickey-Fuller t-ratio: the distribution f
 moments of the limits of the Dickey-Fuller t-ratios under local alternatives, by the exact representations of Bao,
 Broda and Kan, "The Exact Limiting Distribution of the Dickey-Fuller t-Ratio and Some Related Statistics".
 
-The numbers come from the Julia engine of the paper, the module `DFLimit.DFExact` (the file `src/DFExact.jl`, copied
-from the paper's repository by `tools/sync-engine.sh`); `DFLimit` re-exports its exported functions (`ltratio_cdf`,
+The numbers come from the Julia engine of the paper, the module `DFLimit.DFExact` (the file `src/DFExact.jl`, with
+`src/df_series.jl`); `DFLimit` re-exports its exported functions (`ltratio_cdf`,
 `ltratio_pdf`, `ltratio_icdf`, `ltratio_mom`, `adfmax_cdf`, `adfmax_pdf`, `adfmax_icdf`, `coef_cdf`, `coef_icdf`,
 `ltratio_region`, `ltratio_lincdf`, `power_envelope`, `ltratio_bisect`), and the functions it does not export are
 reached as `DFLimit.DFExact.cdf` and so on.  The engine is multithreaded: start Julia with `-t auto`.
@@ -16,7 +16,7 @@ module DFLimit
 include("DFExact.jl")
 using .DFExact
 
-# the engine's exported names, exported from here too (the list follows the engine file when it is synced)
+# the engine's exported names, exported from here too (the list follows the engine file)
 for name in names(DFExact)
     name === :DFExact || @eval export $name
 end

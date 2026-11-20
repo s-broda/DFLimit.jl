@@ -1,4 +1,4 @@
-# the lines of julia/largec_ref.txt of DF-Limit that julia/quickcheck.jl checks (section 15): val case c c0 z x F f; mom case c c0 m1 m2 m3 m4; icdf case c c0 p q
+# the lines of test/engine/largec_ref.txt that test/engine/quickcheck.jl checks (section 15): val case c c0 z x F f; mom case c c0 m1 m2 m3 m4; icdf case c c0 p q
 val DK -100 -100 -2 -2.0651066009191541 0.022741785076692778 0.054116008236051949
 val DK -480 0 5 -13.0028312997466 0.99999997585320188 3.2751652475188362e-07
 mom DU -60 0 -5.6161174639029774 31.807223704931285 -181.6598979015952 1046.2268737722122

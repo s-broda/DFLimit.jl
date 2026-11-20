@@ -1,5 +1,13 @@
 # News
 
+## Unreleased
+
+- The package is now the home of the Julia engine: `src/DFExact.jl` and `src/df_series.jl` are no longer copied from the
+  paper's repository (`tools/sync-engine.sh` and `UPSTREAM` are gone). The engine's checks moved here with it:
+  `test/engine/quickcheck.jl` and `test/engine/test_dfexact.jl` run with `Pkg.test()` (JSON and Random are test
+  dependencies), the longer checks and the writers of stored values are in `dev/`. The engine and the results are
+  unchanged.
+
 ## 0.4.0
 
 - The documentation and the comments refer to the representations by name (the line integral, the contour integral

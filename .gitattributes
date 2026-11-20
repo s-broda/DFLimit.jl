@@ -1,3 +1,2 @@
-# LF line endings everywhere, also in a Windows checkout: the engine files in src/ stay byte-identical to the copies
-# that tools/sync-engine.sh writes
+# LF line endings everywhere, also in a Windows checkout
 * text=auto eol=lf
