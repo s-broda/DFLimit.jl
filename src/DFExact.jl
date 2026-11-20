@@ -4887,7 +4887,7 @@ end
 # Leybourne (1995), the coefficient statistic, the probability of a region {U <= g(V)} of the plane, the linear form
 # U - aV by the inversion formula of Gil-Pelaez and the asymptotic power envelope of Elliott, Rothenberg and Stock
 # (1996), with the names and the arguments of the MATLAB
-# programs (public/adfmax_cdf.m, coef_cdf.m, ltratio_region.m, ltratio_lincdf.m, power_envelope.m, ...).  The code was
+# programs (adfmax_cdf.m, coef_cdf.m, ltratio_region.m, ltratio_lincdf.m, power_envelope.m, ...).  The code was
 # moved here from the scripts julia/application/adfmax.jl, power.jl and wap.jl (November 2026), unchanged but for the
 # module prefix and the bisection, which is ltratio_bisect throughout (the same steps as the scripts' bisect).
 
