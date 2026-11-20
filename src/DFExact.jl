@@ -3,7 +3,7 @@
 
 Exact density and distribution function of the limiting Dickey–Fuller t-ratio tau = U/sqrt(V),
 Models M1–M3 with local-to-unity parameter c (zero initial value and drift), by the inversion
-formulas of Theorem 1 with the s-integral done analytically: a port of df_exact2.py.
+formula of the paper with the s-integral done analytically: a port of df_exact2.py.
 
     density(q, model; c = 0.0, start = :zero)   # f(q); start = :stationary for the stationary start (c < 0)
     cdf(q, model; c = 0.0, start = :zero)       # P(tau <= q)
@@ -97,7 +97,7 @@ end
 # Q = e^c (t + s^2/2 + c s) g(z)/D, g = (2Q + S)/z (M2) or [-12 C + (24 - 4z) Q + (24 + z) S]/z^3 (M3) (df_mgf.py,
 # checked there by Monte Carlo); averaging gives (1 + c Q)^{-1/2} (M2) and (1 + c^3 Q)^{-1/2} (M3), that is
 # D_stat = D + c^k e^c (t + s^2/2 + c s) g(z), k = 1 or 3, again a polynomial of degree two in s.  For M1 the
-# tilted pair (J(0), J(1)) is Gaussian with the covariance of Bao, Broda and Kan (DF-Test, Section 7.4) and
+# tilted pair (J(0), J(1)) is Gaussian with the covariance given in the companion paper of Bao, Broda and Kan and
 # R = (J(1)^2 - J(0)^2)/2, which gives D_stat = e^c [C - cS + S (2t + s^2)/(2c)]: the roots are +-, as time
 # reversal of the stationary process requires.  The functions g are entire; near z = 0 their Taylor series.
 const G2SER, G3SER = let
@@ -1668,7 +1668,7 @@ function moments_dfx(model::Int; c::Float64 = 0.0, start::Symbol = :zero, pmax::
 end
 
 # =====================================================================================
-# Moments: any c, c0 and start (Proposition S1 of the Supplementary Material; a port of Raymond Kan's TR_LIMMOM)
+# Moments: any c, c0 and start (the moments of the limit in the Supplementary Material; a port of Raymond Kan's TR_LIMMOM)
 #
 # E tau^p = Gamma(p/2)^{-1} int_0^inf s^{p/2-1} m_p(s) ds, m_p(s) = d^p/du^p M(u, -s - c0 u) at u = 0, where the moment
 # generating function M(u, t) = E exp(u U + t V) is used near the real axis only, where it is smooth and positive.  The
@@ -1678,10 +1678,11 @@ end
 # estimate from the rule with half the step.  With a zero start the moment generating function comes from the Girsanov
 # forms, log E exp(u R - u/2 + v V) = -u/2 - c/2 - [log(sinh th/th) + log(eta - u)]/2 in case DK and
 # -u/2 - c/2 - [log cosh th + log det(I - (Q + u K) Sig)]/2 in cases DU, DT, th = (c^2 - 2v)^{1/2}, free of the
-# cancellation of terms of order e^c for c >> 0; a fixed start adds g0^2 Q(u, v) (Proposition 2), with D in Q written in
-# the same forms; the stationary start uses D_S.  For c > 0 the radius r(s) is also at least 0.4 times the distance to
-# the nearest real zero of the argument of the logarithm, which for c0 = c >> 0 lies far beyond 1/(2 kap_1) (the terms
-# of order u of R and c0 V cancel), where a circle of radius 0.4/(2 kap_1) leaves the derivatives below rounding.
+# cancellation of terms of order e^c for c >> 0; a fixed start adds g0^2 Q(u, v) (the joint moment generating function
+# with a fixed start), with D in Q written in the same forms; the stationary start uses D_S.  For c > 0 the radius r(s)
+# is also at least 0.4 times the distance to the nearest real zero of the argument of the logarithm, which for
+# c0 = c >> 0 lies far beyond 1/(2 kap_1) (the terms of order u of R and c0 V cancel), where a circle of radius
+# 0.4/(2 kap_1) leaves the derivatives below rounding.
 
 """the logarithm of Z continued along a closed circle starting at a point where Z > 0; ok: the steps are resolved and
 the circle closes."""
@@ -1753,7 +1754,8 @@ function zrad(model::Int, c::Float64, c0::Float64, s::Float64, r0::Float64)
     R > 0 ? R : r0 / 0.4
 end
 
-"""The initial-value term Q(u, v) of Proposition 2 (log M_{g0} = log M_0 + g0^2 Q), in the Girsanov forms: cases DU, DT
+"""The initial-value term Q(u, v) of the joint moment generating function with a fixed start (log M_{g0} = log M_0 +
+g0^2 Q), in the Girsanov forms: cases DU, DT
 Q = c^{2k} (v + u^2/2 + c u) g(z)/{cosh th det(I - (Q + u K) Sig)}, z = c^2 - 2v, k = 1, 2; case DK
 Q = v/eta - u/2 + u/{2 S^2 eta (eta - u)}, S = sinh th/th."""
 function qstart(model::Int, c::Float64, u::ComplexF64, v::ComplexF64)
@@ -1849,7 +1851,7 @@ end
 #   "DU"  regression on 1 and y_{t-1}            (tau_mu),   start g0
 #   "DT"  regression on 1, t and y_{t-1}         (tau_tau),  start g0
 #   "SK", "SU", "ST"  the same regressions with y_0 from the stationary distribution, J(0) ~ N(0, -1/(2c)), c <= -1e-4 (CSTAT)
-const CASES = ("DK", "DU", "DT", "SK", "SU", "ST", "DG")                 # DG: GLS-detrended, trend, zero start (Section 6.2 of the paper)
+const CASES = ("DK", "DU", "DT", "SK", "SU", "ST", "DG")                 # DG: GLS-detrended, trend, zero start (the GLS-detrended tests of the paper)
 """where the contour integral fails with a fixed start (cases DU, DT): c > 1 with c0 < 0 (the far upper tail) and, in case
 DU, c > 1.5 with c0 > 3; automethod takes the conditional integral there (ctr_fails in dfl_api.c, LTRATIO_METHOD)"""
 ctr_fails(model::Int, c::Float64, c0::Float64) = (c > 1 && c0 < 0) || (model == 2 && c > 1.5 && c0 > 3)
@@ -2093,11 +2095,11 @@ The limit as n -> inf of P[t <= x] for the least squares t-ratio t of the hypoth
 case `cas` ("DK", "DU", "DT": fixed start g0, default 0; "SK", "SU", "ST": stationary start, c <= -1e-4 (CSTAT); "DG": the
 GLS-detrended trend case of Elliott, Rothenberg and Stock, cbar = -13.5, zero start, line integral only).  x may be an
 array.  Non-finite x: 0 at -Inf, 1 at Inf, NaN at NaN.  method: :auto (the fastest representation that one evaluation
-gives to well below 1e-5 at each point, see `automethod`), :single (the line integral of Theorem 2; with a fixed start
-the noncentral kernel, a triple integral in cases DU, DT), :double (the conditional integral of Theorem S1 of the
-Supplementary Material) or :contour (the contour integral representation, `tr_contour`: Theorem 1 with the integral over
-v in closed form and the paths in s and t deformed, a double integral with an explicit integrand, for a fixed start
-g0 != 0 in cases DU, DT only).
+gives to well below 1e-5 at each point, see `automethod`), :single (the line integral representation; with a fixed
+start the noncentral kernel, a triple integral in cases DU, DT), :double (the conditional integral representation) or
+:contour (the contour integral representation, `tr_contour`: the inversion formula on paths around the singularities
+of the moment generating function, with the integral over v in closed form and the
+paths in s and t deformed, a double integral with an explicit integrand, for a fixed start g0 != 0 in cases DU, DT only).
 
 verified = false (the default): one evaluation by one method at each point, no second evaluation, no refinement driven
 by an estimate, no fallback and no recomputation; a warning, once per call, where the parameters lie in a regime in which
@@ -2165,7 +2167,8 @@ end
 """
     ltratio_mom(p, cas, c = 0; c0 = 0, g0 = 0) -> m
 
-m[j] = E[t^j], j = 1..p, for the limit (U - c0 V)/sqrt(V) of the t-ratio under phi = 1 + c/n (Proposition S1 of the Supplementary Material; `moments`).
+m[j] = E[t^j], j = 1..p, for the limit (U - c0 V)/sqrt(V) of the t-ratio under phi = 1 + c/n (the moments of the
+limit in the Supplementary Material; `moments`).
 
     ltratio_mom(4, "DU")[2]                         # 3.0559953450 (Nabeya, 1999)
 """
@@ -2179,8 +2182,8 @@ end
 # =====================================================================================
 # The local null value c0: the general kernel
 #
-# The t-ratio for phi0 = 1 + c0/n has the limit (U - c0 V)/sqrt(V).  In the derivation of Theorem 2 only the
-# region changes: {U <= x sqrt(V)} becomes {U <= x sqrt(V) + c0 V}, so with V = v^2 the kernel runs along the
+# The t-ratio for phi0 = 1 + c0/n has the limit (U - c0 V)/sqrt(V).  In the derivation of the line integral
+# representation only the region changes: {U <= x sqrt(V)} becomes {U <= x sqrt(V) + c0 V}, so with V = v^2 the kernel runs along the
 # parabola u = x v + c0 v^2 instead of the line u = x v, with the same Jacobian 2 v^2.  With
 # X(v) = c0 v^2 + x v + 1/2 the transforms are
 #   density:  I_f(t) = int_0^inf 2 v^2 e^{-t v^2} phi_t(X(v)) dv,
@@ -2271,9 +2274,11 @@ phialg(::Val, X, sgn, s1, s2) = sgn > 0 ? k0x((s2 - s1) / 2 * X) / pi : k0x(-(s2
 kernof(::Val{k}) where {k} = k
 
 # ---------- the fixed start g0 != 0 through the single integral: the noncentral kernels ----------
-# Under the tilt e^{tV} with a fixed start, R = U + 1/2 is a noncentral form of the same rank (Proposition 2): in case DK
+# Under the tilt e^{tV} with a fixed start, R = U + 1/2 is a noncentral form of the same rank (the joint moment
+# generating function with a fixed start): in case DK
 # R + g0^2/2 = J(1)^2/2 with J(1) ~ N(m, 1/s1), m = g0/F_0, and in cases DU, DT R = (X1^2 - X2^2)/2 with X1 ~ N(m1, 1/s2),
-# X2 ~ N(m2, -1/s1) (s2 the root with positive real part, s1 the other), m_k^2 = g0^2 mu_k from (partial).  The
+# X2 ~ N(m2, -1/s1) (s2 the root with positive real part, s1 the other), m_k^2 = g0^2 mu_k from the partial fractions
+# of Q(s, t) in the paper.  The
 # transform is M_{g0}(0,t) = M_0(0,t) e^{g0^2 Q(0,t)}: pref = e^{g0^2 Q(0,t)} multiplies phi_t, and phi_t itself is the
 # density of R with the fixed start, normalized as the central one (total mass M0 = (-s1 s2)^{-1/2}, or s1^{-1/2}).
 # Case DK: phi_t(X~) = pref e^{-s1 m^2/2} e^{-s1 X~} cosh(m s1 sqrt(2 X~))/sqrt(pi X~) with X~ = X + g0^2/2 (the code's X,
@@ -2493,7 +2498,7 @@ function ncsaddle(K::NCK{2}, X, sgn, s1, s2)
     pre / (2pi * sqrt(w1) * sqrt(w2)) * acc, Eref
 end
 """the kernel of the fixed start g0 at the point t: the means and pref from the Girsanov forms (case DK) or from the
-partial fractions (partial) of Q(s,t) (cases DU, DT; the determinant form of Q for c <= CGIRS, the Girsanov form beyond)"""
+partial fractions of Q(s,t) in the paper (cases DU, DT; the determinant form of Q for c <= CGIRS, the Girsanov form beyond)"""
 function nckernel(model::Int, c::Float64, t::ComplexF64, g0::Float64, s1::ComplexF64, s2::ComplexF64)
     if model == 1
         G = girsanov(1, c, t)
@@ -3090,7 +3095,7 @@ function value_gen(kind::Int, q::Float64, model::Int, c::Float64, c0::Float64, t
 end
 
 # =====================================================================================
-# The double integral (Theorem S1 of the Supplementary Material): the inner inversion in the argument of V along a path through a saddle point, the
+# The double integral (the conditional integral representation): the inner inversion in the argument of V along a path through a saddle point, the
 # outer integral over V = b.  A port of Raymond Kan's TR_LIMDIST.
 #
 # With A' = U + cV... in the notation of the paper, R = U + 1/2 and a(b) = 1/2 + x sqrt(b) + c0 b,
@@ -4251,7 +4256,7 @@ end
 """
     tr_limdist(x, model, c; c0 = 0.0, g0 = 0.0, start = :zero, pdf = false, verified = false, opts...) -> (F, info)
 
-The limiting distribution function (or density, pdf = true) by the double integral of Theorem S1 of the Supplementary Material at the points x (a
+The limiting distribution function (or density, pdf = true) by the double integral of the conditional integral representation at the points x (a
 vector), with a fixed start g0 or a stationary start.  verified = false (the default): one evaluation, one path per inner
 inversion (the vertical line, ONEPATH) at the first rule and no recomputation of unresolved columns; the adaptive outer
 rule in log b stays.  verified = true: the agreement of two paths (three for the distribution function in case DK), the
@@ -4278,8 +4283,9 @@ end
 
 # =====================================================================================================================
 # The contour integral representation: a fixed start g0 != 0 in cases DU, DT as a double integral with an explicit
-# integrand (November 2026).  Theorem 1 of the paper, with the v-integral in closed form and, for each t, the line in s
-# replaced by two U-shaped paths around the roots of D(., t); the line in t replaced by a hyperbola opening to the right.
+# integrand (November 2026).  The inversion formula on paths around the singularities of the moment generating
+# function, with the v-integral in closed form and, for each t, the line in s replaced by two U-shaped paths around
+# the roots of D(., t); the line in t replaced by a hyperbola opening to the right.
 #
 #   f(x) = (1/2 pi i) int_C I_f(t) dt,   F(x) = (1/2 pi i) int_C I_F(t) dt/t,
 #   I_f(t) = (1/2 pi i) [ int_{G+} Mt(s,t) W+_f(s,t) ds + int_{G-} Mt(s,t) W-_f(s,t) ds ]                       (= P Phi^f_x)
@@ -4288,14 +4294,14 @@ end
 # Mt(s,t) = e^{s/2} M_{g0}(s,t) = P(t) [(s1 - s)(s - s2)]^{-1/2} exp{g0^2 Q(s,t)}, s1 the root of D(., t) with Re s1 > 0 at
 # t = tau (continued along C), s2 the other, principal branches of both square roots (their cuts run horizontally from s1
 # to +inf and from s2 to -inf), Q(s,t) = KQ (t + s^2/2 + c s)/((s1 - s)(s - s2)), KQ = c^{2d} e^c g(z) P^2 (d = 1 in case
-# DU, 2 in case DT; Proposition 2).  The axis {v > 0} is split at the positive roots of X(v) = c0 v^2 + x v + 1/2 into V+
-# (X > 0) and V- (X < 0), and
+# DU, 2 in case DT; the joint moment generating function with a fixed start).  The axis {v > 0} is split at the
+# positive roots of X(v) = c0 v^2 + x v + 1/2 into V+ (X > 0) and V- (X < 0), and
 #   W+-_f = int_{V+-} 2 v^2 e^{-t v^2 - s X(v)} dv,   W+-_F = int_{V+-} X'(v) e^{-t v^2 - s X(v)} dv,
 # incomplete Gaussian integrals in closed form (ctr_h, ctr_moments).  The term Psi_t(1/2) = int_{-inf}^{1/2} phi_t of
-# Theorem 2 is split at X = 0: the kernel of (0, 1/2), (1 - e^{-s/2})/s, is entire and rides on G+, the kernel of
+# the line integral representation is split at X = 0: the kernel of (0, 1/2), (1 - e^{-s/2})/s, is entire and rides on G+, the kernel of
 # (-inf, 0), -1/s, needs Re s < 0 and rides on G-.  On G+ the factor e^{-s X(v)}, X >= 0, is bounded, on G- likewise with
 # X <= 0, so the v-integrals never enter their Gaussian regime except on the short vertical segments; this is what defeats
-# the plain vertical lines of Theorem 1.  With a fixed start the roots are essential singularities of Mt (Q has simple
+# the plain vertical lines of the inversion formula.  With a fixed start the roots are essential singularities of Mt (Q has simple
 # poles there), so the paths cannot be collapsed onto the cuts; they pass the roots at a distance chosen by ctr_place.
 #
 # At each point t the pieces whose Gaussian factor is below e^{-50} from their start, Re(t) a^2 > 50, are dropped
@@ -4328,7 +4334,7 @@ end
 # golden section.  B is a bound of the largest term of the quadrature (the cancellation) plus the cost of grading.
 #
 # The outer contour (ctr_value).  C: t(u) = tau + a (cosh u - 1) + i b sinh u, u in R, conjugate symmetric, vertical at
-# t = tau (the line of Theorem 2), asymptotically at the angle phi = phi(c) (45 degrees for c >= -10, rising linearly to 70
+# t = tau (the line of the line integral representation), asymptotically at the angle phi = phi(c) (45 degrees for c >= -10, rising linearly to 70
 # degrees at c = -40, 70 below), a = b cot phi, b = 0.9 min(tau, t_* - tau)/sin(y), y = min(0.5, 0.9 (pi/2 - phi)) the
 # half-width of the strip of analyticity in u that the step is designed for; along C the edge factors e^{-t v_j^2} of
 # the roots v_j of X decay instead of oscillating.  F = (h/pi) sum' Im{I_F(t_k) t'(u_k)/t_k}, likewise f, the trapezoidal
@@ -4450,7 +4456,8 @@ ctr_active(pcs, tr::Float64) = Tuple(p for p in pcs if tr * p[1] * p[1] <= 50)
 
 """the data of a point t of the outer contour: the roots (s1 the one that is Re > 0 at tau, s2 the other; case DK has s1
 only, r1 = true), P(t), KQ = c^{2d} e^c g(z) P^2 (cases DU, DT) and, in case DK, K1 = t/s1, K2 = 1/(2 s1 S^2) with
-S = e^{-c}/P^2 = sinh(th)/th (Proposition 2: g0^2 Q = g0^2 (K1 + K2 s/(s1 - s)))"""
+S = e^{-c}/P^2 = sinh(th)/th (the joint moment generating function with a fixed start: g0^2 Q = g0^2 (K1 +
+K2 s/(s1 - s)))"""
 struct CtrT
     t::ComplexF64; s1::ComplexF64; s2::ComplexF64; P::ComplexF64; KQ::ComplexF64; K1::ComplexF64; K2::ComplexF64; r1::Bool
 end
@@ -4876,9 +4883,10 @@ function tr_contour(x::Vector{Float64}, model::Int, c::Float64; c0::Float64 = 0.
 end
 
 # =====================================================================================================================
-# The applications of the paper (Sections 6 and 7): the ADFmax statistic of Leybourne (1995), the coefficient statistic,
-# the probability of a region {U <= g(V)} of the plane, the linear form U - aV by the inversion formula of Gil-Pelaez and
-# the asymptotic power envelope of Elliott, Rothenberg and Stock (1996), with the names and the arguments of the MATLAB
+# The applications of the paper (local power, confidence sets, the weighted-average-power test): the ADFmax statistic of
+# Leybourne (1995), the coefficient statistic, the probability of a region {U <= g(V)} of the plane, the linear form
+# U - aV by the inversion formula of Gil-Pelaez and the asymptotic power envelope of Elliott, Rothenberg and Stock
+# (1996), with the names and the arguments of the MATLAB
 # programs (public/adfmax_cdf.m, coef_cdf.m, ltratio_region.m, ltratio_lincdf.m, power_envelope.m, ...).  The code was
 # moved here from the scripts julia/application/adfmax.jl, power.jl and wap.jl (November 2026), unchanged but for the
 # module prefix and the bisection, which is ltratio_bisect throughout (the same steps as the scripts' bisect).
@@ -4917,7 +4925,7 @@ end
 # ---------------------------------------------------------------------------------------------------------------------
 # The linear form U - aV and V with a zero start, by Gil-Pelaez (from julia/application/wap.jl and power.jl)
 # One-dimensional inversions (Gil-Pelaez) from the joint moment generating function of case K,
-# M(s,t) = e^{-(s+c)/2} (C - (c+s)S)^{-1/2}, C = cosh mu, S = sinh(mu)/mu, mu^2 = c^2 - 2t (Proposition 1).
+# M(s,t) = e^{-(s+c)/2} (C - (c+s)S)^{-1/2}, C = cosh mu, S = sinh(mu)/mu, mu^2 = c^2 - 2t (the joint moment generating function with a zero start).
 # log D(s,t) with the exponential growth taken out: D = C - (c+s)S = e^mu/2 [(1 + E) - (c+s)(1 - E)/mu], E = e^{-2 mu},
 # Re mu > 0 (c^2 - 2t stays in the right half-plane along u, so the principal root is continuous); the phase of the bracket
 # is unwrapped along u.  Returns the characteristic function values exp(-(s+c)/2) D^{-1/2}.
@@ -5153,8 +5161,9 @@ end
 
 The limiting probability P{U <= g(V)} of a region of the plane under phi = 1 + c/n, no drift, zero start, case "DK" (no
 deterministic terms; also the constant case with GLS demeaning), with U = int J dJ and V = int J^2 as in `ltratio_cdf`.
-Every test of the unit root in the limit experiment of case DK rejects on such a region (Section 7 of the paper), and
-Theorem 3 gives its probability for every boundary g, by one outer integral over V (`tr_region`).  `bnd` is a
+Every test of the unit root in the limit experiment of case DK rejects on such a region (the paper's section on the
+weighted-average-power test), and the first part of the conditional integral representation, the probability of a region of the
+plane, gives its probability for every boundary g, by one outer integral over V (`tr_region`).  `bnd` is a
 NamedTuple (or a Dict) with the field `type` and its parameters:
 
   - `(type = "line", a, b)`: g(v) = b + a v (the point-optimal test, U - aV <= b)
@@ -5167,7 +5176,7 @@ and optionally `v0` (g = +Inf on (0, v0), whose probability P(V < v0) is added) 
 the outer rule).  Options as in `tr_region`.  Accurate to about 1e-11.  As LTRATIO_REGION of the MATLAB programs, whose
 bnd is a structure with the same fields.
 
-    ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK", 0)   # 0.05 (Table V of the paper)
+    ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK", 0)   # 0.05 (the critical values of the weighted-average-power test in the paper)
 """
 function ltratio_region(bnd, cas::AbstractString = "DK", c::Real = 0; kw...)
     uppercase(String(cas)) == "DK" || throw(ArgumentError("ltratio_region: the case must be DK (zero start)"))
@@ -5527,11 +5536,11 @@ The limit as n -> inf of P[ADFmax <= x] under phi = 1 + c/n, no drift, for the l
 the forward regression (y_t on y_{t-1}) and of the reverse regression (y_t on y_{t+1}) of Leybourne (1995), with a
 constant ("DU", "SU") or a constant and a trend ("DT", "ST"), zero start ("D") or stationary start ("S", c <= -1e-4).  In the
 limit both regressions have the denominator V and the numerators U and -U - 1, so that ADFmax => (|R| - 1/2)/sqrt(V),
-R = U + 1/2, and {ADFmax <= x} = {|R| <= 1/2 + x sqrt(V)}, a region between two curves of the plane (Section 6.2 of the
-paper), by the conditional integral (`tr_adfmax`, whose options are passed on).  x may be an array; F = 0 at -Inf, 1 at
+R = U + 1/2, and {ADFmax <= x} = {|R| <= 1/2 + x sqrt(V)}, a region between two curves of the plane (the ADFmax test of
+the paper), by the conditional integral (`tr_adfmax`, whose options are passed on).  x may be an array; F = 0 at -Inf, 1 at
 Inf, NaN at NaN.  Accurate to about 1e-11.  As ADFMAX_CDF of the MATLAB programs (which also returns the error estimates).
 
-    adfmax_cdf(-2.43542, "DU")                      # 0.05 (Table I of the paper)
+    adfmax_cdf(-2.43542, "DU")                      # 0.05 (the quantiles of the ADFmax statistic in the paper)
 """
 adfmax_cdf(x, cas::AbstractString, c::Real = 0; kw...) = adfmax_vals(false, x, cas, c; kw...)
 """
@@ -5548,7 +5557,7 @@ The p-quantiles (p a number or an array in (0, 1)) of the limit of `adfmax_cdf`,
 the derivative, safeguarded by bisection on a bracket grown from [x0 - 1, x0 + 1] in steps of one, to `tol`.  Further
 options go to `adfmax_cdf`.  As ADFMAX_ICDF of the MATLAB programs.
 
-    adfmax_icdf([0.01, 0.05, 0.10], "DT")           # -3.67949 -3.11891 -2.82890 (Table I of the paper)
+    adfmax_icdf([0.01, 0.05, 0.10], "DT")           # -3.67949 -3.11891 -2.82890 (the quantiles of the ADFmax statistic in the paper)
 """
 function adfmax_icdf(p, cas::AbstractString, c::Real = 0; tol::Float64 = 1e-10, x0::Float64 = -2.0, kw...)
     one(pk) = begin

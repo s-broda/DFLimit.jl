@@ -33,8 +33,9 @@ unchanged; the same functions, with the same names and arguments, exist in MATLA
 The case `cas` is a two-letter code: `D` (fixed start, `g0`, default 0) or `S` (stationary start, c <= -1e-4),
 followed by `K` (no deterministic terms, tau), `U` (intercept, tau_mu) or `T` (intercept and trend, tau_tau);
 `"DG"` is the GLS-detrended trend case (DF-GLS, cbar = -13.5). `method` is `:auto` (at each point the fastest
-representation that one evaluation gives to well below 1e-5), `:single` or `:line` (the line integral, Theorem 2),
-`:double` or `:conditional` (the conditional integral, Theorem S1) or `:contour` (the contour integral: Theorem 1 with the
+representation that one evaluation gives to well below 1e-5), `:single` or `:line` (the line integral representation of
+the paper), `:double` or `:conditional` (the conditional integral representation) or `:contour` (the contour integral
+representation: the inversion formula on paths around the singularities of the moment generating function, with the
 integral over v in closed form and the paths in s and t deformed, a double integral with an explicit integrand; a fixed
 start in cases DU and DT only, and there the choice of `:auto`). By default (`verified = false`) every value is one
 evaluation by one method, with a warning, once per call, where the parameters lie in a regime in which one evaluation is
@@ -91,7 +92,7 @@ julia> coef_cdf(-14.0936, "DU", -10)                  # power of the 5% coeffici
 julia> adfmax_icdf(0.05, "DU")                        # 5% critical value of ADFmax with a constant
 -2.435416499432509
 
-julia> ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK")   # size of the WAP test of Section 7
+julia> ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK")   # size of the WAP test of the paper
 0.049999622834651807
 
 julia> power_envelope(-7)                             # the power envelope at c = -7
