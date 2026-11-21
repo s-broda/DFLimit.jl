@@ -1,5 +1,27 @@
 # News
 
+## 0.5.0
+
+Three errors of the engine are repaired. Values outside the regions named below are unchanged bit for bit.
+
+- **Wrong values with a fixed start.** With a fixed start (`g0 != 0`), a negative local null value close to zero
+  (`c0` of -0.01 or -0.001), `x > 0` and `c >= 0`, the line integral returned wrong values, from errors of 1e-7 and
+  2e-3 that look plausible to values of 1e74 and beyond: at `c = 0`, `c0 = -0.01`, `g0 = 1`, `x = 1.5` in case DK it
+  returned 5.6e74 where the value is 0.960992. Case DK was affected by default, cases DU and DT with
+  `method = :single`. A piece of the path that should descend climbed and cancelled against its neighbour; such a
+  piece is now cut back.
+- **Unbounded memory for a negative local null value near zero.** With `c0 < 0` close to zero and `x > 0`, in every
+  case and with every start, the paths of the line integral grow like `(x/c0)^2` and every node was stored: a call
+  with a stationary start at `c = c0 = -1e-4` took more than 5 GB. Paths are now summed as they are built and are
+  limited to two million nodes. Points beyond the limit go to the conditional integral under `method = :auto`, with a
+  warning where a value is flagged; with `method = :single`, and in case DG, they raise an `ArgumentError` that names
+  the arguments.
+- **Unbounded memory at large `x` above the unit root.** In the bulk of the distribution at `c = 7` and beyond (`x`
+  in the hundreds) every new Gauss-Legendre rule was built with its full matrix of eigenvectors: case DT at `c = 7`,
+  `x = 403.7` took 3 GB. Rules above 1024 nodes are now computed by Newton's method in memory proportional to their
+  size, and are limited to 4096 nodes; points beyond that go to the conditional integral as above.
+- The caches kept per point and per `c` hold at most 64 entries.
+
 ## 0.4.0
 
 - The documentation and the comments refer to the representations by name (the line integral, the contour integral
