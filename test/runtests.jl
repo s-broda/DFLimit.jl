@@ -256,6 +256,46 @@ end
     @test_throws ErrorException ltratio_bisect(x -> x^2 + 1, -1, 1)
 end
 
+# The linear form near a = 0 (November 2026): the inversion of Gil-Pelaez truncated at u = 4000 was off by up to 7e-2 near
+# the edge b = -1/2 of the law of U alone (a = 0, a gamma(1/2) variable less 1/2) and 1e-3 in the bulk for |a| up to about
+# 0.3, and for c > 0 where U - aV is wide; now a conditional integral serves there (the region in case DK, the conditional
+# integral given U in case DG).  References: the closed form at a = 0, P(U <= b) = erf(sqrt(kappa (b + 1/2))) with kappa
+# = 2c/(e^{2c} - 1) (case DK); the conditional integral given U (lincond, case DK) against the region; in case DG the
+# inversion of Gil-Pelaez on a grid 40 times finer up to u = 4e5 and the contour integral of the newer engine (DFDet).
+@testset "the linear form near a = 0" begin
+    kap(c) = c == 0 ? 1.0 : 2c / expm1(2c)
+    for c in (-50.0, -5.0, 0.0, 2.0), b in (-0.6, -0.5 - 1e-6, -0.5 + 1e-6, -0.49, -0.3, 0.5, 2.0)
+        F = ltratio_lincdf(b, 0.0, "DK", c)
+        @test F ≈ (b > -0.5 ? erf(sqrt(kap(c) * (b + 0.5))) : 0.0) atol = 1e-13
+    end
+    for c in (-5.0, 0.0), a in (1e-6, -1e-6, 1e-3, -1e-3, 0.1, -0.1, 0.3), b in (-0.6, -0.51, -0.5 + 1e-5, -0.49, 0.5)
+        @test ltratio_lincdf(b, a, "DK", c) ≈ D.lincond(b, a, "DK", c) atol = 1e-12
+    end
+    @test ltratio_lincdf(-0.51, 0.3, "DG", -5.0) ≈ 0.291315235195 atol = 1e-11
+    @test ltratio_lincdf(-0.51, 0.3, "DG", 0.0) ≈ 0.287795093100 atol = 1e-11
+    @test ltratio_lincdf(-0.51, 0.3, "DG", -13.5) ≈ 0.102096301375 atol = 1e-11
+    kg = D.lincond_setup("DG", 0.0, -13.5).kap
+    @test ltratio_lincdf(-0.49, 0.0, "DG", 0.0) ≈ erf(sqrt(kg * 0.01)) atol = 1e-14
+    F = ltratio_lincdf(collect(range(-1.0, 1.0; length = 41)), 1e-4, "DG", -1.0)
+    @test all(0 .<= F .<= 1) && issorted(F)
+    @test ltratio_lincdf(-0.6, -1e-3, "DK", 0.0) == 0.0                   # (below the support: a <= 0, b < -1/2)
+    # c > 0 against the inversion of Gil-Pelaez on a grid of 1.2e6 nodes up to 1e5; detrended at cbar = -0.1, where the
+    # conditional law of V given R turns within a fraction of the scale of R (the adaptive panels of the outer integral)
+    @test ltratio_lincdf(-0.45, -0.3, "DG", 2.0) ≈ 0.270133915145322 atol = 1e-12
+    @test ltratio_lincdf(-0.32, -1.0, "DG", 2.0; cbar = -0.1) ≈ 0.455160024556188 atol = 1e-12
+    @test isequal(ltratio_lincdf([-Inf, NaN, Inf], 0.0, "DK", 0.0), [0.0, NaN, 1.0])
+    @test isequal(ltratio_lincdf([-Inf, NaN, Inf], -3.5, "DK", 0.0), [0.0, NaN, 1.0])
+    # the power envelope near c = 0: against the critical value and the power by the region (case DK), and alpha + O(c^2) in
+    # case DG
+    @test power_envelope(-0.01, "DK") ≈ 0.050249919491 atol = 1e-10
+    @test power_envelope(-1e-4, "DK") ≈ 0.050002496746 atol = 1e-10
+    @test 0.05 < power_envelope(-1e-3, "DG") < 0.05 + 1e-8
+    # the law of V far from the unit root (the transform decays only from u ~ 15 |c|^{3/2}): against a grid up to 4e6
+    @test ltratio_lincdf(D.EVdk(-200.0), NaN, "DK", -200.0) ≈ 0.519901089453532 atol = 1e-11
+    @test occursin("at least -550", errmsg(() -> ltratio_lincdf(0.0, 1.0, "DK", -600)))
+    @test occursin("case DG is available for c up to about 3.5", errmsg(() -> ltratio_lincdf(0.0, 0.01, "DG", 6.0)))
+end
+
 # the values do not depend on the number of tasks (the order of summation can change the last digit); with one thread the
 # tasks run in turn, which still exercises the threaded loops
 @testset "number of tasks" begin
