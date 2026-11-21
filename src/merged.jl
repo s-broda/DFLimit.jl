@@ -108,9 +108,12 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         # c = c0 = -300 with a stationary start, where the classical documents errors of 1e-8 to 2e-7)
         return c >= -50 ? :general : :classical
     elseif f === :lincdf
-        # x = a: the law of V (a = NaN, 200 times faster), small |a| (the classical Gil-Pelaez inversion is off by 1.2e-5 at
-        # a = 0, 4e-9 at a = -0.1) and case DG (2.9 times faster)
-        (isnan(x) || abs(x) < 1 || cas == "DG") && return :general
+        # x = a.  The classical code wherever abs(a) is not small, and in case DG.  Provisional until the repair of the
+        # classical linear form (branch lincdf of DFLimit.jl) is merged, after which the classical cases take it for every
+        # a: case DK with abs(a) < 1 and the law of V (a = NaN, 200 times faster) by the general engine below c = 4 (the
+        # Gil-Pelaez inversion before the repair is off by up to 7e-2 near the edge of the support at small abs(a); the
+        # general engine's lin_cdf is off by 1.2e-4 at that edge and wrong in case DK at c = 5, on the vertical line)
+        (cas == "DK" && c < 4 && (isnan(x) || abs(x) < 1)) && return :general
         return :classical
     elseif f === :adfmax
         # (the general engine is 1.9 to 2.6 times faster with a stationary start, but the classical engine's stored values

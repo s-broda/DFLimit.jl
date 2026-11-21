@@ -1,7 +1,9 @@
 # The tests of the general engine (DFLimit.DFDet; the file test/runtests.jl of the repository df-deterministics, with this
 # header), about a minute: the covariance Sigma against nested adaptive quadrature, the determinant against DFExact.Dfun
 # in cases DK, DU, DT, the distribution function against DFLimit's ltratio_cdf, t_* at a double zero, the inertia of A,
-# the parity with the classical engine, the speed stage, the path tables, and regression tests of critical values.
+# the parity with the classical engine, the speed stage, the path tables, and regression tests of critical values.  The
+# comparisons with the classical functions force their engine (engine = :classical) where the rule of the merged package
+# would take the general engine itself.
 using DFLimit
 using DFLimit.DFDet
 using Test, QuadGK, LinearAlgebra, Logging
@@ -54,8 +56,8 @@ end
     @testset "distribution function, cases DK DU DT" begin
         xs = [-3.5, -2.0, -0.7, 0.4]
         for (cas, p) in (("DK", -1), ("DU", 0), ("DT", 1))
-            @test maximum(abs, dist_cdf(trend(p), xs, -5.0) - ltratio_cdf(xs, cas, -5.0)) < 1e-10
-            @test maximum(abs, dist_pdf(trend(p), xs, -5.0) - ltratio_pdf(xs, cas, -5.0)) < 1e-10
+            @test maximum(abs, dist_cdf(trend(p), xs, -5.0) - ltratio_cdf(xs, cas, -5.0; engine = :classical)) < 1e-10
+            @test maximum(abs, dist_pdf(trend(p), xs, -5.0) - ltratio_pdf(xs, cas, -5.0; engine = :classical)) < 1e-10
         end
     end
     @testset "fixed start: Qf against DFLimit's qstart" begin
@@ -106,7 +108,7 @@ end
     @testset "distribution function: fixed and stationary start" begin
         xs = [-3.5, -2.0, -0.7, 0.4]
         @test maximum(abs, dist_cdf(trend(1), xs, -5.0; start = :fixed, gamma0 = 2.0) - ltratio_cdf(xs, "DT", -5.0; g0 = 2.0)) < 1e-10
-        @test maximum(abs, dist_cdf(trend(-1), xs, -5.0; start = :fixed, gamma0 = 1.5) - ltratio_cdf(xs, "DK", -5.0; g0 = 1.5)) < 1e-10
+        @test maximum(abs, dist_cdf(trend(-1), xs, -5.0; start = :fixed, gamma0 = 1.5) - ltratio_cdf(xs, "DK", -5.0; g0 = 1.5, engine = :classical)) < 1e-10
         @test maximum(abs, dist_cdf(trend(0), xs, -5.0; start = :stationary) - ltratio_cdf(xs, "SU", -5.0)) < 1e-10
         @test maximum(abs, dist_pdf(trend(1), xs, -10.0; start = :stationary) - ltratio_pdf(xs, "ST", -10.0)) < 1e-10
     end
@@ -133,8 +135,8 @@ end
     end
     @testset "coefficient statistic and moments" begin
         ys = [-20.0, -8.0, -1.0]
-        @test maximum(abs, DFDet.coef_cdf(trend(1), ys, -5.0) - DFLimit.coef_cdf(ys, "DT", -5.0)) < 1e-10
-        @test maximum(abs, coef_cdf_gp(trend(0), ys, 0.0) - DFLimit.coef_cdf(ys, "DU", 0.0)) < 1e-10
+        @test maximum(abs, DFDet.coef_cdf(trend(1), ys, -5.0) - DFLimit.coef_cdf(ys, "DT", -5.0; engine = :classical)) < 1e-10
+        @test maximum(abs, coef_cdf_gp(trend(0), ys, 0.0) - DFLimit.coef_cdf(ys, "DU", 0.0; engine = :classical)) < 1e-10
         @test abs(DFDet.coef_quantile(trend(-1), 0.05) - (-8.039128903)) < 1e-8
         m, _ = dist_moments(trend(0), -5.0; c0 = -5.0)
         @test maximum(abs, m - DX.moments(2; c = -5.0, c0 = -5.0)) < 1e-9
@@ -233,7 +235,7 @@ end
         @test dist_pdf(trend(-1), [-2.0, -1.5], 0.0; c0 = 2.0)[1] == Inf
         @test isfinite(dist_pdf(trend(0), [-2.0], 0.0; c0 = 2.0)[1])
         q = dist_quantile(trend(0), [0.05, 0.10]; x0 = -2.8)
-        @test maximum(abs, q - ltratio_icdf([0.05, 0.10], "DU")) < 1e-8
+        @test maximum(abs, q - ltratio_icdf([0.05, 0.10], "DU"; engine = :classical)) < 1e-8
     end
     @testset "fixed start with c0 > 0 above the unit root; the line with c0 < 0 warns; GLS at a small cbar" begin
         m = ltratio_mom(2, "DU", 2.0; c0 = 3.0, g0 = 1.5); xs = m[1] .+ sqrt(m[2] - m[1]^2) .* [0.0, 2.0, 4.0]

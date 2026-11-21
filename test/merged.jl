@@ -35,7 +35,8 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:mom, spec("DT"), -5, 0, 0) == :general && ae(:mom, spec("SK"), -300, -300, 0) == :classical
         lk = MD.lin_spec("DK", -13.5); lg = MD.lin_spec("DG", -13.5)
         @test ae(:lincdf, lk, 0, 0, NaN) == :general && ae(:lincdf, lk, 0, 0, 0.0) == :general && ae(:lincdf, lk, 0, 0, -3.5) == :classical
-        @test ae(:lincdf, lg, 0, 0, -7.3) == :general
+        @test ae(:lincdf, lk, 5, 0, 0.0) == :classical && ae(:lincdf, lk, 5, 0, NaN) == :classical    # (the general lin_cdf is wrong at c = 5)
+        @test ae(:lincdf, lg, 0, 0, -7.3) == :classical && ae(:lincdf, lg, 0, 0, 0.1) == :classical
         @test ae(:adfmax, spec("SU"), -10, 0, 0) == :classical && ae(:adfmax, spec("DU"), 0, 0, 0) == :classical
         @test ae(:envelope, spec("DK"), 0, 0, 0) == :classical && ae(:region, spec("DK"), -5, 0, 0) == :classical
     end

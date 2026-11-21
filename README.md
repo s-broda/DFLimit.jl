@@ -136,19 +136,21 @@ they differ by more than 1e-8 it compares each with the other's checked computat
 | quantiles at c0 = 0: a fixed start, cases DT and ST for c <= 0, case DU at c = 0 | general | 408 to 1142 | 214 to 434 | 1e-10 | 1.7 to 3.8 times faster (one path, F and f in one pass) |
 | quantiles otherwise | classical | 48 to 388 | 145 to 725 | 3e-11 | 1.1 to 15 times faster; each evaluation of the search routed |
 | the coefficient statistic | as the t-ratio at x = 0 with the null value c0 + y | 14 to 182 | 24 to 137 | 8e-11 | (case SU at c = -5: 7.5 times faster by the general engine) |
-| P(V <= b) (`ltratio_lincdf` with a = NaN) | general | 6 | 0.03 | 3e-15 | 200 times faster |
-| P(U - aV <= b), abs(a) < 1 (case DK), and case DG | general | 3 to 93 | 8 to 35 | 1.2e-5 (a = 0) | the classical inversion is off at small abs(a) (by 4e-5 against the closed form at a = 0); case DG 2.6 times faster |
-| P(U - aV <= b), abs(a) >= 1, case DK | classical | 5 to 6 | 8 to 15 | 1e-12 | 1.3 to 2.7 times faster |
+| P(V <= b) (`ltratio_lincdf` with a = NaN), c < 4 | general (provisional) | 6 | 0.03 | 3e-15 | 200 times faster |
+| P(U - aV <= b), abs(a) < 1, case DK, c < 4 | general (provisional) | 3 to 5 | 8 to 15 | 1.2e-5 in the bulk at a = 0 | the classical inversion before its repair is off near the edge of the support by up to 7e-2 at small abs(a) (the general engine there by 1.2e-4) |
+| P(U - aV <= b) otherwise (abs(a) >= 1, case DG, c >= 4) | classical | 5 to 93 | 8 to 35 | 1e-12 | the general engine's lin_cdf is wrong in case DK at c = 5 (the vertical line) |
 | the power envelope | classical | 79, 627 | 135, 835 | 2.1e-9 | 1.3 to 1.7 times faster |
 | ADFmax | classical | 30 to 214 | 80 to 83 | 3e-12 | faster with a zero start; with a stationary start the general engine is 2.2 to 2.6 times faster, but the stored checks hold the classical values to 1e-12 |
 | regions (`ltratio_region`) | classical | 2 | 6 | 1e-12 | 3.3 times faster, and the only engine for the WAP boundary and a function g |
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
 
-Where the classical engine computes, its values are those of 0.5.0 bit for bit. The linear form P(U - aV <= b) is being
-repaired in the classical engine (it is inaccurate near the edge of the support, by up to 7e-2, and at small |a|); the
-general engine's `lin_cdf` is off by 1.2e-4 at that edge too. Once the repair lands, the rule for the linear form should
-be measured again: where the repaired classical inversion is as accurate, case DK with |a| < 1 goes back to it (2.5 to
-4 times faster), P(V <= b) and case DG stay with the general engine unless the repair changes their cost.
+Where the classical engine computes, its values are those of 0.5.0 bit for bit. The linear form P(U - aV <= b) is
+repaired in the classical engine on the branch `lincdf` (by the region in case DK and a conditional integral given the
+numerator in case DG; within 3e-13 of a converged inversion on 12,490 points, the closed forms at a = 0 to 3e-15). The
+two provisional cells above hold until that branch is merged; then the classical cases take the repaired classical code
+for every a, and the general engine serves the linear form only for the designs the classical engine does not have.
+The general engine's `lin_cdf` is off by 1.2e-4 at the edge of the support and wrong in case DK at c = 5 (an open
+defect of the general engine).
 
 ## Example
 
