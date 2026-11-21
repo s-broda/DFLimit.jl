@@ -2861,6 +2861,24 @@ function descent(gam::ComplexF64, alpha::ComplexF64, dir::Int, L::Float64, dep::
     max(l, 1e-12 * L), u
 end
 
+"""The length l of a descent piece of segint, halved until the real part of its exponent Ef (at 8 points along it) is at
+most Etop, the larger exponent of the two ends of the segment plus NOCLIMB; unchanged where it is (a descent piece
+normally falls).  Where the exponent rises into the segment at an end, as that of the noncentral kernel of case DK at
+v = 0 when the mass of the noncentral density lies further in, the steepest descent points out of the segment and
+`descent` clamps it to 80 degrees from the segment, where e^{-t v^2} grows like e^{Re(t) Im(v)^2} (at the real point
+t = tau straight up), and the piece climbed up to its depth L/8: with a root of X far out (c0 < 0 near zero, x > 0) to
+e^{213} at c = 0, c0 = -1e-2, g0 = 1, x = 1.5, its terms cancelling against those of the connection back to the real axis,
+F off by 6e74 (and by 7e-8 to 1e143 at x = 0.5 to 2; 3e-3 at c = 2, x = 1.5).  The C engine has the same fault."""
+function noclimb(Ef, l::Float64, Etop::Float64, L::Float64)
+    while l > 1e-12 * L
+        l0 = l                                                    # (a fresh binding: not boxed in the generator)
+        maximum(real(Ef(l0 * i / 8)) for i in 1:8) > Etop || break
+        l /= 2
+    end
+    l
+end
+const NOCLIMB = 4.0
+
 """The integral over the segment [a, b] of W(v) e^{-t v^2} phi_t(X(v)), split by the partition chi into the part near b (vr)
 and the part near a (vs: the bump at a = 0, or vl: the edge at a).  The path has the fixed endpoints a and b (so that each
 part is independent of it and analytic in t) and three straight pieces: from a in the direction of steepest descent of
@@ -2887,6 +2905,11 @@ function segint(V, tj::ComplexF64, sd::ComplexF64, sgn::Int, s1::ComplexF64, s2:
     degb = 80.0; fb = ellb / 2; kb == 0 && (degb = 45.0; fb = ellb)
     la, ua = descent(-2tj * a - sd * dXv(R, a) + ncexp_dv(V, xat(R, 0.0, a), sgn, s1, s2, dXv(R, a)), alpha, 1, L, dep, sg, dega)
     lb, ub = descent(-2tj * b - sd * dXv(R, b) + ncexp_dv(V, xat(R, 0.0, b), sgn, s1, s2, dXv(R, b)), alpha, -1, L, dep, sg, degb)
+    # a descent piece that climbs above the larger end of the segment is cut back (noclimb): its terms would cancel against
+    # the connection's
+    Etop = max(real(Ea), real(Eb)) + NOCLIMB
+    la = noclimb(z -> Ez(z * ua, a), la, Etop, L)
+    lb = noclimb(z -> Ez(z * ub, b), lb, Etop, L)
     pa_ = a + la * ua; pb_ = b + lb * ub
     # the three pieces: the integrand at the nodes (from the offsets along the two descent pieces, so that X is exact
     # near the ends) and the partition
