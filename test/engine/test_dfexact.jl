@@ -40,19 +40,19 @@ let wS = 0.0, wA = 0.0, wV = 0.0, wm = 0.0, wq = 0.0, nv = 0, ts = 0.0, ta = 0.0
         p[1] == "val" || continue
         cas = String(p[2]); c, c0, z, x, F, f = parse.(Float64, p[3:8])
         ts += @elapsed (Fs = ltratio_cdf(x, cas, c; c0, method = :single); fs = ltratio_pdf(x, cas, c; c0, method = :single))
-        ta += @elapsed (Fa = ltratio_cdf(x, cas, c; c0); fa = ltratio_pdf(x, cas, c; c0))         # (the default: one evaluation)
+        ta += @elapsed (Fa = ltratio_cdf(x, cas, c; c0, engine = :classical); fa = ltratio_pdf(x, cas, c; c0, engine = :classical))   # (the default of this engine: one evaluation)
         Fv = ltratio_cdf(x, cas, c; c0, verified = true); fv = ltratio_pdf(x, cas, c; c0, verified = true)
         wS = max(wS, abs(Fs - F), abs(fs - f)); wA = max(wA, abs(Fa - F), abs(fa - f)); wV = max(wV, abs(Fv - F), abs(fv - f)); nv += 1
     end
     for p in LR
         p[1] == "mom" || continue
         cas = String(p[2]); c, c0 = parse.(Float64, p[3:4]); mr = parse.(Float64, p[5:8])
-        m = ltratio_mom(4, cas, c; c0); wm = max(wm, maximum(abs.(m .- mr) ./ abs.(mr)))
+        m = ltratio_mom(4, cas, c; c0, engine = :classical); wm = max(wm, maximum(abs.(m .- mr) ./ abs.(mr)))   # (this engine's moments)
     end
     for p in LR
         p[1] == "icdf" || continue
         cas = String(p[2]); c, c0, pr, qr = parse.(Float64, p[3:6])
-        q = ltratio_icdf(pr, cas, c; c0); wq = max(wq, abs(q - qr))
+        q = ltratio_icdf(pr, cas, c; c0, engine = :classical); wq = max(wq, abs(q - qr))
     end
     @printf("%d points: single |dF|, |df| %.1e (%.1f ms per pair), auto (one evaluation) %.1e (%.1f ms per pair), auto verified %.1e; moments %.1e (relative); quantiles %.1e\n",
             nv, wS, 1e3ts / nv, wA, 1e3ta / nv, wV, wm, wq)

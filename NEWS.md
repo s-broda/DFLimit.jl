@@ -18,7 +18,13 @@
   `DFLimit.autoengine` (`engine = :auto`), or the one forced by `engine = :classical` or `engine = :general`; the rule
   and its measurements are the table "Which engine" of the README. Where the classical engine keeps the computation its
   values are unchanged bit for bit, and its checks of the arguments (the range of c, the region of the fixed start) are
-  those of 0.5.0 for case strings; a design beyond them goes to the general engine.
+  those of 0.5.0 for case strings; a design beyond them goes to the general engine. Where the rule takes the general
+  engine for a case string, the values move within the differences the table lists (at most 1.6e-9 relative in the
+  moments far from the unit root, where neither engine is converged; 2.1e-9 in the power envelope, where the general
+  engine's critical value is the more accurate: case DK at c = -7 gives 0.49940198281562 in place of
+  0.49940198260314117). The linear form of 0.5.0's repair stays with the classical engine in case DK (except `P(V <=
+  b)` below c = 4, by the general engine, 44 to 180 times faster) and goes to the general engine in case DG for `a !=
+  0`, `cbar <= -7`, `c <= 4` (1.4 to 80 times faster, within 1.1e-12).
 - **The statistics of the second paper as functions:** the point-optimal statistic and the Gaussian power envelope for
   any design (`pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`, `pt_envelope`; `power_envelope(c, D)`), the LM statistic
   of Schmidt and Phillips and of Amsler and Lee (`lm_cdf`, `lm_quantile`, `lm_power`) and the companions of the

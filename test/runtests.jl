@@ -249,7 +249,7 @@ end
     @test ltratio_region((type = "fun", g = v -> -1.94087 * sqrt(v)), "DK", -7) ≈ ltratio_cdf(-1.94087, "DK", -7; method = :single) atol = 1e-10
     @test ltratio_lincdf(-0.2639, -3.5, "DK", 0) ≈ 0.049996781931325174 atol = 1e-12
     E = power_envelope([-7.0, 0.0])
-    @test E[1] ≈ 0.49940198260314117 atol = 1e-10
+    @test E[1] ≈ 0.49940198281562 atol = 1e-10     # (was 0.49940198260314117, the classical value with the critical value bisected to 1e-9; the merged default, the general engine, gives the classical construction with the critical value to 1e-14 to 8e-13)
     @test E[2] == 0.05
     @test power_envelope(-13.5, "DG") ≈ 0.51441347319065545 atol = 1e-10
     @test ltratio_bisect(x -> x^3 - 2, 0, 2, 1e-12) ≈ cbrt(2) atol = 1e-12

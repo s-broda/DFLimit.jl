@@ -16,7 +16,9 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:dist, spec("SU"), -10, 0, -2) == :classical               # stationary start, c0 = 0
         @test ae(:dist, spec("DU"), -10, -10, -2) == :classical             # zero start, c0 < 0, -100 <= c <= 0
         @test ae(:dist, spec("DU"), -5, 2, -3) == :general                  # zero start, c0 > 0, -100 < c < 0
-        @test ae(:dist, spec("DU"), -100, 3, -3) == :classical && ae(:dist, spec("DK"), -5, 2, -3) == :classical
+        @test ae(:dist, spec("DU"), -100, 3, -3) == :classical && ae(:dist, spec("DU"), 2, 1, -3) == :classical
+        @test ae(:dist, spec("DK"), -5, 2, -3) == :general && ae(:dist, spec("DK"), 0, 2, -2 - 1e-4) == :general    # case DK below the tangency x* = -2
+        @test ae(:dist, spec("DK"), -5, 2, -2 + 1e-4) == :classical                                              # just above it
         @test ae(:dist, spec("DT"), -300, -300, -1) == :general             # zero start, c0 != 0, c < -100
         @test ae(:dist, spec("SU"), -10, -10, -1) == :general               # stationary start, c0 != 0, c <= -0.1
         @test ae(:dist, spec("SK"), -1e-4, -1e-4, 0.5) == :classical        # next to the unit root
@@ -28,17 +30,21 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:dist, spec("DU"; g0 = 1.0), -10, 0, -1) == :classical     # fixed start, cases DU, DT
         @test ae(:dist, spec("DG"), -10, 0, -2) == :classical
         # the other functions
-        @test ae(:icdf, spec("DT"), -5, 0, 0) == :general && ae(:icdf, spec("ST"), -10, 0, 0) == :general
+        @test ae(:icdf, spec("DT"), -5, 0, 0) == :general && ae(:icdf, spec("ST"), -10, 0, 0) == :general && ae(:icdf, spec("ST"), -0.1, 0, 0) == :classical
+        @test ae(:mom, spec("SU"), -0.1, 0, 0) == :classical && ae(:mom, spec("SK"), -0.01, -0.01, 0) == :general && ae(:mom, spec("ST"), -2, 0, 0) == :general
         @test ae(:icdf, spec("DU"), 0, 0, 0) == :general && ae(:icdf, spec("DU"), -10, 0, 0) == :classical
         @test ae(:icdf, spec("DK"), 0, 0, 0) == :classical && ae(:icdf, spec("DG"), 0, 0, 0) == :classical
         @test ae(:icdf, spec("DU"; g0 = 1.0), -5, 0, 0) == :general && ae(:icdf, spec("DU"; g0 = 0.5), -20, 2, 0) == :classical
-        @test ae(:mom, spec("DT"), -5, 0, 0) == :general && ae(:mom, spec("SK"), -300, -300, 0) == :classical
+        @test ae(:mom, spec("DT"), -5, 0, 0) == :general && ae(:mom, spec("SK"), -300, -300, 0) == :general && ae(:mom, spec("DU"), -10, -10, 0) == :classical
         lk = MD.lin_spec("DK", -13.5); lg = MD.lin_spec("DG", -13.5)
-        @test ae(:lincdf, lk, 0, 0, NaN) == :general && ae(:lincdf, lk, 0, 0, 0.0) == :general && ae(:lincdf, lk, 0, 0, -3.5) == :classical
+        @test ae(:lincdf, lk, 0, 0, NaN) == :general && ae(:lincdf, lk, 0, 0, 0.0) == :classical && ae(:lincdf, lk, 0, 0, -3.5) == :classical
         @test ae(:lincdf, lk, 5, 0, 0.0) == :classical && ae(:lincdf, lk, 5, 0, NaN) == :classical    # (the general lin_cdf is wrong at c = 5)
-        @test ae(:lincdf, lg, 0, 0, -7.3) == :classical && ae(:lincdf, lg, 0, 0, 0.1) == :classical
-        @test ae(:adfmax, spec("SU"), -10, 0, 0) == :classical && ae(:adfmax, spec("DU"), 0, 0, 0) == :classical
-        @test ae(:envelope, spec("DK"), 0, 0, 0) == :classical && ae(:region, spec("DK"), -5, 0, 0) == :classical
+        @test ae(:lincdf, lg, 0, 0, -7.3) == :general && ae(:lincdf, lg, 4, 0, 0.1) == :general && ae(:lincdf, lg, 4.5, 0, 0.1) == :classical
+        @test ae(:lincdf, lg, 0, 0, 0.0) == :classical && ae(:lincdf, MD.lin_spec("DG", -5.0), 0, 0, -2.0) == :classical
+        @test ae(:adfmax, spec("SU"), -10, 0, 0) == :general && ae(:adfmax, spec("SU"), -1e-4, 0, 0) == :classical && ae(:adfmax, spec("DU"), 0, 0, 0) == :classical
+        @test ae(:envelope, spec("DK"), -7, 0, 0) == :general && ae(:envelope, spec("DK"), -1e-4, 0, 0) == :classical
+        @test ae(:envelope, spec("DG"), -13.5, 0, 0) == :general && ae(:envelope, spec("DG"), -0.5, 0, 0) == :classical
+        @test ae(:region, spec("DK"), -5, 0, 0) == :classical
     end
 
     x = [-3.0, -2.0, -1.0]
@@ -50,12 +56,29 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ltratio_cdf(x, "DU", -5; c0 = 2.0, method = :single) == ltratio_cdf(x, "DU", -5; c0 = 2.0, engine = :classical, method = :single)
         @test ltratio_cdf(x, "SU", -10; c0 = -10, verified = true) == ltratio_cdf(x, "SU", -10; c0 = -10, verified = true, engine = :classical)
         @test ltratio_mom(4, "DT", -5) == ltratio_mom(4, "DT", -5; engine = :general)
-        @test ltratio_mom(4, "DT", -100) == ltratio_mom(4, "DT", -100; engine = :classical)
+        @test ltratio_mom(4, "DT", -100; c0 = -100) == ltratio_mom(4, "DT", -100; c0 = -100, engine = :general)
+        @test ltratio_mom(4, "DU", -100; c0 = -100) == ltratio_mom(4, "DU", -100; c0 = -100, engine = :classical)
         @test ltratio_icdf(0.05, "DT", -5) == ltratio_icdf(0.05, "DT", -5; engine = :general)
         @test ltratio_icdf(0.05, "DK") == ltratio_icdf(0.05, "DK"; engine = :classical)
         @test ltratio_lincdf([0.1, 0.3], NaN, "DK", -5) == ltratio_lincdf([0.1, 0.3], NaN, "DK", -5; engine = :general)
         @test ltratio_lincdf(-0.2639, -3.5, "DK", 0) == ltratio_lincdf(-0.2639, -3.5, "DK", 0; engine = :classical)
-        @test adfmax_cdf([-3.0, -2.4], "SU", -10) == adfmax_cdf([-3.0, -2.4], "SU", -10; engine = :classical)
+        @test ltratio_lincdf([-0.5, 0.0], -7.3, "DG", -1) == ltratio_lincdf([-0.5, 0.0], -7.3, "DG", -1; engine = :general)
+        @test maximum(abs, ltratio_lincdf([-0.5, 0.0], -7.3, "DG", -1; engine = :general) - ltratio_lincdf([-0.5, 0.0], -7.3, "DG", -1; engine = :classical)) < 1e-10
+        @test adfmax_cdf([-3.0, -2.4], "SU", -10) == adfmax_cdf([-3.0, -2.4], "SU", -10; engine = :general)
+    end
+
+    @testset "far from the unit root: the merged default against the stored values" begin
+        # (test/engine/largec_ref.txt, the classical engine's values, which test_dfexact.jl holds it to 1e-10).  The moments of
+        # the merged default come from the general engine at c0 = 0 and with a stationary start: within 1e-10 except with
+        # c0 = c and a stationary start, where both engines move by 1e-8 to 5e-7 relative under refinement of their rules
+        # and differ by up to 4.1e-9 (scratch evidence in the report of the merge): 5e-9 there; with c0 = c and a zero start
+        # below c = -100 both move by up to 1e-10 and differ by up to 5.2e-10 (the general engine takes case DT): 5e-10
+        for l in eachline(joinpath(@__DIR__, "engine", "largec_ref.txt"))
+            p = split(l); p[1] == "mom" || continue
+            cas = String(p[2]); c, c0 = parse.(Float64, p[3:4]); mr = parse.(Float64, p[5:8])
+            tol = (cas[1] == 'S' && c0 != 0) ? 5e-9 : (c0 != 0 && c <= -200) ? 5e-10 : 1e-10
+            @test maximum(abs.(quietly(() -> ltratio_mom(4, cas, c; c0)) ./ mr .- 1)) < tol
+        end
     end
 
     @testset "the engines forced against each other" begin

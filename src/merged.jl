@@ -83,44 +83,79 @@ and the measurements behind it are the table "Which engine" of the README (dev/e
 function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
     cas = S.case; fixed = S.start == :fixed; stat = S.start == :stationary
     if f === :dist
-        # the t-ratio: the classical line integral (zero and stationary starts at c0 = 0: 2 to 27 times faster) and its
-        # conditional integral (c0 < 0 with a zero start down to c = -100), except where the general engine is faster
-        # at the same accuracy (the classical engine is right everywhere here; its own rules for c0 < 0 above the unit root,
-        # where the general engine is off by 7e-3, and in the bulk at c >= 7, 2 to 30 times faster, stay)
-        stat && c0 != 0 && c <= -0.1 && return :general                    # 3 to 140 times faster (tails below 1e-3: see merged_dist)
-        # (not case DK, whose density is infinite at the tangency x = -sqrt(2 c0) and which the classical engine's stored
-        # checks hold to its line integral there)
-        !fixed && !stat && c0 > 0 && -100 < c < 0 && cas != "DK" && return :general   # 2.6 to 4.5 times faster
-        !fixed && !stat && c0 != 0 && c < -100 && return :general            # 2.4 to 3.2 times faster
-        fixed && cas == "DK" && c <= 1 && (c * S.g0)^2 / 2 <= 400 && return :general   # 1.3 to 3 times faster
+        # the t-ratio.  The faster engine where the two agree to 1e-10, the more accurate one where they do not; the
+        # classical line integral keeps c0 = 0 with a zero or stationary start (1.7 to 28 times faster), its conditional
+        # integral c0 < 0 with a zero start down to c = -100, and c0 < 0 above the unit root (the general engine off by 7e-3)
+        # and the bulk at c >= 7 (2.7 to 34 times faster) through the default below
+        stat && c0 != 0 && c <= -3e-3 && return :general                   # 2.4 to 140 times faster; nearer zero the general engine
+                                                                           # is off by 1e-10 to 7e-8 in cases SU, ST (tails below 1e-3: see merged_dist)
+        if !fixed && !stat && c0 > 0 && -100 < c <= 1
+            # 1.6 to 4.8 times faster.  In case DK the density is infinite at the tangency x* = -sqrt(2 c0); just above it
+            # (within 1e-3 of x*) the classical line integral is the more accurate (the general engine's density off by up
+            # to 1.5e-3 relative at x* + 1e-9, the classical by 5e-10), below it the general engine (the classical density
+            # off by 10% at x* - 1e-9 at c = -20, c0 = 0.5, and by orders of magnitude at c = -50, c0 = 3)
+            if cas == "DK"
+                xs = -sqrt(2c0)
+                (xs < x <= xs + 1e-3 * max(1.0, abs(xs))) && return :classical
+            end
+            return :general
+        end
+        !fixed && !stat && c0 != 0 && c < -100 && return :general            # 2.4 to 3.3 times faster
+        # the fixed start of case DK: 1.04 to 4.3 times faster (beyond, the classical engine is up to 1.5 times faster)
+        fixed && cas == "DK" && c <= 1 && ((c * S.g0)^2 / 2 <= 400 || (S.g0 <= 0.5 && c >= -100)) && return :general
         return :classical
     elseif f === :icdf
         # the quantiles at c0 = 0: the general engine's search, which evaluates F and f in one pass on one path, where it is
         # the faster (the trend cases and the fixed start: 1.7 to 4.5 times); the classical Newton search otherwise
         c0 == 0 || return :classical
         fixed && return :general
-        (cas in ("DT", "ST") && c <= 0) && return :general
+        (cas == "DT" && c <= 0) && return :general
+        (cas == "ST" && c <= -1) && return :general                         # (next to zero, as the moments)
         (cas == "DU" && c == 0) && return :general                          # (from c = -1 on the classical search is the faster, by 1.1 to 1.3)
         return :classical
     elseif f === :mom
-        # 1.1 to 20 times faster down to c = -50; below, the classical engine (its stored values far from the unit root,
-        # which the general engine's differ from by up to 4e-9 relative in the third and fourth moments, 1.6e-9 at
-        # c = c0 = -300 with a stationary start, where the classical documents errors of 1e-8 to 2e-7)
-        return c >= -50 ? :general : :classical
+        # the general engine at c0 = 0 (1.1 to 25 times faster; equal in case DK) and with a stationary start (1.3 to 5
+        # times faster); with c0 != 0 and a zero start the classical engine (2.5 to 3 times faster in cases DK, DU, equal in
+        # case DT).  Far from the unit root with c0 = c and a stationary start both engines move by 1e-8 to 5e-7 relative
+        # under refinement of their rules, and they differ by up to 4e-9: neither is the more accurate there
+        # (with a stationary start next to zero the general engine's moments lose accuracy in cases SU, ST, by 1e-10 at
+        # c = -0.1 to 4e-7 at c = -3e-3, where they fail; the classical ones hold to 1e-12 down to c = -1e-6)
+        if stat
+            (cas == "SU" && c0 != 0) && return :classical                  # (the classical moments of case SU are cheap: 2.4 times faster with c0 != 0)
+            return (cas == "SK" ? c <= -3e-3 : c <= -1) ? :general : :classical
+        end
+        c0 == 0 && return :general
+        # (c0 != 0 with a zero start: the classical engine in cases DK, DU, 1.5 to 2.6 times faster, the general in case DT,
+        # 1.4 times faster: without c0 the circle of the general engine shares Sigma(theta), with c0 != 0 it does not)
+        return cas == "DT" ? :general : :classical
     elseif f === :lincdf
-        # x = a.  The classical code wherever abs(a) is not small, and in case DG.  Provisional until the repair of the
-        # classical linear form (branch lincdf of DFLimit.jl) is merged, after which the classical cases take it for every
-        # a: case DK with abs(a) < 1 and the law of V (a = NaN, 200 times faster) by the general engine below c = 4 (the
-        # Gil-Pelaez inversion before the repair is off by up to 7e-2 near the edge of the support at small abs(a); the
-        # general engine's lin_cdf is off by 1.2e-4 at that edge and wrong in case DK at c = 5, on the vertical line)
-        (cas == "DK" && c < 4 && (isnan(x) || abs(x) < 1)) && return :general
+        # x = a.  Case DK: the classical code (repaired: the region), except the law of V (a = NaN) below c = 4, where the
+        # general engine is 30 to 400 times faster and within 1e-14 of it (from c = 4 on the general engine takes the
+        # vertical line, on which its P(V <= b) was off by 2e-3; elsewhere it is at most 1.3 times faster in case DK, and
+        # at a = 0 off by 1.9e-7 near the edge of the support).  Case DG: the general engine up to c = 4 with cbar <= -7,
+        # where its path is a hyperbola: 1.4 to 80 times faster than the classical conditional integral given R (at
+        # cbar = -7 and -10 equal below the unit root) and within 1.1e-12 of it from c = -50 to 4; from cbar = -5 on it
+        # takes the vertical line, on which it was off by 2e-5 to 1e-4 at a = -2, and at a = 0 near the edge of the support
+        # it was off by 4.4e-7 (b = -0.4999), where the classical code has the closed form; beyond c = 4 the classical code
+        # refuses (its inner inversion needs more than 2e6 nodes)
+        (cas == "DK" && isnan(x) && c < 4) && return :general
+        (cas == "DG" && S.gls <= -7 && c <= 4 && x != 0) && return :general
         return :classical
     elseif f === :adfmax
-        # (the general engine is 1.9 to 2.6 times faster with a stationary start, but the classical engine's stored values
-        # hold its own to 1e-12 and the general engine's differ by 3e-12, and by 2e-9 next to the unit root, c = -1e-4)
-        return :classical
+        # a stationary start: the general engine, 1.7 to 3 times faster and within 4e-12 of the classical values (which
+        # do not move under finer rules); next to zero it is off by 2e-9 (c = -1e-4); a zero start: the classical engine
+        # (1.9 to 2.7 times faster)
+        return (stat && c <= -0.1) ? :general : :classical
+    elseif f === :envelope
+        # the general engine finds the critical value to 1e-10 where the classical bisects it to 1e-9 (in case DG to 2e-9 in
+        # the power, against a bisection to 1e-14: the general engine within 1.4e-12); near the unit root in case DG the
+        # classical engine (from c = -0.5 on the general engine is the slower, and at c = -0.01 it exhausts the memory)
+        # (case DK: within 3e-12 of the classical engine's down to c = -0.01; at c = -1e-4, where a = c/2 puts the critical
+        # value at the edge of the support of U - aV, the general engine is off by 1.1e-9)
+        cas == "DK" && return c <= -0.01 ? :general : :classical
+        return c <= -1 ? :general : :classical
     end
-    :classical                                                             # (the envelope, the regions)
+    :classical                                                             # (the regions)
 end
 
 # ---------- the router of the classical engine's user-level functions (DFExact.ROUTE) ----------
@@ -176,13 +211,16 @@ end
 """the general engine's p-quantiles of S, started at the normal approximation from its moments where it has them"""
 function gen_icdf(p, S::Spec, c::Real; tol::Real = 1e-10, c0::Real = 0.0, kw...)
     x0 = -2.0; sd = 1.0
-    if S.D.detrend != :first
-        try
-            m = DFDet.dist_moments(S.D, Float64(c); p = 2, c0 = Float64(c0), gkw(S)...)[1]
-            x0 = m[1]; sd = sqrt(max(m[2] - m[1]^2, 1e-6))
-        catch e
-            e isa ArgumentError || rethrow()
-        end
+    # (the start from the moments of the engine the rule takes for them; a design without moments starts at -2)
+    m = nothing
+    if S.case !== nothing && S.case != "DG" && classical_valid(S, c, c0, :auto) &&
+       autoengine(:mom, S, Float64(c), Float64(c0), 0.0) === :classical
+        m = DX.ltratio_mom(2, S.case, c; c0, g0 = S.g0, engine = :classical)
+    elseif S.D.detrend != :first
+        m = try; DFDet.dist_moments(S.D, Float64(c); p = 2, c0 = Float64(c0), gkw(S)...)[1]; catch; nothing; end
+    end
+    if m !== nothing
+        x0 = m[1]; sd = sqrt(max(m[2] - m[1]^2, 1e-6))
     end
     one(pk) = begin
         0 < pk < 1 || throw(ArgumentError("p must lie in (0, 1)"))
@@ -233,11 +271,11 @@ function route_envelope(engine::Symbol, c, cas::AbstractString; alpha::Real = 0.
     cas = uppercase(String(cas))
     S = cas == "DG" ? Spec(DFDet.trend(1), :zero, 0.0, nothing, "DG") : cas in ("DK", "DU") ? Spec(DFDet.trend(-1), :zero, 0.0, nothing, "DK") :
         throw(ArgumentError("power_envelope: the case must be DK (or DU) or DG"))
-    if engine === :auto
-        isempty(kw) || return nothing
-        autoengine(:envelope, S, 0.0, 0.0, 0.0) === :general || return nothing
-    end
-    gen_envelope(c, S; alpha)
+    engine === :general && return gen_envelope(c, S; alpha)
+    isempty(kw) || return nothing
+    one(ck) = autoengine(:envelope, S, Float64(ck), 0.0, 0.0) === :general ? gen_envelope(ck, S; alpha) :
+              DX.power_envelope(ck, cas; alpha, engine = :classical)
+    c isa Number ? one(c) : map(one, c)
 end
 function gen_adfmax(pdf::Bool, x, S::Spec, c::Real; kw...)
     xs = xvec(x)

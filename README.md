@@ -120,37 +120,49 @@ they differ by more than 1e-8 it compares each with the other's checked computat
 
 | cell | engine | classical (ms) | general (ms) | largest difference | why |
 |---|---|---|---|---|---|
-| t-ratio, zero or stationary start, c0 = 0 (any c), cases DK, DU, DT, SK, SU, ST, DG | classical | 3 to 81 | 34 to 255 | 4e-11 | 1.7 to 28 times faster |
-| zero start, c0 < 0, -100 <= c <= 0 | classical | 10 to 77 | 40 to 162 | 1.4e-9 (c = -100) | equal to 4 times faster |
-| zero start, c0 > 0, -100 < c < 0, cases DU, DT | general | 286 to 547 | 73 to 136 | 8e-12 | 2.9 to 4.8 times faster |
-| the same, case DK | classical | 117, 132 | 45, 36 | 2e-12 | the density is infinite at the tangency x = -sqrt(2 c0), where the stored checks hold the classical line integral |
-| zero start, c0 != 0, c < -100 | general | 287 to 728 | 120 to 216 | 1.7e-10 | 2.4 to 3.3 times faster |
-| stationary start, c0 != 0, c <= -0.1 | general | 203 to 10338 | 52 to 190 | 1e-9 | 2.4 to 140 times faster (case SK at c = c0 = -0.1: 10.3 s against 75 ms); values below 1e-3 go back to the classical conditional integral, whose error is relative |
-| stationary start, c > -0.1 | classical | | | | the general engine is off by 2.5e-8 at c = -1e-4 |
-| above the unit root, c0 < 0 (c >= 4) | classical | 604 | 734 | 6.5e-3 | the general engine is wrong (7e-3 from its checked value; the classical 8e-15 from its own) |
-| above the unit root, the bulk at c >= 7 | classical | 288 to 1089 | 1198 to 37551 | 1.4e-14 | 2.7 to 34 times faster |
-| fixed start, case DK, c <= 1, (c g0)^2/2 <= 400 | general | 121 to 404 | 76 to 157 | 5e-11 | 1.04 to 2.6 times faster |
-| fixed start, case DK otherwise, cases DU, DT | classical | 150 to 620 | 155 to 1149 | 1.4e-10 | mostly faster, and its warnings of the brittle regimes |
-| moments, c >= -50 | general | 14 to 444 | 13 to 27 | 8e-13 relative | equal to 25 times faster |
-| moments, c < -50 | classical | 91 to 519 | 29 to 343 | 1.6e-9 relative | the stored checks of the classical engine (the classical third and fourth moments are documented to 1e-8 to 2e-7 at c = c0 = -300 with a stationary start) |
-| quantiles at c0 = 0: a fixed start, cases DT and ST for c <= 0, case DU at c = 0 | general | 408 to 1142 | 214 to 434 | 1e-10 | 1.7 to 3.8 times faster (one path, F and f in one pass) |
-| quantiles otherwise | classical | 48 to 388 | 145 to 725 | 3e-11 | 1.1 to 15 times faster; each evaluation of the search routed |
-| the coefficient statistic | as the t-ratio at x = 0 with the null value c0 + y | 14 to 182 | 24 to 137 | 8e-11 | (case SU at c = -5: 7.5 times faster by the general engine) |
-| P(V <= b) (`ltratio_lincdf` with a = NaN), c < 4 | general (provisional) | 6 | 0.03 | 3e-15 | 200 times faster |
-| P(U - aV <= b), abs(a) < 1, case DK, c < 4 | general (provisional) | 3 to 5 | 8 to 15 | 1.2e-5 in the bulk at a = 0 | the classical inversion before its repair is off near the edge of the support by up to 7e-2 at small abs(a) (the general engine there by 1.2e-4) |
-| P(U - aV <= b) otherwise (abs(a) >= 1, case DG, c >= 4) | classical | 5 to 93 | 8 to 35 | 1e-12 | the general engine's lin_cdf is wrong in case DK at c = 5 (the vertical line) |
-| the power envelope | classical | 79, 627 | 135, 835 | 2.1e-9 | 1.3 to 1.7 times faster |
-| ADFmax | classical | 30 to 214 | 80 to 83 | 3e-12 | faster with a zero start; with a stationary start the general engine is 2.2 to 2.6 times faster, but the stored checks hold the classical values to 1e-12 |
-| regions (`ltratio_region`) | classical | 2 | 6 | 1e-12 | 3.3 times faster, and the only engine for the WAP boundary and a function g |
+| t-ratio, c0 = 0, zero or stationary start (any c), cases DK, DU, DT, SK, SU, ST, DG | classical | 3.1 to 59 | 21 to 158 | 1.3e-12 | 1.4 to 18 times faster |
+| zero start, c0 < 0, -100 <= c <= 0 | classical | 7.7 to 54 | 25 to 103 | 1.4e-9 (c = -100) | up to 3.3 times faster in case DK; in cases DU, DT the general engine is at most 1.1 times faster |
+| zero start, c0 > 0, -100 < c <= 1 | general | 69 to 368 | 23 to 86 | 7.7e-12 | 1.8 to 4.7 times faster |
+| the same, case DK, within 1e-3 of the tangency x* = -sqrt(2 c0) above it | classical | | | | the density is infinite at x*; just above it the general engine's density is off by up to 1.5e-3 relative (x* + 1e-9), the classical by 5e-10; below x* the general engine is the right one (the classical density off by 10% at x* - 1e-9 at c = -20, c0 = 0.5) |
+| zero start, c0 > 0 otherwise (c <= -100 or c > 1) | classical | 19 to 370 | 59 to 434 | 1.5e-9 | 1.2 to 3.1 times faster |
+| zero start, c0 != 0, c < -100 | general | 193 to 502 | 76 to 133 | 1.7e-10 | 2.5 to 3.8 times faster |
+| stationary start, c0 != 0, c <= -3e-3 | general | 153 to 8430 | 35 to 116 | 9.8e-10 (c = -100) | 2.7 to 190 times faster (case SK at c = c0 = -0.1: 8.4 s against 45 ms); values below 1e-3 go back to the classical conditional integral, whose error is relative |
+| stationary start, c0 != 0, c > -3e-3 | classical | | | 8.1e-10 (c = -1e-3) | next to zero the general engine is off by 1e-10 to 7e-8 in cases SU, ST |
+| above the unit root, c0 < 0 (c >= 4) | classical | 413 | 366 | 6.5e-3 | the general engine is wrong (7.1e-3 from its checked value; the classical 5e-15 from its own) |
+| above the unit root, the bulk at c >= 7 | classical | 218 to 916 | 535 to 19775 | 1.4e-14 | 1.6 to 22 times faster |
+| fixed start, case DK, c <= 1, (c g0)^2/2 <= 400 or g0 <= 0.5 with c >= -100 | general | 74 to 277 | 39 to 164 | 2.2e-11 | 1.4 to 3.2 times faster |
+| fixed start, case DK otherwise, cases DU, DT | classical | 87 to 331 | 82 to 755 | 2.5e-11 | up to 2.3 times faster (the general engine at most 1.1 times), and its warnings of the brittle regimes |
+| moments, zero or fixed start, c0 = 0 (c from -480 to 0) | general | 14 to 346 | 8.4 to 15 | 4.2e-14 relative | 1.2 to 28 times faster |
+| moments, stationary start: case SK at c <= -3e-3, cases SU (c0 = 0 only), ST at c <= -1 | general | 42 to 282 | 8.7 to 222 | 1.6e-9 relative (c = c0 = -300) | 1.3 to 30 times faster; far from the unit root with c0 = c neither engine is converged (both move by 1e-8 to 5e-7 relative under finer rules) |
+| moments, stationary start: case SU with c0 != 0, and nearer zero | classical | 45 | 115 | 2e-12 relative | 2.6 times faster in case SU; next to zero the general engine's moments lose accuracy in cases SU, ST (1e-10 at c = -0.1 to 4e-7 at c = -3e-3, where they fail) |
+| moments, zero start, c0 != 0 | classical in cases DK, DU, general in case DT | 17 to 338 | 46 to 241 | 1.8e-10 relative | 1.6 to 2.8 times faster in cases DK, DU; 1.4 times faster in case DT |
+| quantiles at c0 = 0: a fixed start, cases DT (c <= 0), ST (c <= -1), DU at c = 0 | general | 246 to 650 | 107 to 272 | 9.6e-11 | 1.8 to 4.7 times faster (one path, F and f in one pass) |
+| quantiles otherwise | classical | 37 to 254 | 66 to 346 | 2.8e-11 | equal to 9.4 times faster (case DT at c = 3: the general engine 1.2 times faster); each evaluation of the search routed |
+| the coefficient statistic | as the t-ratio at x = 0 with the null value c0 + y | 8.5 to 132 | 17 | 3.9e-12 | (case SU at c = -5: 8 times faster by the general engine) |
+| P(V <= b) (`ltratio_lincdf` with a = NaN), case DK, c < 4 | general | 5.5, 5.7 | 0.03, 0.13 | 4.8e-15 | 44 to 180 times faster |
+| P(U - aV <= b), case DK (and P(V <= b) at c >= 4) | classical | 5.3 to 60 | 0.1 to 48 | 2.3e-3 (P(V <= b) at c = 5) | up to 4 times faster (the general engine 1.1 times faster at a = 2, c = -5), and right where the general engine is not: at a = 0 near the edge of the support (off by 1.9e-7, where it is 2 times faster) and P(V <= b) at c = 5 (2.3e-3) |
+| P(U - aV <= b), case DG, a != 0, cbar <= -7, c <= 4 | general | 85 to 11265 | 22 to 141 | 1.1e-12 | 1.4 to 80 times faster (at cbar = -7 and -10 below the unit root equal) |
+| P(U - aV <= b), case DG otherwise | classical | 69 to 85 | 22 to 25 | 5.6e-11 | the closed form at a = 0 (the general engine is off by 4.4e-7 at b = -0.4999); from cbar = -5 on the general engine takes the vertical line, on which it is off by 2e-5 to 1e-4 |
+| the power envelope, case DK at c <= -0.01, case DG at c <= -1 | general | 78 to 1773 | 86 to 469 | 2.1e-9 | the critical value to 1e-10 (the classical engine bisects it to 1e-9; in case DG the general engine is within 1.4e-12 of a bisection to 1e-14); 1.1 times slower to 4 times faster |
+| the power envelope nearer zero | classical | | | | case DK at c = -1e-4: the general engine is off by 1.1e-9 (the critical value at the edge of the support of U - aV); case DG from c = -0.5 on the general engine is the slower, and at c = -0.01 it exhausts the memory |
+| ADFmax, stationary start, c <= -0.1 | general | 110 to 196 | 50 to 58 | 3e-12 | 2.2 to 3.4 times faster; next to zero (c = -1e-4) it is off by 2e-9 |
+| ADFmax, zero start | classical | 22, 34 | 50, 52 | 2.6e-12 | 1.6 to 2.3 times faster |
+| regions (`ltratio_region`) | classical | 1.1, 1.4 | 3.4, 3.8 | 1e-12 | 2.7 to 3.1 times faster, and the only engine for the WAP boundary and a function g |
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
 
-Where the classical engine computes, its values are those of 0.5.0 bit for bit. The linear form P(U - aV <= b) is
-repaired in the classical engine on the branch `lincdf` (by the region in case DK and a conditional integral given the
-numerator in case DG; within 3e-13 of a converged inversion on 12,490 points, the closed forms at a = 0 to 3e-15). The
-two provisional cells above hold until that branch is merged; then the classical cases take the repaired classical code
-for every a, and the general engine serves the linear form only for the designs the classical engine does not have.
-The general engine's `lin_cdf` is off by 1.2e-4 at the edge of the support and wrong in case DK at c = 5 (an open
-defect of the general engine).
+Where the classical engine computes, its values are those of 0.5.0 bit for bit; where the rule takes the general engine
+for a case string, the values move within the differences above. The borders were swept: the stationary start at c =
+-3e-3 (cases SU, ST: the general engine within 4e-11 of the classical at c = -3e-3, off by 8e-10 at c = -1e-3), the
+moments next to zero (case SK down to c = -3e-3, cases SU, ST down to c = -1), the power envelope (case DK within 3e-12
+of the classical down to c = -0.01) and the tangency of case DK (the window 1e-3 above x*). Three stored values of the
+tests follow the rule (`test/runtests.jl`, `test/engine`): the power envelope of case DK at c = -7 is now
+0.49940198281562 (it was 0.49940198260314117, the classical engine's bisection of the critical value to 1e-9; the same
+construction with the critical value bisected to 1e-14 is within 8e-13 of the new value), and the checks of the
+classical engine's own computations (ADFmax with a stationary start, the moments, quantiles and default values of its
+test grid far from the unit root, the power envelope) force `engine = :classical`, so that they keep their stored
+values. The general engine's defects in the cells the classical engine keeps (the vertical line above the
+unit root and with GLS detrending at small |cbar|, the law of U at the edge of its support) are listed in
+`src/merged.jl` with the rule.
 
 ## Example
 
