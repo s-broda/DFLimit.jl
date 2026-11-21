@@ -293,7 +293,7 @@ end
     # the law of V far from the unit root (the transform decays only from u ~ 15 |c|^{3/2}): against a grid up to 4e6
     @test ltratio_lincdf(D.EVdk(-200.0), NaN, "DK", -200.0) ≈ 0.519901089453532 atol = 1e-11
     @test occursin("at least -550", errmsg(() -> ltratio_lincdf(0.0, 1.0, "DK", -600)))
-    @test occursin("case DG is available for c up to about 3.5", errmsg(() -> ltratio_lincdf(0.0, 0.01, "DG", 6.0)))
+    @test occursin("case DG is available for c up to about 3.5", errmsg(() -> ltratio_lincdf(0.0, 0.01, "DG", 6.0; engine = :classical)))   # (the classical engine's refusal; the merged default takes the general engine there)
 end
 
 # the values do not depend on the number of tasks (the order of summation can change the last digit); with one thread the

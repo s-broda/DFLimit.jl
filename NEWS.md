@@ -23,8 +23,28 @@
   moments far from the unit root, where neither engine is converged; 2.1e-9 in the power envelope, where the general
   engine's critical value is the more accurate: case DK at c = -7 gives 0.49940198281562 in place of
   0.49940198260314117). The linear form of 0.5.0's repair stays with the classical engine in case DK (except `P(V <=
-  b)` below c = 4, by the general engine, 44 to 180 times faster) and goes to the general engine in case DG for `a !=
-  0`, `cbar <= -7`, `c <= 4` (1.4 to 80 times faster, within 1.1e-12).
+  b)`, by the general engine for every c, 33 to 4400 times faster) and goes to the general engine in case DG for `a !=
+  0` with `cbar <= -2` (`cbar <= -1` above the unit root), 1.4 to 80 times faster and within 7e-12, and beyond c = 4,
+  where the classical code refuses.
+- **Repairs of the general engine** (`src/DFDet.jl`, each in a commit of its own, to be copied back to df-deterministics).
+  The law of V above the unit root (`v_cdf`, `v_pdf`): from c = 4 on the path of case DK is the vertical line, on
+  which M_V(t) e^{-t y} oscillates faster than its panels resolve, and P(V <= b) was off by 2e-3; the law of V now takes
+  a hyperbola of its own (`v_path`, the logarithms of the roots continued along it in `vsum`), within 1e-13 at c = 4, 5
+  and 4.4e-12 at c = 7 of the closed form of M_V inverted on hyperbolas of its own (where the classical inversion is off
+  by 5.9e-10 to 1.8e-7; with GLS detrending at small |cbar|, also on the line, P(V <= b) was off by up to 2.6e-6 at
+  F = 0.99 and 1.1e-3 further out, and three other hyperbolas and a line with panels 16 times finer now agree with it to
+  4e-11), and `ltratio_lincdf` with a = NaN goes to the general engine for every c. The law of U at the
+  edge of its support (`tnode_specs!`): the rays of the kernels stopped at the roots, while their factor e^{-A s} decays
+  only on the scale 1/|A|; P(U <= b) was off by 4.4e-7 at b = -0.4999 (P(U - aV <= b) at a = 0.1 by 1.9e-8); the rays
+  now reach 1/|A|, within 1e-14 of the closed form down to b = -1/2 + 1e-7. Filon's rule on the vertical line (above
+  the unit root, and with GLS detrending at small |cbar|): the kernels at a root b of the parabola carry e^{-t b^2},
+  which the panels of the line did not resolve, and the linear form was off by up to 4e-3 in case DK at c = 4 to 7 (in
+  case DG at cbar = -5 to -1 by 2e-5 to 1e-4), the t-ratio with c0 < 0 by up to 8.5e-5 and its density by up to 1e-2;
+  those parts now go to Filon's rule (`filon_roots`,
+  `filon_roots_x`, `contour_sum_filon`), and the line is cut to the oscillation of the factor e^{-A s_k(t)} of the
+  kernels as well (`line_refine`); the linear form is within 1e-13 of the classical code at c = 4 and 5, the t-ratio
+  within 1.4e-12 and its density within 2e-13 at c = 4 to 7 with c0 from -0.5 to -5. ADFmax and parabolas with two
+  roots (c0 > 0 with x < 0) keep the line's Gauss-Legendre rule and its warning.
 - **The statistics of the second paper as functions:** the point-optimal statistic and the Gaussian power envelope for
   any design (`pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`, `pt_envelope`; `power_envelope(c, D)`), the LM statistic
   of Schmidt and Phillips and of Amsler and Lee (`lm_cdf`, `lm_quantile`, `lm_power`) and the companions of the

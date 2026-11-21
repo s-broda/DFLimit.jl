@@ -129,17 +129,20 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         # 1.4 times faster: without c0 the circle of the general engine shares Sigma(theta), with c0 != 0 it does not)
         return cas == "DT" ? :general : :classical
     elseif f === :lincdf
-        # x = a.  Case DK: the classical code (repaired: the region), except the law of V (a = NaN) below c = 4, where the
-        # general engine is 30 to 400 times faster and within 1e-14 of it (from c = 4 on the general engine takes the
-        # vertical line, on which its P(V <= b) was off by 2e-3; elsewhere it is at most 1.3 times faster in case DK, and
-        # at a = 0 off by 1.9e-7 near the edge of the support).  Case DG: the general engine up to c = 4 with cbar <= -7,
-        # where its path is a hyperbola: 1.4 to 80 times faster than the classical conditional integral given R (at
-        # cbar = -7 and -10 equal below the unit root) and within 1.1e-12 of it from c = -50 to 4; from cbar = -5 on it
-        # takes the vertical line, on which it was off by 2e-5 to 1e-4 at a = -2, and at a = 0 near the edge of the support
-        # it was off by 4.4e-7 (b = -0.4999), where the classical code has the closed form; beyond c = 4 the classical code
-        # refuses (its inner inversion needs more than 2e6 nodes)
-        (cas == "DK" && isnan(x) && c < 4) && return :general
-        (cas == "DG" && S.gls <= -7 && c <= 4 && x != 0) && return :general
+        # x = a.  Case DK: the classical code (repaired: the region), except the law of V (a = NaN), where the general
+        # engine is 40 to 400 times faster, within 1e-14 of the classical code below c = 4 and the more accurate above
+        # (against the closed form of M_V inverted on hyperbolas of its own: the general engine within 1e-13 at c = 4, 5 and
+        # 4.4e-12 at c = 7, the classical inversion off by 5.9e-10, 1.6e-8, 1.8e-7).  Elsewhere the general engine is at most
+        # 1.3 times faster in case DK (at a = 0, where the classical code is the closed form, 1.1 times faster).  Case DG,
+        # a != 0, up to c = 4: the general engine for cbar <= -2, and for cbar <= -1 above the unit root, 1.4 to 80 times
+        # faster than the classical conditional integral given R (equal at cbar = -7 and -10 below the unit root) and
+        # within 1.1e-12 of it on the hyperbola (cbar <= -7), 7e-12 on the vertical line (cbar from -5 to -2, where
+        # Filon's rule takes the parts at the root); at cbar = -1 below the unit root the classical code is 1.1 to 1.3 times
+        # faster.  At a = 0 the classical closed form (the general engine, 1.2 to 3 times faster, is within 7.2e-14 of it).
+        # Beyond c = 4, where the classical code refuses (its inner inversion needs more than 2e6 nodes), the general
+        # engine (within its checked computation at c = 4.5 to 7)
+        (cas == "DK" && isnan(x)) && return :general
+        (cas == "DG" && x != 0 && (c > 4 || S.gls <= -2 || (S.gls <= -1 && c > 0))) && return :general
         return :classical
     elseif f === :adfmax
         # a stationary start: the general engine, 1.7 to 3 times faster and within 4e-12 of the classical values (which

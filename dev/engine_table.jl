@@ -58,7 +58,7 @@ for (cas, c) in (("SK", -5.0), ("SU", -10.0), ("ST", -50.0), ("SU", -100.0), ("S
 for (cas, c) in (("SK", -1.0), ("SU", -0.5), ("SK", -0.1), ("SU", -0.1), ("SU", -3e-3), ("ST", -3e-3)); tcell("stationary start, c0 = c, -5 < c <= -3e-3", cas, c; c0 = c); end
 for (cas, c) in (("SU", -1e-3), ("ST", -1e-3), ("SK", -1e-4)); tcell("stationary start, c0 = c, c > -3e-3", cas, c; c0 = c); end
 tcell("stationary start, c0 > 0", "ST", -1.0; c0 = 2.0)
-tcell("above the unit root, c0 < 0, c >= 4", "DK", 5.0; c0 = -3.0, ks = (-1, 0, 1))
+for (cas, c, c0) in (("DK", 5.0, -3.0), ("DU", 5.0, -3.0), ("DT", 5.0, -3.0), ("DK", 4.0, -0.5)); tcell("above the unit root, c0 < 0, c >= 4", cas, c; c0, ks = (-1, 0, 1)); end
 for (cas, c) in (("DT", 7.0), ("DK", 7.0), ("DU", 10.0)); tcell("above the unit root, c >= 7, the bulk", cas, c; ks = (-1, 0, 1)); end
 for (cas, c, g0) in (("DK", 0.0, 1.0), ("DK", -0.5, 0.5), ("DK", -5.0, 2.0), ("DK", -50.0, 0.5), ("DK", 1.0, 1.0)); tcell("fixed start, case DK, c <= 1, (c g0)^2/2 <= 400", cas, c; g0); end
 tcell("fixed start, case DK, c <= 1, (c g0)^2/2 <= 400", "DK", -10.0; c0 = -2.0, g0 = 1.0)
@@ -93,10 +93,17 @@ row("coef_icdf at p = 0.05 (DU, c = 0)", () -> coef_icdf(0.05, "DU"; engine = :c
 pr("\n(4) the linear form P(U - aV <= b) and the law of the denominator P(V <= b)\n")
 for (cas, a, bs, c) in (("DK", -3.5, [-0.6, -0.2639, 0.3], 0.0), ("DK", -3.5, [-0.6, -0.2639, 0.3], -7.0), ("DK", -1.0, [-0.4, 0.0, 0.5], 0.0), ("DK", 2.0, [-2.0, 0.0, 0.5], -5.0),
                         ("DK", 0.0, [-0.499, -0.4, 0.0, 1.0], 0.0), ("DK", -0.1, [-0.49, -0.4, 0.0, 0.5], 0.0), ("DK", 0.0, [-0.4, 0.5, 3.0], 3.0), ("DG", -7.3, [-0.9, -0.5, 0.0], 0.0),
-                        ("DG", 0.0, [-0.49, -0.3, 0.5], 0.0), ("DK", NaN, [0.05, 0.2, 0.6], -5.0), ("DK", NaN, [0.05, 0.2, 0.6], 2.0), ("DK", NaN, [0.02, 0.06, 0.1], 5.0))
+                        ("DG", 0.0, [-0.49, -0.3, 0.5], 0.0), ("DK", NaN, [0.05, 0.2, 0.6], -5.0), ("DK", NaN, [0.05, 0.2, 0.6], 2.0), ("DK", NaN, [0.02, 0.06, 0.1], 5.0),
+                        ("DK", NaN, [0.02, 0.06, 0.1], 7.0), ("DK", -1.0, [-0.3, 0.0, 50.0], 5.0), ("DK", 2.5, [-160.0, -0.49, 0.0], 5.0))
     isnan(a) && (bs = DFLimit.DFExact.EVdk(c) .* [0.3, 1.0, 2.5])
     au = MD.autoengine(:lincdf, MD.lin_spec(cas, -13.5), c, 0.0, a)
     row("ltratio_lincdf, a = $a$(isnan(a) ? " (P(V <= b))" : "") ($cas, c = $c)", () -> ltratio_lincdf(bs, a, cas, c; engine = :classical), () -> ltratio_lincdf(bs, a, cas, c; engine = :general); auto = au)
+end
+# case DG with GLS detrending at small |cbar| (the vertical line of the general engine)
+for (cb, c, a) in ((-5.0, 0.0, -2.0), (-2.0, -5.0, -7.3), (-1.0, 0.0, -2.0), (-1.0, 2.0, -2.0))
+    bs = [-0.9, -0.5, 0.0, 0.5]
+    au = MD.autoengine(:lincdf, MD.lin_spec("DG", cb), c, 0.0, a)
+    row("ltratio_lincdf, a = $a (DG, cbar = $cb, c = $c)", () -> ltratio_lincdf(bs, a, "DG", c; cbar = cb, engine = :classical), () -> ltratio_lincdf(bs, a, "DG", c; cbar = cb, engine = :general); auto = au)
 end
 pr("\n(5) the power envelope, ADFmax, regions\n")
 for (cas, cs) in (("DK", [-5.0, -10.0, -20.0]), ("DK", [-0.01, -0.5]), ("DG", [-5.0, -10.0, -20.0]), ("DG", [-1.0, -2.0]))
