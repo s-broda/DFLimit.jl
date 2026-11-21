@@ -400,6 +400,17 @@ function girsanov(model::Int, c::T, t::Complex{T}) where {T}
     (th = th, del = del, eta = eta, lsh = lsh, lch = lch, Sg = Sg, N = N, dS = dS, D = D, A2 = A2, A1 = A1, A0 = A0)
 end
 
+const CACHEMAX = 64
+"""get!(f, d, k) for the caches kept per point or per c (TSTAR, IIABS, STEPGRID, CTRPATH, LAYOUTS, LAYOUTSK): at most
+CACHEMAX entries, the cache emptied when it is full (an entry is computed again when it is needed again; none of the
+values depends on the caches), so that a long session over many x or c keeps a bounded memory; called under the
+cache's lock"""
+function cacheget!(f, d::AbstractDict, k)
+    haskey(d, k) && return d[k]
+    length(d) >= CACHEMAX && empty!(d)
+    get!(f, d, k)
+end
+
 # ---------- the convergence abscissa in t ----------
 """
     tstar(model, c)
@@ -414,7 +425,7 @@ in case DK, replaces D(0, t), whose terms of size e^{2c} cancel to a value of or
 const TSTAR = Dict{Tuple{Int,Float64,Bool},Float64}()
 const TSTARLOCK = ReentrantLock()
 function tstar(model::Int, c::Float64; stat::Bool = false)
-    lock(TSTARLOCK) do; get!(TSTAR, (model, c, stat)) do
+    lock(TSTARLOCK) do; cacheget!(TSTAR, (model, c, stat)) do
         # case DK: the sign of D = eta S from the cancellation-free eta and the sign of S = sinh(mu)/mu (sin(th)/th for
         # 2t > c^2); eta alone changes sign at the poles of coth as well, and for c < 0 the first zero of D lies just below
         # the pole (c^2 + pi^2)/2, inside a stretch that the 5% steps of the bracketing can skip (c = -9.5: 61.6 for 49.2)
@@ -1278,8 +1289,8 @@ end
 const LAYOUTS = Dict{Tuple{Float64,Bool,Int,Float64},Tuple{Layout,Layout}}()
 const LAYOUTSK = Dict{Tuple{Float64,Bool,Float64,Float64,Float64,Int,Int,Float64},Tuple{Vector{Layout},Vector{Layout},Vector{Layout}}}()
 const LAYLOCK = ReentrantLock()
-layouts(q, dens) = lock(LAYLOCK) do; get!(() -> layouts_m1(q, dens), LAYOUTS, (q, dens, NPAN[], RATIO[])); end
-layoutsk(q, dens, tau, e1r1) = lock(LAYLOCK) do; get!(() -> layouts_k0(q, dens, tau, e1r1), LAYOUTSK, (q, dens, tau, e1r1..., NPANK[], NPANR[], RATIO[])); end
+layouts(q, dens) = lock(LAYLOCK) do; cacheget!(() -> layouts_m1(q, dens), LAYOUTS, (q, dens, NPAN[], RATIO[])); end
+layoutsk(q, dens, tau, e1r1) = lock(LAYLOCK) do; cacheget!(() -> layouts_k0(q, dens, tau, e1r1), LAYOUTSK, (q, dens, tau, e1r1..., NPANK[], NPANR[], RATIO[])); end
 # The first panels of the edge segment (from X = 0, 0.001|q| long) and of the ray X < 0 (1e-4 q^2) of the K_0 layouts, both
 # with the substitution X = a1 u^4.  The scales of the kernel near X = 0 shrink as c decreases: the ray carries e^{-s_1 X},
 # and K_0(b X), b = (s_2 - s_1)/2, turns from its logarithm to its exponential decay at X ~ 1/b.  At the real point t = tau,
@@ -3721,7 +3732,7 @@ end
 """abscissa on the real axis: the first s > 0 where cosh th det Sig, A1^2 - 4 A0 A2 or -A0 leaves (0, Inf)"""
 const IIABS = Dict{Tuple{Int,Float64},Float64}()
 function iiabs(c::Float64, model::Int)
-    lock(RULELOCK) do; get!(IIABS, (model, c)) do
+    lock(RULELOCK) do; cacheget!(IIABS, (model, c)) do
         okf(s) = (G = girs_fast(model, c, complex(s)); v = exp(G.lch + log(G.dS));
                   real(v) > 0 && abs(imag(v)) < 1e-9 * abs(v) && real(G.A1 * G.A1 - 4 * G.A0 * G.A2) > 0 && real(-G.A0) > 0)
         sp = (c * c + pi^2 / 4) / 2
@@ -3817,7 +3828,7 @@ end
 const STEPGRID = Dict{Tuple{Int,Float64,Float64,Float64},Any}()
 """the conditional mean and standard deviation of R given V = b on a coarse grid in log b over [lo, hi]"""
 function stepgrid(model::Int, c::Float64, lo::Float64, hi::Float64)
-    lock(RULELOCK) do; get!(STEPGRID, (model, c, lo, hi)) do
+    lock(RULELOCK) do; cacheget!(STEPGRID, (model, c, lo, hi)) do
         smx = model == 1 ? dksmax(c) : (t = tstar(model, c); isfinite(t) ? t : (c * c + pi^2 / 4) / 2)
         lb = collect(range(lo, hi; length = 61))
         r = Vector{Tuple{Float64,Float64}}(undef, 61)
@@ -4893,7 +4904,7 @@ function ctr_phi1(c::Float64, g0::Float64)
 end
 function ctr_path(model::Int, c::Float64, variant::Int = 1, g0::Float64 = 0.0)
     gk = model == 1 ? g0 : 0.0
-    lock(CTRLOCK) do; get!(CTRPATH, (model, c, variant, gk)) do
+    lock(CTRLOCK) do; cacheget!(CTRPATH, (model, c, variant, gk)) do
         phi = model == 1 ? ctr_phi1(c, g0)[variant] : ctr_phi(c) + (variant == 2 ? CTR_DPHI : 0.0)
         tau, a, b, h, K, tt = ctr_hyp(model, c, phi)
         P, s1e, s2e, _ = tparts(model, c, tt)                       # (engine labels: s1e the root with Re < 0 at tau)
