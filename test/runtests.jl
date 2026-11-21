@@ -371,6 +371,19 @@ footprint() = Sys.isapple() ? (buf = zeros(UInt8, 96); ccall(:proc_pid_rusage, C
     @test length(D.LAYOUTSK) <= D.CACHEMAX && length(D.LAYOUTS) <= D.CACHEMAX
 end
 
+# A fixed start with c0 < 0 near zero at x > 0 (November 2026): the noncentral exponent rises into the segment at v = 0,
+# and the descent piece of segint, clamped to 80 degrees from it, climbed at the real point of the line to e^{213} and
+# cancelled against the connection (F = 6e74 at c = 0, c0 = -0.01, g0 = 1, x = 1.5; the C engine the same); now cut back
+# where it climbs above the larger end of the segment (noclimb).  The values: the contour integral of the newer engine.
+@testset "fixed start: a descent piece that climbs" begin
+    @test ltratio_cdf(1.5, "DK", 0; c0 = -0.01, g0 = 1) ≈ 0.960991862318 atol = 1e-10
+    @test ltratio_pdf(1.5, "DK", 0; c0 = -0.01, g0 = 1) ≈ 0.079242719297 atol = 1e-10
+    @test ltratio_cdf(0.5, "DK", 0; c0 = -0.01, g0 = 1) ≈ 0.798334456036 atol = 1e-10     # (was off by 7e-8)
+    @test ltratio_cdf(1.5, "DK", 2; c0 = -0.01, g0 = 1) ≈ 0.086764388544 atol = 1e-10     # (was off by 3e-3)
+    @test ltratio_cdf(0.5, "DK", 0; c0 = -0.01, g0 = 2) ≈ 0.755768817096 atol = 1e-10
+    @test ltratio_cdf(1.5, "DU", 2; c0 = -0.01, g0 = 1, method = :single) ≈ 0.207535597435 atol = 1e-10   # (was -5e29)
+end
+
 # the engine's own checks (test/engine/, from the directory julia/ of the paper's repository, where the engine was
 # developed): quickcheck.jl (K_0 against AMOS, node doubling, contour independence, closed forms, the applications, the
 # contour integral, the default and verified) and test_dfexact.jl (all the stored values far from the unit root and of
