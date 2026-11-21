@@ -1945,8 +1945,9 @@ const CASES = ("DK", "DU", "DT", "SK", "SU", "ST", "DG")                 # DG: G
 """where the contour integral fails with a fixed start (cases DU, DT): c > 1 with c0 < 0 (the far upper tail) and, in case
 DU, c > 1.5 with c0 > 3; automethod takes the conditional integral there (ctr_fails in dfl_api.c, LTRATIO_METHOD)"""
 ctr_fails(model::Int, c::Float64, c0::Float64) = (c > 1 && c0 < 0) || (model == 2 && c > 1.5 && c0 > 3)
-"""the method of `method = :auto` at the point x: the fastest representation that one evaluation (verified = false) gives
-to well below 1e-5 (1e-8 on the grid of the rule), measured in November 2026 by warm timings of each representation over
+"""the method of `method = :auto` at the point x (where the line integral it names would exceed the bounds of the engine,
+ltratio_dist takes the conditional integral instead: route_double): the fastest representation that one evaluation
+(verified = false) gives to well below 1e-5 (1e-8 on the grid of the rule), measured in November 2026 by warm timings of each representation over
 1155 points (the six cases with zero, fixed and stationary starts, c in {-100, -30, -10, -5, -2, 0, 2, 5}, c0 in {0, c, the
 opposite sign}, x = mean + sd {-4, -2, 0, 2, 4}) and scans of c0 of both signs far from the unit root.  With a fixed start
 the contour integral in cases DU, DT (7-15 ms on ten threads against 0.24-0.80 s for the conditional and 0.03-0.36 s for the
@@ -2056,6 +2057,64 @@ function ltratio_args(cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0
 end
 const CONTOUR_MSG = "method :contour (the contour integral) applies to a fixed start g0 != 0 in cases DU, DT"
 
+"""the PathTooLarge in the exception e, thrown directly or by a task of the threaded loops (TaskFailedException,
+CompositeException), or nothing"""
+function pathtoolarge(e)
+    e isa PathTooLarge && return e
+    e isa TaskFailedException && return pathtoolarge(e.task.exception)
+    if e isa CompositeException
+        for x in e.exceptions; p = pathtoolarge(x); p === nothing || return p; end
+    end
+    nothing
+end
+"""The ArgumentError of a point at which the line integral's paths exceed the bounds of the engine, with the arguments.  Two
+regions, measured in November 2026: (a) c0 < 0 near zero with x > 0, where the root b = (x + (x^2 + 2|c0|)^(1/2))/(2|c0|)
+~ x/|c0| of X(v) = 1/2 + x v + c0 v^2 lies far out and the paths of the general kernel's inner integrals follow the phase
+of e^{-t v^2} up to it.  More than NODEMAX nodes on one path at c0 = -1e-4 from x = 0.05, at c0 = -1e-3 at x = 1.5 (at
+x = 0.5 too in case SK and at c = 2), at c0 = -1e-2 in case SK for -0.4 <= c < 0 and at c = 2 in cases DK, DU, and not at
+c0 = -0.1 (a scan of the six cases and DG with zero, fixed and stationary starts, c from -60 to 2, x in {-1, 0.05, 0.5,
+1.5}); the size is set by c0 and x much more than by c, the case or the start, and c0 > 0 and x <= 0 are not affected; (b) above the unit root at large x, where the segment to the saddle of the central
+kernel's Gaussian factor needs a rule of more than RULEMAX nodes: at c = 7 from x ~ 750 (case DK), 780 (DU), 660 (DT), at
+c = 10 from 815, 715, 650, not up to x = 5000 for c <= 5."""
+function path_error(kind::Int, cas::AbstractString, c::Float64, c0::Float64, g0::Float64, x::Float64, p::PathTooLarge, model::Int)
+    fn = kind == 2 ? "ltratio_cdf" : "ltratio_pdf"
+    args = "case $(uppercase(String(cas))), c = $c" * (c0 != 0 ? ", c0 = $c0" : "") * (g0 != 0 ? ", g0 = $g0" : "") * ", x = $x"
+    why = p.bound == :rule ? "at large x above the unit root" :
+          (c0 < 0 && x > 0) ? "c0 < 0 near zero with x > 0: the root $(round((x + sqrt(x * x + 2 * abs(c0))) / (2 * abs(c0)), sigdigits = 3)) of X(v) = 1/2 + x v + c0 v^2 lies far out" :
+          "a root of X(v) far out"
+    alt = model == 4 ? "case DG has the line integral representation only" : "method = :auto takes the conditional integral at such points"
+    ArgumentError("$fn: $args: the line integral needs more nodes than the engine allows here ($why; $(sprint(showerror, p))); $alt")
+end
+"""The conditional integral at a point where the line integral's paths exceed the bounds of the engine, with method = :auto
+(ltratio_dist), by the region of path_error.  (a) A far root (bound :path): with its checks (verified = true, the agreement
+of two paths and the refinement of their rules), whatever its status.  Against the contour integral of the newer engine
+(DFDet), November 2026: case SK, stationary start, c = c0 in {-1e-4, -1e-3, -1e-2, -0.1}, x in {0.05, 0.5, 1, 1.5}, within
+5e-7 with the status flagged at most of the points, where one path is off by up to 5e-5, but the density at c = c0 = -1e-3,
+x = 0.05 off by 1.2e-3 (flagged; a central difference of the distribution function agrees with the newer engine to 8e-6):
+ltratio_dist warns where the value returned is flagged (route_warn); case DK with a zero start (c in {-1, 0, 2}, c0 in
+{-1e-3, -1e-2, -0.1}) and a fixed start (g0 = 1, c0 = -1e-2) within 1e-13.  (b) Large x above the
+unit root (bound :rule): with its checks where its status is 0, otherwise one path; against the newer engine at c = 7
+(x up to 1000, cases DK, DU, DT) and c = 10 (case DT, x up to 1500) within 1e-14 (distribution function and density),
+where in case DK one path is off by up to 5e-2 (its checked value has the status 0) and in case DT the checked value by
+up to 3e-2 (with the status 2; one path is right).  Returns the value and whether it is flagged (only in region (a))."""
+function route_double(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g0::Float64, start::Symbol, p::PathTooLarge)
+    F, info = tr_limdist([x], model, c; c0, g0, start, pdf = kind == 1, warn = false, verified = true)
+    p.bound == :path && return F[1], info.status[1] != 0
+    info.status[1] == 0 && return F[1], false
+    F1, _ = tr_limdist([x], model, c; c0, g0, start, pdf = kind == 1, warn = false, verified = false)
+    F1[1], false
+end
+"""the warning of ltratio_dist where route_double returned flagged values (a far root, bound :path): once per call (or once
+per ltratio_icdf, coef_cdf, coef_icdf, through brittle_once)"""
+function route_warn(cas::AbstractString, c::Float64, c0::Float64, g0::Float64)
+    msg = "$(uppercase(String(cas))), c = $c, c0 = $c0" * (g0 != 0 ? ", g0 = $g0" : "") * ": the line integral's paths exceed the " *
+          "bounds of the engine at x > 0 (c0 < 0 near zero), and the conditional integral that takes these points flags some of " *
+          "them; such values may be off by more than 1e-5 (the density of case SK at c = c0 = -1e-3, x = 0.05 by 1.2e-3)"
+    seen = BRITTLE_SEEN[]
+    seen === nothing ? (@warn msg) : push!(seen, msg)
+    nothing
+end
+
 function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, verified::Bool = false, kw...)
     model, stat, c0, g0, method = ltratio_args(cas, c; c0, g0, method)
     start = stat ? :stationary : :zero
@@ -2067,6 +2126,33 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
     dbl = [k for k in fin if mth(k) == :double]
     sgl = setdiff(fin, dbl, ctr)
     single(k) = kind == 2 ? cdf(xs[k], model; c = Float64(c), c0, g0, start, kw...) : density(xs[k], model; c = Float64(c), c0, g0, start, kw...)
+    # the line integral at a point of sgl; where its paths exceed the bounds of the engine (PathTooLarge, raised before its
+    # inner integrals are evaluated), with method = :auto the conditional integral with its checks (route_double), with
+    # method = :single an ArgumentError that names the arguments (path_error)
+    nflag = Ref(0)                                                    # (flagged values of route_double: a warning, route_warn)
+    function single_route(k)
+        try
+            return single(k)
+        catch e
+            p = pathtoolarge(e); p === nothing && rethrow()
+            (method == :auto && model != 4) || throw(path_error(kind, cas, Float64(c), c0, g0, xs[k], p, model))
+            v, fl = route_double(kind, xs[k], model, Float64(c), c0, g0, start, p)
+            fl && (nflag[] += 1)
+            return v
+        end
+    end
+    # the line integral as the last resort of verified = true (a point flagged by the other representations): where its
+    # paths exceed the bounds, the flagged value v stays, with a warning
+    nkeep = Ref(0)
+    function single_or(k, v)
+        try
+            return single(k)
+        catch e
+            p = pathtoolarge(e); p === nothing && rethrow()
+            nkeep[] += 1
+            return v
+        end
+    end
     if !verified
         # the default: one evaluation by one method at each point (no second evaluation, no refinement driven by an
         # estimate, no fallback, no recomputation); a warning where the parameters lie in a regime known to be brittle
@@ -2079,7 +2165,8 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
             Fd, _ = tr_limdist(xs[dbl], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = false, verified = false, kw...)
             for (j, k) in enumerate(dbl); F[k] = Fd[j]; end
         end
-        for k in sgl; F[k] = single(k); end
+        for k in sgl; F[k] = single_route(k); end
+        nflag[] > 0 && route_warn(cas, Float64(c), c0, g0)
         kind == 1 && (F[F .< 0] .= 0.0)                               # a density below the error of the method
         return x isa Number ? F[1] : reshape(F, size(x))
     end
@@ -2094,7 +2181,7 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
             fb = [ctr[j] for j in eachindex(ctr) if infoc.status[j] != 0]
             if !isempty(fb)
                 Fd, infod = tr_limdist(xs[fb], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = false, verified = true, kw...)
-                for (j, k) in enumerate(fb); F[k] = infod.status[j] == 0 ? Fd[j] : single(k); end
+                for (j, k) in enumerate(fb); F[k] = infod.status[j] == 0 ? Fd[j] : single_or(k, F[k]); end
             end
             # the tails, as for the single integral below: values below 1e-3 by the double integral
             tl = [ctr[j] for j in eachindex(ctr) if infoc.status[j] == 0 && (kind == 1 ? abs(Fc[j]) : Fc[j]) < 1e-3]
@@ -2109,10 +2196,18 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
         for (j, k) in enumerate(dbl)
             # a point chosen by the rule at which the double integral reports that its error estimate is not met gets the
             # single integral's value (with method = :double the flagged value is returned, with a warning)
-            F[k] = (method == :auto && info.status[j] != 0) ? single(k) : Fd[j]
+            F[k] = (method == :auto && info.status[j] != 0) ? single_or(k, Fd[j]) : Fd[j]
         end
     end
-    for k in sgl; F[k] = single(k); end
+    for k in sgl; F[k] = single_route(k); end
+    nflag[] > 0 && route_warn(cas, Float64(c), c0, g0)
+    if nkeep[] > 0
+        msg = "$(uppercase(String(cas))), c = $c, c0 = $c0" * (g0 != 0 ? ", g0 = $g0" : "") * ": at some points the value of " *
+              "the conditional (or contour) integral is flagged and the line integral's paths exceed the bounds of the engine; " *
+              "the flagged values are returned"
+        seen = BRITTLE_SEEN[]
+        seen === nothing ? (@warn msg) : push!(seen, msg)
+    end
     # the tails: the single integral's error is absolute (1e-14 to 1e-21, not reduced by finer rules), so with method = :auto
     # the values of the single integral below 1e-3 (a density in absolute value, a distribution function in the lower tail)
     # are recomputed by the double integral, which keeps its relative accuracy there (as the MATLAB programs do)
@@ -2200,6 +2295,11 @@ and with :auto the rule of `automethod_verified`, the flagged values given anoth
 below 1e-3 recomputed by the conditional integral, at 1 to 4 times the cost of the default (about 1.8 with the contour
 integral; more in the tails below 1e-3, which it recomputes).  Further keywords go to the engine
 (tau, hu, N, pfac, ...).
+
+Where the paths of the line integral would exceed the bounds of the engine (c0 < 0 near zero with x > 0, where a root of
+the parabola X(v) lies far out, and large x above the unit root; see `path_error`), it refuses the point before
+evaluating it: method = :auto then takes the conditional integral there (`route_double`), method = :single raises an
+ArgumentError that names the arguments (also case DG, which has the line integral only).
 
     ltratio_cdf(-2.86, "DU")                        # P[tau_mu <= -2.86] at the unit root
     ltratio_cdf(-1.94087, "DK", -5)                 # power of the 5% test of tau at c = -5
