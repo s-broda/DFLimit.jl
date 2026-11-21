@@ -5213,7 +5213,7 @@ function gpgrid(; N = 60000, umax = 4000.0)
 end
 const GPU, GPW = gpgrid()
 P_lin(c, a, b) = gilpelaez(cf_lin(c, a, GPU), GPU, GPW, b)          # P(U - aV < b) under c
-P_V(c, v) = gilpelaez(cf_V(c, GPU), GPU, GPW, v)                     # P(V < v) under c
+P_V(c, v) = tr_gilpelaez(v, NaN, "DK", c)[1]                         # P(V < v) under c (the grid of vgrid where the default does not serve)
 quant_lin(c, a, p) = (phi = cf_lin(c, a, GPU); ltratio_bisect(b -> gilpelaez(phi, GPU, GPW, b) - p, -1e4, 1e4, 1e-11))
 quant_V(c, p) = (phi = cf_V(c, GPU); ltratio_bisect(v -> gilpelaez(phi, GPU, GPW, v) - p, 1e-6, 50.0, 1e-12))
 
@@ -5245,14 +5245,242 @@ function cf_gls(c::Float64, a::Float64, u::Vector{Float64}; cbar::Float64 = CBAR
     [E[k] * abs(D[k])^(-0.5) * exp(-im * ph[k] / 2) * abs(F[k])^(-0.5) * exp(-im * pf[k] / 2) for k in eachindex(u)]
 end
 
+# ---------------------------------------------------------------------------------------------------------------------
+# The linear form where the inversion of Gil-Pelaez is not accurate.  The transform of U - aV decays like a power of u for
+# a = 0 (R = U + 1/2 is a gamma(1/2) variable, whose density is infinite at its edge) and like exp(-(|a| u)^{1/2}) only
+# from u ~ 1/|a| on, so that the inversion truncated at umax = 4000 is off by up to 7e-2 near the edge b = -1/2 and
+# 1e-3 in the bulk for |a| up to about 0.3, and by 1e-4 even at |a| = 0.3 for c = -50, where R and V are concentrated;
+# for c > 0 the inversion is also off where U - aV is wide (2.6e-9 to 1e-2 in case DK at c from 0.5 to 5 for |a| from 3
+# to 25: a map of 12541 points, November 2026).  Where the transform at the end of the grid exceeds GPTAIL, or c > 0,
+# the probability comes from a conditional integral instead: in case DK the region {U <= aV + b} of the plane by the
+# conditional integral given V (Pregion), in case DG the conditional integral given R (lincond).
+"""the largest |phi| on the last 101 points of the grid at which the inversion of Gil-Pelaez is trusted (c <= 0): the
+error of the inversion is about 0.02 |phi(umax)| (a map of the six cases of the inversion's failure, November 2026)"""
+const GPTAIL = 5e-9
+gp_trusted(phi::Vector{ComplexF64}, c::Real) = c <= 0 && maximum(k -> abs(phi[k]), max(1, length(phi) - 100):length(phi)) <= GPTAIL
+
+# The conditional integral given R = U + 1/2 (lincond).  With a zero start E[e^{sR + tV}] = B(t) (1 - s/s1(t))^{-1/2} in
+# cases DK and DG: under the measure tilted by e^{tV}, R is a gamma(1/2) variable of rate s1(t).  So R is gamma(1/2) of
+# rate kappa = s1(0) (J(1)^2 = 2R with J(1) normal), and the conditional moment generating function of V given R = r is
+# M(t | r) = B(t) (s1(t)/kappa)^{1/2} e^{-(s1(t) - kappa) r} (its Laplace transform in r against the density of R gives
+# the joint one).  With x = b + 1/2,
+#   a > 0:  P(U - aV <= b) = P(R <= x) + int_{r > x} f_R(r) P(V >= (r - x)/a | R = r) dr,
+#   a < 0:  P(U - aV <= b) = P(R <= x) - int_{r < x} f_R(r) P(V > (x - r)/|a| | R = r) dr     (0 for x <= 0),
+# P(R <= x) = erf(sqrt(kappa x)), exactly so at a = 0.  The law of V given R = r is smooth: its transform decays like
+# e^{-(1/2 + r) Re(sqrt(-2it))}, and P(V > y | r) comes from Gil-Pelaez by the midpoint rule in w with the step 2 pi/L,
+# L = 2.2 ymax beyond the range ymax = E V + 42/t_* of y (where P(V > y) ~ e^{-t_* y} < 1e-18), up to where the
+# transform has fallen below 1e-17 w; the outer integral in y on panels graded from its lower end (the first E V/16 long,
+# doubling) and at the scale of f_R (rho = k/sqrt(kappa)), Gauss-Legendre in rho = sqrt(r) on each (f_R(r) dr =
+# 2 sqrt(kappa/pi) e^{-kappa rho^2} d rho, smooth also where r reaches 0), adaptively (lincond_outer).  Against the
+# conditional integral of the region in case DK (c from -50 to 3, |a| from 1e-3 to 1, b across the edge and the bulk)
+# within 1e-14; in case DG against the inversion of Gil-Pelaez on 1.2e6 nodes up to u = 1e5 where that converges (|a| of
+# 0.3 to 3, cbar from -1e-3 to -13.5, c from -50 to 3) within 3e-13.  At most LCNMAX nodes in w: case DG for c up to
+# about 3.5 at cbar = -13.5, less for cbar nearer 0 (an ArgumentError beyond).
+const LCNMAX = 2_000_000
+const LCTOL = 1e-13          # the outer integral's panels: |G24 - G12| at most this (absolute), else halved
+const LCDEPTH = 30
+const LCPMAX = 4096
+struct LinCond
+    kap::Float64; ev::Float64; ymax::Float64; dw::Float64
+    w::Vector{Float64}; lB::Vector{ComplexF64}; s1k::Vector{ComplexF64}      # lB = log(B s1^{1/2}/kappa^{1/2}), s1k = s1 - kappa
+end
+# log(B(t) s1(t)^{1/2}) and s1(t) at t = i w (case DK: e^{-c/2} S(t)^{-1/2}, S = sinh(mu)/mu, s1 = mu coth mu - c; case DG:
+# B = e^{-c/2} (cosh th |I - Q Sig|)^{-1/2} and s1 as in cf_gls), the phases continued along w
+function lincond_parts(cas::String, c::Float64, w::Vector{Float64}, cbar::Float64)
+    n = length(w); lB = Vector{ComplexF64}(undef, n); s1 = similar(lB); ph = zeros(n)
+    if cas == "DK"
+        lq = zeros(n)
+        for k in 1:n
+            mu = sqrt(complex(c * c, -2w[k]))
+            q = abs(mu) < 1e-6 ? 2 - 2mu : -expm1(-2mu) / mu
+            s1[k] = ((1 + exp(-2mu)) - c * q) / q
+            lq[k] = real(mu) - log(2) + log(abs(q)); ph[k] = imag(mu) + angle(q)
+        end
+        unwrap!(ph)
+        for k in 1:n; lB[k] = -c / 2 - complex(lq[k], ph[k]) / 2; end
+    else
+        lam = lam_gls(cbar); v = ComplexF64.(VGLS)
+        Gm = [-lam * lam / 3 0 lam * lam; 0 0 0; lam * lam 0 3 * (1 - lam * lam)]
+        Dv = similar(lB); ps = zeros(n)
+        for k in 1:n
+            t = complex(0.0, w[k])
+            G = girsanov(3, c, t)
+            Q = ComplexF64[c 0 0; 0 0 0; 0 0 0] .- 2t .* Gm
+            N = Matrix{ComplexF64}(I, 3, 3) - Q * G.Sg
+            s1[k] = 1 / ((1 - lam)^2 * (transpose(v) * (G.Sg * (N \ v))))
+            Dv[k] = exp(G.lch) * det(N); ph[k] = angle(Dv[k]); ps[k] = angle(s1[k])
+        end
+        unwrap!(ph); unwrap!(ps)
+        for k in 1:n; lB[k] = -c / 2 - complex(log(abs(Dv[k])), ph[k]) / 2 + complex(log(abs(s1[k])), ps[k]) / 2; end
+    end
+    lB, s1
+end
+# the abscissa t_* of the moment generating function of V in case DG detrended at cbar: the first zero of
+# cosh th |I - Q Sig| at real t > 0 (tstar(4, c) holds for cbar = CBAR_GLS only)
+function tstar_gls(c::Float64, cbar::Float64)
+    lam = lam_gls(cbar)
+    Gm = [-lam * lam / 3 0 lam * lam; 0 0 0; lam * lam 0 3 * (1 - lam * lam)]
+    g(t) = (G = girsanov(3, c, complex(t)); N = Matrix{ComplexF64}(I, 3, 3) - (ComplexF64[c 0 0; 0 0 0; 0 0 0] .- 2t .* Gm) * G.Sg;
+            real(exp(G.lch) * det(N)))
+    a = 1e-6
+    while g(a) <= 0 && a > 1e-300; a /= 1e3; end
+    b = a
+    while g(b) > 0
+        a = b; b *= 1.05
+        b > max(1e4, 2c * c) && error("tstar_gls: no zero below t = max(1e4, 2c^2)")
+    end
+    for _ in 1:100
+        m = (a + b) / 2
+        g(m) > 0 ? (a = m) : (b = m)
+        b - a < 1e-15 * b && break
+    end
+    (a + b) / 2
+end
+function lincond_build(cas::String, c::Float64, cbar::Float64)
+    kap = real(lincond_parts(cas, c, [0.0], cbar)[2][1])
+    lb, s1 = lincond_parts(cas, c, [1e-6], cbar)
+    ev = imag(lb[1] - log(s1[1]) / 2) / 1e-6                      # E V: log B(iw) ~ i w E V
+    ts = cas == "DK" ? tstar(1, c) : tstar_gls(c, cbar)
+    ymax = ev + 42 / ts
+    dw = 2pi / (2.2ymax)
+    W = 1.0
+    while true                                                    # the end: |B s1^{1/2}|/kappa^{1/2} below 1e-17 w at r = 0
+        lb, _ = lincond_parts(cas, c, [W], cbar)
+        real(lb[1]) - log(kap) / 2 - log(W) < log(1e-17) && break
+        W *= 1.3
+        W / dw > LCNMAX && throw(ArgumentError("ltratio_lincdf: case $cas, c = $c: the conditional integral of the linear form needs more than $LCNMAX nodes in its inner inversion (the law of V spreads like 1/t_* = $(round(1 / ts, sigdigits = 3)) as c grows); case DG is available for c up to about 3.5 at cbar = -13.5, less for cbar nearer 0"))
+    end
+    nw = ceil(Int, W / dw)
+    w = [(k - 0.5) * dw for k in 1:nw]
+    lB, s1 = lincond_parts(cas, c, w, cbar)
+    LinCond(kap, ev, ymax, dw, w, lB .- log(kap) / 2, s1 .- kap)
+end
+const LINCOND = Dict{Tuple{String,Float64,Float64},LinCond}()
+const LINCONDLOCK = ReentrantLock()
+lincond_setup(cas::String, c::Float64, cbar::Float64) = lock(LINCONDLOCK) do; cacheget!(() -> lincond_build(cas, c, cbar), LINCOND, (cas, c, cbar)); end
+# P(V > y | R = r)
+function lincond_sv(P::LinCond, y::Float64, r::Float64)
+    y <= 0 && return 1.0
+    s = 0.0
+    @inbounds for k in eachindex(P.w)
+        s += imag(exp(P.lB[k] - P.s1k[k] * r - im * (P.w[k] * y))) / P.w[k]
+    end
+    0.5 + s * P.dw / pi
+end
+# the outer integral of |a| f_R(x + a y) P(V > y | R = x + a y) over [y0, y1]; zlo, zhi: r = 0 at y0, at y1 (taken
+# exactly: the root of x + a y0 rounded off leaves r ~ 1e-18 there, and sqrt(r) ~ 1e-9 would cut off f_R(r) dr ~ 1e-9)
+function lincond_outer(P::LinCond, x::Float64, a::Float64, y0::Float64, y1::Float64, zlo::Bool, zhi::Bool)
+    y1 <= y0 && return 0.0
+    u, gw = rule(24)
+    # the breakpoints in y, graded from y0, as rho = sqrt(r); and those of the scale of f_R, rho = k/sqrt(kappa) (the
+    # gamma(1/2) density is concentrated on r ~ 1/kappa, which can be far below the scale of V: case DG detrended at cbar
+    # near zero, where kappa grows like cbar^-4)
+    br = [y0]; h = P.ev / 16
+    while br[end] < y1; push!(br, min(y1, br[end] + h)); h *= 2; end
+    rh = [(j == 1 && zlo) ? 0.0 : (j == length(br) && zhi) ? 0.0 : sqrt(max(x + a * br[j], 0.0)) for j in eachindex(br)]
+    lo, hi = extrema(rh); sk = 1 / sqrt(P.kap)
+    for m in (0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
+        lo < m * sk < hi && push!(rh, m * sk)
+    end
+    sort!(unique!(rh))
+    # on each panel Gauss-Legendre with 24 points, checked against 12; a panel where the two differ by more than LCTOL is
+    # halved (level by level, at most LCDEPTH times, at most LCPMAX panels a level): the conditional law of V given R = r can turn within a fraction of
+    # the scale 1/kappa of r (case DG for c > 0 detrended at cbar near 0, where P(V > y | R = r) rises from 0.03 to 1 between
+    # r = 0.06/kappa and 1/kappa), which fixed panels do not resolve (2.5e-7 at cbar = -0.1, c = 2)
+    u2, gw2 = rule(12)
+    g(rho) = (r = rho * rho; 2 * sqrt(P.kap / pi) * exp(-P.kap * r) * lincond_sv(P, (r - x) / a, r))
+    pan = [(rh[j], rh[j+1]) for j in 1:length(rh)-1]
+    acc = 0.0
+    for depth in 0:LCDEPTH
+        nxt = Tuple{Float64,Float64}[]
+        for (ra, rb) in pan
+            s24 = 0.0; for k in 1:24; s24 += gw[k] * g(ra + (rb - ra) * u[k]); end
+            s12 = 0.0; for k in 1:12; s12 += gw2[k] * g(ra + (rb - ra) * u2[k]); end
+            s24 *= rb - ra; s12 *= rb - ra
+            if abs(s24 - s12) <= LCTOL || depth == LCDEPTH || length(nxt) >= LCPMAX
+                acc += s24
+            else
+                m = (ra + rb) / 2; push!(nxt, (ra, m), (m, rb))
+            end
+        end
+        isempty(nxt) && break
+        pan = nxt
+    end
+    acc
+end
+"""
+    lincond(b, a, cas, c; cbar = -13.5) -> P
+
+P(U - aV <= b) with a zero start by the conditional integral given R = U + 1/2 (see above); clamped to [0, 1].  The engine
+of `ltratio_lincdf` in case DG where the inversion of Gil-Pelaez is not trusted (gp_trusted).
+"""
+lincond(b::Float64, a::Float64, cas::String, c::Float64; cbar::Float64 = CBAR_GLS) = lincond_x(b + 0.5, a, cas, c, cbar)
+# the same at x = b + 1/2 (power_envelope passes x: in case DG near cbar = 0 the scale of U + 1/2 - aV falls far below the
+# spacing of the doubles near b = -1/2)
+function lincond_x(x::Float64, a::Float64, cas::String, c::Float64, cbar::Float64)
+    P = lincond_setup(cas, c, cbar)
+    F0 = x > 0 ? erf(sqrt(P.kap * x)) : 0.0
+    a == 0 && return F0
+    Y = P.ymax
+    if a > 0
+        y0 = max(0.0, -x / a)
+        F = y0 >= Y ? F0 : F0 + lincond_outer(P, x, a, y0, Y, x <= 0, false)
+    else
+        y1 = x / (-a)
+        F = x <= 0 ? 0.0 : F0 - lincond_outer(P, x, a, 0.0, min(Y, y1), false, y1 <= Y)
+    end
+    clamp(F, 0.0, 1.0)
+end
+"""P(U - aV <= b) where the inversion of Gil-Pelaez is not trusted: case DK by the region {U <= aV + b} (the conditional
+integral given V, Pregion), case DG by the conditional integral given R (lincond); clamped to [0, 1]"""
+lin_exact(b::Float64, a::Float64, cas::String, c::Float64, cbar::Float64) =
+    !isfinite(b) ? (isnan(b) ? NaN : b > 0 ? 1.0 : 0.0) :
+    cas == "DK" ? clamp(Pregion(c, v -> b + a * v)[1], 0.0, 1.0) : lincond(b, a, cas, c; cbar)
+lin_exact_x(x::Float64, a::Float64, cas::String, c::Float64, cbar::Float64) =
+    cas == "DK" ? clamp(Pregion(c, v -> (x - 0.5) + a * v)[1], 0.0, 1.0) : lincond_x(x, a, cas, c, cbar)
+
+"""x = b + 1/2 with P(U - aV <= b) = p at c = 0 by the conditional integral (lin_exact), detrended at cbar in case DG:
+bisection to 1e-12 s, s = E(U + 1/2) + |a| E V the scale of U + 1/2 - aV (power_envelope where the inversion of
+Gil-Pelaez is not trusted)"""
+function lin_quantile_x(p::Float64, a::Float64, cas::String, cbar::Float64)
+    kap, ev = cas == "DK" ? (1.0, 0.5) : (L = lincond_setup(cas, 0.0, cbar); (L.kap, L.ev))
+    s = 1 / (2kap) + abs(a) * ev
+    F(x) = lin_exact_x(x, a, cas, 0.0, cbar) - p
+    lo = a < 0 ? 0.0 : -s; hi = s
+    for _ in 1:200; F(hi) < 0 || break; hi *= 2; end
+    for _ in 1:200; (a < 0 || F(lo) > 0) || break; lo *= 2; end
+    ltratio_bisect(F, lo, hi, 1e-12 * s)
+end
+
+# The law of V alone (a = NaN, case DK) where the grid of the inversion does not serve: its transform decays only from
+# u ~ 15 |c|^{3/2} on for c < 0 (V is concentrated near 1/(2|c|): off by 8e-8 at c = -50 and 4e-2 at c = -200 with
+# umax = 4000), and for c > 2, where V spreads like 1/t_*, the step must shrink like t_*^{1/2} (off by 1.2e-5 at c = 5
+# with the step of the default grid).  There the grid goes on with the same step until |phi| < 1e-16 and the step is
+# h0 min(1, (t_*/t_*(2))^{1/2}), h0 = asinh(4000)/60000 (at c = 5 within 1e-9 of grids four times finer); at most VNMAX
+# nodes (an ArgumentError beyond: c up to about 7).  The default grid serves where |phi| < 1e-9 at its end and c <= 2
+# (within 3e-12 of the longer grids at c = -20, 3e-14 for c from -5 to 2).
+const VNMAX = 4_000_000
+function vgrid(c::Float64, phi::Vector{ComplexF64})
+    (c <= 2 && maximum(k -> abs(phi[k]), length(phi)-100:length(phi)) <= 1e-9) && return nothing
+    h0 = asinh(4000.0) / 60000
+    h = c > 2 ? h0 * min(1.0, sqrt(tstar(1, c) / tstar(1, 2.0))) : h0
+    U = 4000.0
+    while abs(cf_V(c, [U])[1]) > 1e-16 && U < 1e9; U *= 1.5; end
+    N = ceil(Int, asinh(U) / h)
+    N > VNMAX && throw(ArgumentError("ltratio_lincdf: P(V <= b) at c = $c needs more than $VNMAX nodes in the inversion of Gil-Pelaez (case DK is available for c up to about 7)"))
+    gpgrid(; N, umax = sinh(N * h))
+end
+
 """
     tr_gilpelaez(b, a, cas, c; cbar = -13.5, N = 60000, umax = 4000, phi = nothing) -> (P, phi)
 
 The engine of `ltratio_lincdf` (MATLAB: TR_GILPELAEZ): P(U - aV < b), elementwise in b (a = NaN: P(V < b), case DK only),
 under phi = 1 + c/n, zero start, case "DK" or "DG" (detrended at `cbar`), by P(X < b) = 1/2 - (1/pi) int_0^inf
-Im[phi(u) e^{-iub}]/u du with the trapezoidal rule in u = sinh(v), `N` steps up to `umax`, from u = 1e-7.  Returns the
-characteristic function on the grid too, which a further call with the same a, cas, c, N, umax accepts as `phi` (the
-bisections of `power_envelope`).
+Im[phi(u) e^{-iub}]/u du with the trapezoidal rule in u = sinh(v), `N` steps up to `umax`, from u = 1e-7.  Where that
+inversion is not trusted (`gp_trusted`: |phi| above GPTAIL at the end of the grid, or c > 0) the linear form comes from a
+conditional integral (`lin_exact`: the region {U <= aV + b} in case DK, `lincond` in case DG), and the law of V from a
+longer or finer grid (`vgrid`).  Returns the characteristic function on the grid too, which a further call with the same
+a, cas, c, N, umax accepts as `phi` (the bisections of `power_envelope`).
 """
 function tr_gilpelaez(b, a::Real, cas::AbstractString, c::Real; cbar::Real = CBAR_GLS, N::Int = 60000, umax::Real = 4000.0, phi = nothing)
     u, w = (N == 60000 && umax == 4000) ? (GPU, GPW) : gpgrid(; N, umax = Float64(umax))
@@ -5267,7 +5495,25 @@ function tr_gilpelaez(b, a::Real, cas::AbstractString, c::Real; cbar::Real = CBA
             throw(ArgumentError("tr_gilpelaez: the case must be DK or DG"))
         end
     end
-    P = b isa Number ? gilpelaez(phi, u, w, Float64(b)) : map(bk -> gilpelaez(phi, u, w, Float64(bk)), b)
+    if isnan(a)
+        g = vgrid(Float64(c), phi)                                # (the law of V: a longer or finer grid where needed)
+        if g !== nothing
+            u, w = g; phi = cf_V(Float64(c), u)
+        end
+    elseif !gp_trusted(phi, c)
+        # the inversion is not trusted (a transform that has not decayed by umax, or c > 0): a conditional integral
+        cs = uppercase(String(cas)); cb = Float64(cbar)
+        if b isa Number
+            return lin_exact(Float64(b), Float64(a), cs, Float64(c), cb), phi
+        end
+        bv = Float64.(vec(collect(b))); Pv = similar(bv)
+        tmap!(k -> lin_exact(bv[k], Float64(a), cs, Float64(c), cb), Pv, length(bv))
+        return reshape(Pv, size(b)), phi
+    end
+    # (clamped to [0, 1]: the inversion's error of order 1e-14 leaves probabilities such as -1e-14 below the support;
+    # b = -Inf, Inf give 0, 1)
+    gp1(bk) = isfinite(bk) ? clamp(gilpelaez(phi, u, w, Float64(bk)), 0.0, 1.0) : isnan(bk) ? NaN : bk > 0 ? 1.0 : 0.0
+    P = b isa Number ? gp1(b) : map(gp1, b)
     P, phi
 end
 
@@ -5280,14 +5526,19 @@ is the same) or "DG" (the GLS-detrended trend case of Elliott, Rothenberg and St
 point-optimal test of Elliott, Rothenberg and Stock against cbar < 0 rejects for U - aV < b: in case DK with a = cbar/2
 (its log likelihood ratio is cbar U - cbar^2 V/2), in case DG, with the data detrended at cbar, with
 a = cbar^2/(2 (cbar - 1)) (it rejects for small cbar^2 V + (1 - cbar) J(1)^2, J(1)^2 = 2U + 1); see `power_envelope`.
-a = NaN gives P(V <= b) (case DK).  By the inversion formula of Gil-Pelaez (`tr_gilpelaez`), to about 1e-11.  As
-LTRATIO_LINCDF of the MATLAB programs.
+a = NaN gives P(V <= b) (case DK).  By the inversion formula of Gil-Pelaez (`tr_gilpelaez`) where its transform has decayed
+by the end of its grid and c <= 0, to about 1e-10; otherwise (|a| below about 0.3 to 3, depending on c, which includes
+a = 0, the law of U alone, and c > 0) by a conditional integral: in case DK that of the region {U <= aV + b}
+(`ltratio_region`), in case DG the conditional integral given U (`lincond`), to about 1e-10 and in [0, 1].  c must be at
+least -550; in case DG at most about 3.5, and for a = NaN about 7 (an ArgumentError beyond).  As LTRATIO_LINCDF of the
+MATLAB programs.
 
     ltratio_lincdf(-0.2639, -3.5, "DK", 0)          # 0.05: the size of the point-optimal test at cbar = -7
 """
 function ltratio_lincdf(b, a::Real, cas::AbstractString, c::Real = 0; kw...)
     uppercase(String(cas)) in ("DK", "DG") || throw(ArgumentError("ltratio_lincdf: the case must be DK or DG"))
     (c isa Real && isfinite(c)) || throw(ArgumentError("ltratio_lincdf: c must be a finite real scalar"))
+    c >= CMIN || throw(ArgumentError("ltratio_lincdf: " * CMIN_MSG))
     tr_gilpelaez(b, a, cas, c; kw...)[1]
 end
 
@@ -5313,6 +5564,13 @@ function power_envelope(c, cas::AbstractString = "DK"; alpha::Real = 0.05, kw...
         ck < 0 || return Float64(alpha)
         a = po_weight(ck, cas)
         _, phi0 = tr_gilpelaez(0.0, a, cas, 0.0; cbar = ck, kw...)
+        if !gp_trusted(phi0, 0.0)
+            # near c = 0, where a is small and the inversion is not trusted: the conditional integral (lin_exact), its
+            # critical value by bisection in x = b + 1/2 to 1e-12 of the scale s of U + 1/2 - aV (in case DG detrended at
+            # cbar = c the law of U + 1/2 shrinks like c^4, so that a tolerance in b of 1e-9 does not resolve it)
+            x = lin_quantile_x(Float64(alpha), a, cas, ck)
+            return lin_exact_x(x, a, cas, ck, ck)
+        end
         b = ltratio_bisect(b -> tr_gilpelaez(b, a, cas, 0.0; cbar = ck, phi = phi0, kw...)[1] - alpha, -50.0, 50.0, 1e-9)
         tr_gilpelaez(b, a, cas, ck; cbar = ck, kw...)[1]
     end

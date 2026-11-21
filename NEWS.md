@@ -2,7 +2,7 @@
 
 ## 0.5.0
 
-Three errors of the engine are repaired. Values outside the regions named below are unchanged bit for bit.
+Four errors of the engine are repaired. Values outside the regions named below are unchanged bit for bit.
 
 - **Wrong values with a fixed start.** With a fixed start (`g0 != 0`), a negative local null value close to zero
   (`c0` of -0.01 or -0.001), `x > 0` and `c >= 0`, the line integral returned wrong values, from errors of 1e-7 and
@@ -20,6 +20,25 @@ Three errors of the engine are repaired. Values outside the regions named below 
   in the hundreds) every new Gauss-Legendre rule was built with its full matrix of eigenvectors: case DT at `c = 7`,
   `x = 403.7` took 3 GB. Rules above 1024 nodes are now computed by Newton's method in memory proportional to their
   size, and are limited to 4096 nodes; points beyond that go to the conditional integral as above.
+- **Wrong values of the linear form for small `|a|`.** `ltratio_lincdf` inverted the characteristic function of
+  `U - aV` by the formula of Gil-Pelaez on a grid that ends at `u = 4000`. At `a = 0` (the law of `U`, whose density
+  is infinite at the edge `b = -1/2` of its support) the transform decays only like `u^(-1/2)`, and the values were off
+  by up to 7e-2 within 1e-3 of the edge, 1e-2 within 1e-2 of it and 1e-4 in the bulk, in cases DK and DG alike; below
+  the support they were as low as -1.5e-2 instead of 0, and above 1 by up to 5e-5 (2380 of 12541 values of a map over
+  `a`, `b` and `c` lay outside [0, 1]). The error stays at that size for `|a|` up to about 3e-3 and falls to 1e-3 in
+  case DK (4e-5 in case DG) at `|a| = 0.3` and to 3e-8 at `|a| = 1`; it is larger where `U` and `V` are concentrated
+  (1.3e-3 at `c = -50` for small `|a|`; at `c = -200` and `-500` even for `|a|` of 3 to 10) and where `U - aV` is wide
+  (up to 1.2e-2 in case DK at `c = 5`). `P(V <= b)` (`a = NaN`) was off by 8e-8 at `c = -50`, 4e-2 at `c = -200`, 8e-2
+  at `c = -500` and 1.2e-5 at `c = 5`. Where the transform has not fallen below 5e-9 by the end of the grid, or
+  `c > 0`, the value now comes from a conditional integral, in case DK that of the region `{U <= aV + b}` (as
+  `ltratio_region`), in case DG the conditional integral given `U` (the law of `U + 1/2` is a gamma law of shape 1/2 under
+  every tilt in `V`): to about 1e-10, within [0, 1] and 0 below the support. `P(V <= b)` uses a longer grid for
+  `c <= -50` and a finer one for `c > 2`. `power_envelope` near `c = 0`, where its weight `a` is small, takes the
+  conditional integral too (in case DG it fell below `alpha` there; now `alpha + O(c^2)`, 0.0500000034 at `c = -1e-3`;
+  at `c = -1` 0.0531924225 for 0.0531924279).
+  `ltratio_lincdf` now requires `c >= -550` (as the other functions), case DG `c` up to about 3.5 at `cbar = -13.5`
+  (less for `cbar` nearer 0) and `a = NaN` `c` up to about 7, with an `ArgumentError` beyond, and gives 0 and 1 at
+  `b = -Inf` and `Inf`. `ltratio_region` with `v0 > 0` changes with `P(V < v0)` at `c <= -50` and `c > 2`.
 - The caches kept per point and per `c` hold at most 64 entries.
 
 ## 0.4.0
