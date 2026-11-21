@@ -209,6 +209,22 @@ end
         @test maximum(abs, lin_cdf(trend(-1), bs, -3.5, -7.0) - [ltratio_lincdf(b, -3.5, "DK", -7.0) for b in bs]) < 1e-11
         @test maximum(abs, lin_cdf(trend(1), bs, 1.0, 0.0; gls = -13.5) - [ltratio_lincdf(b, 1.0, "DG", 0.0) for b in bs]) < 1e-11
         @test maximum(abs, v_cdf(trend(-1), [0.05, 0.3, 2.0], 0.0) - [ltratio_lincdf(y, NaN, "DK", 0.0) for y in (0.05, 0.3, 2.0)]) < 1e-11
+        # above the unit root, where the path of the t-ratio is the vertical line, the law of V takes a hyperbola (v_path):
+        # against the classical inversion in the bulk (in the upper tail it is off by 6e-10 at 5 E V at c = 4, 2.8e-10 at
+        # 2.5 E V at c = 5, 1.8e-7 at c = 7), and at c = 7 against the closed form of M_V (DFExact.cf_from) inverted on a
+        # hyperbola of its own
+        for c in (4.0, 5.0)
+            ys = DX.EVdk(c) .* [0.05, 0.3, 1.0]
+            @test maximum(abs, v_cdf(trend(-1), ys, c) - ltratio_lincdf(ys, NaN, "DK", c; engine = :classical)) < 1e-11
+        end
+        let c = 7.0, ys = DX.EVdk(7.0) .* [0.05, 0.3, 1.0, 2.5, 5.0]
+            ts = DX.tstar(1, c); tau = ts / 2; bb = 0.9 * tau / sin(0.5); h = 0.005
+            us = collect(0:h:25.0); t = [complex(tau + bb * (cosh(u) - 1), bb * sinh(u)) for u in us]; dt = [complex(bb * sinh(u), bb * cosh(u)) for u in us]
+            M = DX.cf_from(c, zeros(ComplexF64, length(t)), t); w = fill(h / pi, length(us)); w[1] /= 2
+            ref = [1 - sum(w[k] * imag(M[k] * exp(-t[k] * y) * dt[k] / t[k]) for k in eachindex(us) if isfinite(M[k])) for y in ys]
+            @test maximum(abs, v_cdf(trend(-1), ys, c) - ref) < 1e-10
+            @test all(>(0), v_pdf(trend(-1), ys, c))
+        end
         # the density of U - aV against a difference quotient of its distribution function
         h = 1e-4
         @test abs(lin_pdf(trend(1), [0.3], -2.0, -5.0)[1] - (lin_cdf(trend(1), [0.3 + h], -2.0, -5.0)[1] - lin_cdf(trend(1), [0.3 - h], -2.0, -5.0)[1]) / 2h) < 1e-7

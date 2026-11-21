@@ -3530,20 +3530,51 @@ The distribution function of V by the single inversion of M_V(t) = M(0,t) on the
 the contour integral representation, a probability for V alone).
 """
 function v_cdf(D::Determ, ys::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = 1.0)
-    CP = user_path(D, c, start, gamma0, gls, phi, hfac)
+    CP = v_path(D, c, start, gamma0, gls, phi, hfac)
     [1 - vsum(CP, Float64(y), true) for y in ys]
 end
 """v_pdf(D, ys, c = 0; kw...) -> the density of V (the inversion (1/2 pi i) int_C M_V(t) e^{-t y} dt)"""
 function v_pdf(D::Determ, ys::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = 1.0)
-    CP = user_path(D, c, start, gamma0, gls, phi, hfac)
+    CP = v_path(D, c, start, gamma0, gls, phi, hfac)
     [vsum(CP, Float64(y), false) for y in ys]
 end
+"""
+    v_path(D, c, start, gamma0, gls, phi, hfac) -> the outer contour of the law of V alone
+
+The path of the design (`cpath_cached`), except where that is the vertical line (c > 0, or GLS detrending with a small
+|cbar|: no hyperbola keeps the positive roots right of the origin).  The U-shapes need the roots on their sides; V alone
+does not: M_V(t) = M(0, t) is analytic off the real half-line t >= t_*, and the roots enter only through the logarithms
+at s = 0, which `vsum` continues along the path.  On the line the integrand M_V(t) e^{-t y}/t oscillates in w at the
+rate y, damped only by e^{-tau y} with tau = min(1, t_*/2) tiny above the unit root, and the doubling panels of
+`linecpath` do not resolve it: P(V <= y) was off by 2e-3 in case DK at c = 5.  Here the hyperbola at the angle the path
+would have without the steepening for the roots (pi/4, or `fixed_phi` with a fixed start and below c = -100), on which
+e^{-t y} decays.  An angle given by phi is kept (and so is the line, if that is what it gives).
+"""
+function v_path(D::Determ, c::Real, start::Symbol, gamma0::Real, gls, phi, hfac)
+    CP = user_path(D, c, start, gamma0, gls, phi, hfac)
+    (phi === nothing && isnan(CP.h)) || return CP
+    Mo = CP.Mo; cf = Float64(c)
+    ph = (Mo.start == :fixed || cf < -100) ?
+         blas1f(() -> fixed_phi(Mo, cf, CP.tstar, CP.tau, Float64(hfac), default_rmax(cf)), dense_la(Mo)) : pi / 4
+    cpath_cached(Mo, cf; phi = ph, hfac)
+end
+"""(1/pi) sum' Im{M_V(t_k) e^{-t_k y} t'(u_k)/t_k} (cdf = true; P(V > y)) or without the 1/t_k (the density) on the path
+CP.  log M_V(t) = log P(t) - (1/2) sum_k log(+-s_k(t)) at s = 0 (`logMtilde`), each logarithm continued from node to node
+(on a hyperbola above the unit root, `v_path`, a positive root can cross the negative real axis, where the principal
+logarithm jumps by 2 pi i and M_V would change its sign; where no root crosses, as on every path that keeps the root
+groups on their sides, the continued logarithms are the principal ones)"""
 function vsum(CP::CPath, y::Float64, cdf::Bool)
     Mo = CP.Mo; acc = 0.0
-    Bf = fixbuf(Mo.r)
+    r = size(CP.R, 1); lg = zeros(ComplexF64, r)
     for k in eachindex(CP.t)
-        fx = CP.fx[k]; rts = view(CP.R, :, k)
-        lM = logMtilde(rts, Mo.rp, CP.lP[k], 0.0im)
+        fx = CP.fx[k]
+        lM = CP.lP[k]
+        for j in 1:r
+            z = j <= Mo.rp ? CP.R[j, k] : -CP.R[j, k]
+            l = log(z)
+            k > 1 && (l += 2pi * im * round((imag(lg[j]) - imag(l)) / 2pi))
+            lg[j] = l; lM -= l / 2
+        end
         fx === nothing || (lM += Mo.g0^2 * fx.cf)
         t = CP.t[k]
         acc += CP.wt[k] * imag(exp(lM - t * y) * (cdf ? CP.dt[k] / t : CP.dt[k]))
