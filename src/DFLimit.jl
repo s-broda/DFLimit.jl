@@ -21,6 +21,20 @@ for name in names(DFExact)
     name === :DFExact || @eval export $name
 end
 
+# The general engine (any deterministic terms, the inversion on paths around the singularities of the joint moment
+# generating function): the module DFLimit.DFDet, the file src/DFDet.jl as in the repository df-deterministics, with its
+# outer paths of the three classical cases at the unit root in data/paths.  Its user-level names are exported from here
+# where they do not clash with the classical engine's; the four that do (coef_cdf, adfmax_cdf, adfmax_pdf,
+# power_envelope) are the classical functions, which take a design of the general engine as well (src/merged.jl), and
+# the general engine's own are DFLimit.DFDet.coef_cdf and so on.
+include("DFDet.jl")
+using .DFDet: Determ, trend, perron, fdesign, ltrend, design_from_matrix, detrend_first, dist_cdf, dist_pdf, dist_quantile,
+              dist_moments, coef_pdf, coef_quantile, coef_cdf_gp, local_power, lin_cdf, lin_pdf, lin_quantile, v_cdf, v_pdf,
+              adfmax_quantile, region_prob, simulate_tratio, simulate_gls, simulate_first, empty_caches!
+export Determ, trend, perron, fdesign, ltrend, design_from_matrix, detrend_first, dist_cdf, dist_pdf, dist_quantile,
+       dist_moments, coef_pdf, coef_quantile, coef_cdf_gp, local_power, lin_cdf, lin_pdf, lin_quantile, v_cdf, v_pdf,
+       adfmax_quantile, region_prob, simulate_tratio, simulate_gls, simulate_first, empty_caches!
+
 # A precompile workload: without it the first call of each function waits for compilation, about 6 s for most of them
 # on an Apple M4 (1.4 to 8.7 s), with it a fraction of a second; it adds about 20 s to the precompilation (4.5 s to 22
 # s) and 46 MB to the cache file.  The engine's __init__ does not run while the package
