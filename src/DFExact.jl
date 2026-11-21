@@ -656,16 +656,54 @@ phi_neg(::Val, X, s1, s2) = k0x(-(s2 - s1) / 2 * X) * exp(-s1 * X) / pi
 phi_alg(::Val{1}, X, s1, s2) = 1 / sqrt(pi * X)
 phi_alg(::Val, X, s1, s2) = k0x((s2 - s1) / 2 * X) / pi
 
-"""Gauss–Legendre nodes and weights on [0, 1] (Golub–Welsch)."""
+"""Gauss–Legendre nodes and weights on [0, 1]: Golub–Welsch up to GLEIG nodes; above, where its matrix of eigenvectors
+(8 n^2 bytes, 134 MB at n = 4096) would dominate the memory, gl_newton."""
 function gl(n::Int)
+    n <= GLEIG || return gl_newton(n)
     b = [k / sqrt(4k^2 - 1) for k in 1:n-1]
     E = eigen(SymTridiagonal(zeros(n), b))
     x = (E.values .+ 1) ./ 2; w = (2 .* E.vectors[1, :] .^ 2) ./ 2
     x, w
 end
+const GLEIG = 1024
+"""Gauss–Legendre nodes and weights on [0, 1] in O(n) memory: Newton's method on the three-term recurrence of the Legendre
+polynomial from the Chebyshev initial guesses, the weights 2/((1 - t^2) P_n'(t)^2) halved for [0, 1] (the C engine's rule,
+dfl_gl_rule).  Against Golub–Welsch the nodes agree to 5e-16 and the weights to 4e-10 relative at n = 4096 (the small
+weights at the ends, which the eigenvectors give less accurately)."""
+function gl_newton(n::Int)
+    x = Vector{Float64}(undef, n); w = Vector{Float64}(undef, n)
+    for i in 0:n-1
+        t = cos(pi * (i + 0.75) / (n + 0.5))
+        for _ in 1:100
+            p0 = 1.0; p1 = t
+            for k in 2:n; p2 = ((2k - 1) * t * p1 - (k - 1) * p0) / k; p0 = p1; p1 = p2; end
+            dt = p1 / (n * (t * p1 - p0) / (t * t - 1)); t -= dt
+            abs(dt) < 1e-16 && break
+        end
+        p0 = 1.0; p1 = t
+        for k in 2:n; p2 = ((2k - 1) * t * p1 - (k - 1) * p0) / k; p0 = p1; p1 = p2; end
+        dp = n * (t * p1 - p0) / (t * t - 1)
+        x[n-i] = (1 + t) / 2; w[n-i] = 1 / ((1 - t * t) * dp * dp)     # (ascending, as Golub–Welsch)
+    end
+    x, w
+end
+"""A path of the quadrature beyond the bounds of the engine: a Gauss–Legendre rule of more than RULEMAX nodes (bound :rule),
+or more than NODEMAX nodes on one path of the general kernel (bound :path); n: the nodes it needs, at least.  Raised where the path is built, before
+anything is allocated for it; the user-level functions turn it into an ArgumentError that names their arguments
+(path_error)."""
+struct PathTooLarge <: Exception
+    bound::Symbol; what::String; n::Float64; nmax::Int
+end
+Base.showerror(io::IO, e::PathTooLarge) = print(io, "PathTooLarge: ", e.what, " needs ", round(e.n, sigdigits = 3), " nodes (at most ", e.nmax, ")")
+"""the largest rule (the bound of the C engine, dfl_rule): the cache of rules then holds at most 134 MB, and a new rule
+of 4096 nodes takes 0.3 s"""
+const RULEMAX = 4096
 const RULES = Dict{Int,Tuple{Vector{Float64},Vector{Float64}}}()
 const RULELOCK = ReentrantLock()
-rule(n::Int) = lock(RULELOCK) do; get!(() -> gl(n), RULES, n); end     # (the caches are read from several tasks)
+function rule(n::Int)
+    n <= RULEMAX || throw(PathTooLarge(:rule, "a Gauss–Legendre rule", n, RULEMAX))
+    lock(RULELOCK) do; get!(() -> gl(n), RULES, n); end     # (the caches are read from several tasks)
+end
 
 const EXPO = 60.0          # the Gaussian factors are followed down to e^{-EXPO}
 
@@ -716,7 +754,7 @@ cap(x) = x / sqrt(1 + x * x)                                   # bulge profile: 
 # which the algebraic factors (X^{-1/2}, the tail of K_0) still vary, then the rest; `osc` is the
 # phase rate (per unit r) of the exponential factors along the ray, and the node counts of the
 # outer pieces keep at most 0.85 rad per node.
-nodes(n, osc, L) = max(n, 16 * cld(ceil(Int, 1.2 * osc * L), 16))
+nodes(n, osc, L) = (m = 1.2 * osc * L; m > RULEMAX && throw(PathTooLarge(:rule, "a Gauss–Legendre rule", m, RULEMAX)); max(n, 16 * cld(ceil(Int, m), 16)))
 @inline function rayint(f, R, l, n1, n2, p; osc = 0.0)
     a = min(R, 8l)
     acc = glsum(f, 0.0, a, n1, p)
@@ -774,6 +812,25 @@ function gaussexp(A, t::ComplexF64, q::Float64, sd::ComplexF64, lA::Float64; for
     acc = glsum(f, 0.0, S1, 32, p)
     S > 1 && (acc += glsum(f, 1.0, S, 16 * cld(ceil(Int, 13(S - 1)), 16), 1))
     acc
+end
+"""The largest node count of a piece of the segment to the saddle that gaussexp takes for the inner integrals of the
+central kernels at t and q > 0 (inner_density, inner_cdf), before rounding; 0 where they take another path.  Its phase
+2 Im u0, u0 = -sd^2 q^2/(4t), grows like q^2, and rayint gives every piece 1.2 nodes per radian: at c = 7 in case DT the
+largest piece has 720 nodes at q = 100, 1632 at q = 300 and more than RULEMAX from q ~ 660 (path_error).  `outer` refuses a line on
+which it exceeds RULEMAX before it evaluates anything (the same steps as gaussexp and rayint, without the integrand)."""
+function gauss_nmax(kern::Int, t::ComplexF64, q::Float64, s1::ComplexF64, s2::ComplexF64)
+    sd = kern == 1 ? s1 : s2
+    at = abs(t); e = exp(-im * angle(t) / 2)
+    (q <= 0 || ray_ok(sd, e, q, at) || real(sd * e) >= 0) && return 0.0
+    lA = 1 / (abs(kern == 1 ? s1 : (s2 - s1) / 2) + 2)
+    x0 = -sd * q * q / (2t); u0 = -sd * sd * q * q / (4t)
+    ru = real(u0); R = ru > EXPO ? 1 - sqrt(1 - EXPO / ru) : 1.0
+    l = min(lA / abs(x0), 1 / (2abs(u0) + 1)); osc = 2abs(imag(u0))
+    a = min(R, 8l); m = 0.0
+    while a < R
+        b = min(R, 4a); m = max(m, 1.2 * osc * (b - a)); a = b
+    end
+    m
 end
 
 # The first piece [0, a] of the edge segment, from the support edge, with the substitution u^4; with a bound e1 < a on its
@@ -1386,6 +1443,16 @@ function saddle_phase(kern::Int, q::Float64, ts::Vector{ComplexF64}, s1::Vector{
     psi
 end
 
+"""PathTooLarge before the smooth part of `outer` is evaluated when the inner integrals at one of its nodes ts need a rule
+beyond RULEMAX (gauss_nmax; only for q > 0, where gaussexp serves)"""
+function gauss_check(kern::Int, q::Float64, ts::Vector{ComplexF64}, s1::Vector{ComplexF64}, s2::Vector{ComplexF64})
+    q > 0 || return nothing
+    m = 0.0
+    for j in eachindex(ts); m = max(m, gauss_nmax(kern, ts[j], q, s1[j], s2[j])); end
+    m > RULEMAX && throw(PathTooLarge(:rule, "the inner integrals of the line integral (the segment to the saddle of the Gaussian factor, whose phase grows like x^2)", m, RULEMAX))
+    nothing
+end
+
 """The changes of the phase psi between consecutive points, zero where the factor is negligible at either."""
 phase_steps(psi) = [isnan(psi[j]) || isnan(psi[j+1]) ? 0.0 : abs(psi[j+1] - psi[j]) for j in 1:length(psi)-1]
 
@@ -1445,6 +1512,7 @@ function outer(model::Int, c::Float64, q::Float64, tau::Float64, inner::Function
         end
         ts = [tau + im * w for w in [0.0; wn]]                 # the real point first, for the branches
         P, s1, s2, M0 = tparts(model, c, ts; stat)
+        batch === nothing && gauss_check(kern, q, ts, s1, s2)
         gs = Vector{Float64}(undef, length(wn))
         if batch === nothing
             tmap!(j -> real(P[j+1] * inner(ts[j+1], s1[j+1], s2[j+1], M0[j+1], 1)[1] * weight(ts[j+1])) * wt[j], gs, length(wn))
@@ -1455,6 +1523,7 @@ function outer(model::Int, c::Float64, q::Float64, tau::Float64, inner::Function
         val = sum(gs) / pi
     else
         gs = Vector{Float64}(undef, length(ts))
+        batch === nothing && gauss_check(kern, q, ts, s1, s2)
         if batch === nothing
             tmap!(j -> real(P[j] * inner(ts[j], s1[j], s2[j], M0[j], 1)[1] * weight(ts[j])) * cde * cosh(us[j]), gs, length(ts))
         else
