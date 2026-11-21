@@ -76,6 +76,16 @@ function tmap!(f, out::AbstractVector, n::Int)
     out
 end
 
+"""tmap!(f, out, n) with out[n] = f(n) computed first: on the line of the general kernel's outer integral (outer_gen) the
+paths of the inner integrals grow with Im t, so that a point whose paths exceed NODEMAX raises PathTooLarge at its last
+node, before the other nodes are evaluated"""
+function tmap_last!(f, out::AbstractVector, n::Int)
+    n >= 1 || return out
+    out[n] = f(n)
+    tmap!(f, out, n - 1)
+end
+
+
 # ---------- entire functions of z = mu^2 ----------
 """cosh mu, (1 - cosh mu)/z, sinh mu / mu, each entire in z, with series near z = 0."""
 function pieces(z::Complex{T}) where {T}
@@ -2605,22 +2615,94 @@ function psi_half(V::Val, s1, s2, M0)
     rayint(X -> phi_pos(V, X, s1, s2), 0.5, l, 40, 32, 4) + rayint(r -> phi_neg(V, -r * e1, s1, s2) * e1, 36 / abs(s1), l, 40, 32, 4)
 end
 
-"""Gauss-Legendre nodes and weights on [a, b] with y = a + (b - a) u^p."""
-function glnodes(a::Float64, b::Float64, n::Int, p::Int)
-    n = n * NODEFAC[]
-    u, gw = rule(n)
-    L = b - a
-    y = Vector{Float64}(undef, n); wt = Vector{Float64}(undef, n)
-    for k in 1:n
-        if p == 1
-            y[k] = a + L * u[k]; wt[k] = L * gw[k]
-        elseif p == 2
-            y[k] = a + L * u[k]^2; wt[k] = 2L * u[k] * gw[k]
-        else
-            y[k] = a + L * u[k]^4; wt[k] = 4L * u[k]^3 * gw[k]
+"""A piece [a, b] of a path of the general kernel with n Gauss-Legendre nodes (NODEFAC included) and the substitution
+y = a + (b - a) u^p: the paths are lists of pieces, and the callers sum over their nodes (pnode) as they go, so that a path
+is never stored node by node."""
+struct Piece
+    a::Float64; b::Float64; n::Int; p::Int
+end
+"""node and weight k of the piece P, (u, gw) = rule(P.n)"""
+@inline function pnode(P::Piece, u::Vector{Float64}, gw::Vector{Float64}, k::Int)
+    a = P.a; L = P.b - a
+    @inbounds if P.p == 1
+        return a + L * u[k], L * gw[k]
+    elseif P.p == 2
+        return a + L * u[k]^2, 2L * u[k] * gw[k]
+    else
+        return a + L * u[k]^4, 4L * u[k]^3 * gw[k]
+    end
+end
+"""The most nodes on one path of the general kernel's inner integrals (pieces_nodes, phase_nodes).  The paths follow the
+phase of the exponent -t v^2 - s_d X(v) with about 1.2 nodes per radian, and on a long segment between the support edges
+(a root b of X far out, as with c0 < 0 near zero at x > 0, where b ~ x/|c0|) that phase grows like Im(t) b^2: about 6e11
+nodes at c0 = -1e-4, x = 1.  The largest path of the tests has 3.2e5 nodes and of 1253 reference values 1.9e5; with paths
+of 1e6 nodes a point of the line integral takes 3.4 s (case SK, c = c0 = -0.1, x = 1.5, four threads).  Beyond NODEMAX the path is refused (PathTooLarge) before anything is
+evaluated on it, and before anything is stored: the paths are lists of pieces whose nodes are summed as they go."""
+const NODEMAX = Ref(2_000_000)
+"""PathTooLarge for a path of the general kernel that needs n nodes (at least)"""
+nodemax_error(n::Real) = throw(PathTooLarge(:path, "a path of the inner integrals of the line integral with the general kernel", Float64(n), NODEMAX[]))
+
+const NGROW = 16; const NLEV = 5; const NCON = 16   # node counts of the segment pieces (the least nodes of a growing piece,
+                                                    # the grading levels of the connection, the least nodes of each of its sub-pieces)
+"""The pieces for int_0^L: the first piece [0, first] (shortened, by halving, until the exponent falls by at most 4,
+rises by at most 4 (the noncentral kernels rise away from the edge) and its phase changes by at most 40 rad across it) with
+nmin nodes and the substitution p, then pieces growing by the factor 4,
+with the node counts set by the change of the phase of the exponent across each piece (at most 0.85 rad per node, in
+sub-pieces of at most 160 nodes), until the exponent is below -EXPO.  More than NODEMAX nodes in all: PathTooLarge."""
+function pieces_nodes(Ef, L::Float64, first::Float64, p::Int, nmin::Int)
+    first = min(first, L)
+    for _ in 1:60
+        f0 = first; E = [Ef(f0 * i / 8) for i in 0:8]         # (f0, a0: fresh bindings, not boxed in the comprehensions)
+        ((real(E[end]) > -4 && maximum(real(Ek) for Ek in E) - real(E[1]) < 4 && sum(abs(imag(E[i+1]) - imag(E[i])) for i in 1:8) < 40) || first <= 1e-12 * L) && break
+        first /= 2
+    end
+    pcs = [Piece(0.0, first, nmin * NODEFAC[], p)]
+    tot = pcs[1].n
+    a = first
+    while a < L
+        bn = min(L, 4a)
+        a0 = a; E = [Ef(a0 + (bn - a0) * i / 8) for i in 0:8]
+        all(real(Ek) < -EXPO for Ek in E) && break
+        dph = sum(abs(E[i+1] - E[i]) for i in 1:8)                   # the change of the exponent (phase and modulus)
+        tot + (1.2dph + 16) * NODEFAC[] > NODEMAX[] && nodemax_error(tot + (1.2dph + 16) * NODEFAC[])
+        n = max(NGROW, 16 * cld(ceil(Int, 1.2dph + 16), 16))
+        m = cld(n, 160); n = 16 * cld(cld(n, m), 16)                  # at most 160 nodes per sub-piece
+        tot += m * n * NODEFAC[]
+        tot > NODEMAX[] && nodemax_error(tot)
+        for k in 1:m
+            push!(pcs, Piece(a + (bn - a) * (k - 1) / m, a + (bn - a) * k / m, n * NODEFAC[], 1))
+        end
+        real(E[end]) < -EXPO && break
+        a = bn
+    end
+    pcs
+end
+
+"""The pieces for int_0^1: Gauss-Legendre in sub-pieces graded geometrically toward both ends (NLEV levels, the
+shortest 2^-NLEV), with the node counts from the change of the exponent (phase and modulus, sampled at 9 points of each
+sub-piece, so that a stationary point of the phase inside is seen), skipping sub-pieces on which the exponent is below
+max(E1, E2) - EXPO (up to 2: the descent pieces end where the exponent has fallen by EXPO), E1 and E2 the exponents at
+the two ends of the segment.  More than NODEMAX nodes in all: PathTooLarge."""
+function phase_nodes(Ef, E1::ComplexF64, E2::ComplexF64)
+    g = [2.0^(-k) for k in NLEV:-1:1]
+    ss = [0.0; g; [1 - g[k] for k in length(g)-1:-1:1]; 1.0]
+    ns = length(ss) - 1
+    Emax = max(real(E1), real(E2)) - EXPO + 2
+    pcs = Piece[]; tot = 0
+    for k in 1:ns
+        E = [Ef(ss[k] + (ss[k+1] - ss[k]) * i / 8) for i in 0:8]
+        maximum(real(Ek) for Ek in E) < Emax && continue
+        dph = sum(abs(E[i+1] - E[i]) for i in 1:8)
+        tot + (1.2dph + 16) * NODEFAC[] > NODEMAX[] && nodemax_error(tot + (1.2dph + 16) * NODEFAC[])
+        n = max(NCON, 8 * cld(ceil(Int, 1.2dph + 16), 8))              # (+16: a stationary point of the phase inside)
+        m = cld(n, 160); n = 8 * cld(cld(n, m), 8)
+        tot += m * n * NODEFAC[]
+        tot > NODEMAX[] && nodemax_error(tot)
+        for i in 1:m
+            push!(pcs, Piece(ss[k] + (ss[k+1] - ss[k]) * (i - 1) / m, ss[k] + (ss[k+1] - ss[k]) * i / m, n * NODEFAC[], 1))
         end
     end
-    y, wt
+    pcs
 end
 
 """int_0^inf A(r) exp(-alpha r^2 - beta r) dr, Re alpha > 0: along the ray r e^{-i arg(alpha)/2}, on which the Gaussian
@@ -2640,64 +2722,6 @@ function rayexp(A, alpha::ComplexF64, beta::ComplexF64, lA::Float64, p::Int)
         return rayint(f, Rr, lA, 48, 32, p; osc = abs(imag(beta * e)))
     end
     gaussexp(A, alpha, 1.0, beta, lA; p = p)
-end
-
-const NGROW = 16; const NLEV = 5; const NCON = 16   # node counts of the segment pieces (the least nodes of a growing piece,
-                                                    # the grading levels of the connection, the least nodes of each of its sub-pieces)
-"""nodes and weights for int_0^L: the first piece [0, first] (shortened, by halving, until the exponent falls by at most 4,
-rises by at most 4 (the noncentral kernels rise away from the edge) and its phase changes by at most 40 rad across it) with
-nmin nodes and the substitution p, then pieces growing by the factor 4,
-with the node counts set by the change of the phase of the exponent across each piece (at most 0.85 rad per node, in
-sub-pieces of at most 160 nodes), until the exponent is below -EXPO."""
-function pieces_nodes(Ef, L::Float64, first::Float64, p::Int, nmin::Int)
-    first = min(first, L)
-    for _ in 1:60
-        E = [Ef(first * i / 8) for i in 0:8]
-        ((real(E[end]) > -4 && maximum(real(Ek) for Ek in E) - real(E[1]) < 4 && sum(abs(imag(E[i+1]) - imag(E[i])) for i in 1:8) < 40) || first <= 1e-12 * L) && break
-        first /= 2
-    end
-    y, wt = glnodes(0.0, first, nmin, p)
-    a = first
-    while a < L
-        bn = min(L, 4a)
-        E = [Ef(a + (bn - a) * i / 8) for i in 0:8]
-        all(real(Ek) < -EXPO for Ek in E) && break
-        dph = sum(abs(E[i+1] - E[i]) for i in 1:8)                   # the change of the exponent (phase and modulus)
-        n = max(NGROW, 16 * cld(ceil(Int, 1.2dph + 16), 16))
-        m = cld(n, 160); n = 16 * cld(cld(n, m), 16)                  # at most 160 nodes per sub-piece
-        for k in 1:m
-            y2, w2 = glnodes(a + (bn - a) * (k - 1) / m, a + (bn - a) * k / m, n, 1)
-            append!(y, y2); append!(wt, w2)
-        end
-        real(E[end]) < -EXPO && break
-        a = bn
-    end
-    y, wt
-end
-
-"""nodes and weights for int_0^1: Gauss-Legendre in sub-pieces graded geometrically toward both ends (NLEV levels, the
-shortest 2^-NLEV), with the node counts from the change of the exponent (phase and modulus, sampled at 9 points of each
-sub-piece, so that a stationary point of the phase inside is seen), skipping sub-pieces on which the exponent is below
-max(E1, E2) - EXPO (up to 2: the descent pieces end where the exponent has fallen by EXPO), E1 and E2 the exponents at
-the two ends of the segment."""
-function phase_nodes(Ef, E1::ComplexF64, E2::ComplexF64)
-    g = [2.0^(-k) for k in NLEV:-1:1]
-    ss = [0.0; g; [1 - g[k] for k in length(g)-1:-1:1]; 1.0]
-    ns = length(ss) - 1
-    Emax = max(real(E1), real(E2)) - EXPO + 2
-    y = Float64[]; wt = Float64[]
-    for k in 1:ns
-        E = [Ef(ss[k] + (ss[k+1] - ss[k]) * i / 8) for i in 0:8]
-        maximum(real(Ek) for Ek in E) < Emax && continue
-        dph = sum(abs(E[i+1] - E[i]) for i in 1:8)
-        n = max(NCON, 8 * cld(ceil(Int, 1.2dph + 16), 8))              # (+16: a stationary point of the phase inside)
-        m = cld(n, 160); n = 8 * cld(cld(n, m), 8)
-        for i in 1:m
-            y2, w2 = glnodes(ss[k] + (ss[k+1] - ss[k]) * (i - 1) / m, ss[k] + (ss[k+1] - ss[k]) * i / m, n, 1)
-            append!(y, y2); append!(wt, w2)
-        end
-    end
-    y, wt
 end
 
 """the unit direction u of steepest descent of E(v0 + z) = E(v0) + gam z - alpha z^2 at an end, kept within deg degrees
@@ -2758,41 +2782,53 @@ function segint(V, tj::ComplexF64, sd::ComplexF64, sgn::Int, s1::ComplexF64, s2:
     # the integrand is evaluated only where the wanted parts of the partition (chi near b, 1 - chi near a) exceed 1e-15:
     # the edge part skips the nodes near a, the smooth part those near b
     needa = ws || wl; needb = wr
-    keep(vc) = (ch = chi(vc); (needa && abs(1 - ch) > 1e-15) || (needb && abs(ch) > 1e-15))
-    fv = ComplexF64[]; v = ComplexF64[]
-    s, w = pieces_nodes(s -> Ez(s * ua, a) - Ea, la, min(la / 8, fa), pa, 48 + 16 * (pa == 1))
-    for k in eachindex(s); vc = a + s[k] * ua; keep(vc) && (push!(fv, Fz(s[k] * ua, a) * (w[k] * ua)); push!(v, vc)); end
-    s, w = pieces_nodes(s -> Ez(s * ub, b) - Eb, lb, min(lb / 8, fb), pb, 48)
-    for k in eachindex(s); vc = b + s[k] * ub; keep(vc) && (push!(fv, -Fz(s[k] * ub, b) * (w[k] * ub)); push!(v, vc)); end   # from b toward the segment: reversed
+    # the sums with 1 - chi (the part near a) and with chi (the part near b), node by node in the order of the path: the
+    # descent piece from a, the one from b, the connection
+    acca = zero(ComplexF64); accb = zero(ComplexF64)
+    for P in pieces_nodes(s -> Ez(s * ua, a) - Ea, la, min(la / 8, fa), pa, 48 + 16 * (pa == 1))
+        u, gw = rule(P.n)
+        for k in 1:P.n
+            sk, wk = pnode(P, u, gw, k); vc = a + sk * ua; ch = chi(vc)
+            if (needa && abs(1 - ch) > 1e-15) || (needb && abs(ch) > 1e-15)
+                f = Fz(sk * ua, a) * (wk * ua)
+                needa && (acca += f * (1 - ch)); needb && (accb += f * ch)
+            end
+        end
+    end
+    for P in pieces_nodes(s -> Ez(s * ub, b) - Eb, lb, min(lb / 8, fb), pb, 48)
+        u, gw = rule(P.n)
+        for k in 1:P.n
+            sk, wk = pnode(P, u, gw, k); vc = b + sk * ub; ch = chi(vc)
+            if (needa && abs(1 - ch) > 1e-15) || (needb && abs(ch) > 1e-15)
+                f = -Fz(sk * ub, b) * (wk * ub)                                  # from b toward the segment: reversed
+                needa && (acca += f * (1 - ch)); needb && (accb += f * ch)
+            end
+        end
+    end
     # the connection: the straight line, unless the exponent rises along it above the ends (the Gaussian grows in the half
     # plane a descent piece has entered under the exponential factor, as with Re alpha ~ 0 and a steep -beta v); then the
     # polyline through the real axis, pa_ -> Re pa_ -> Re pb_ -> pb_, on which the exponent is that of the integrand itself
     if abs(pb_ - pa_) > 0
         Emax = max(real(Ea), real(Eb)) + 2
-        legs = [pa_, pb_]
-        if maximum(real(Ez(pa_ + k / 32 * (pb_ - pa_) - a, a)) for k in 0:32) > Emax
-            legs = [pa_, complex(real(pa_)), complex(real(pb_)), pb_]
-        end
+        poly = maximum(real(Ez(pa_ + k / 32 * (pb_ - pa_) - a, a)) for k in 0:32) > Emax
+        legs = poly ? [pa_, complex(real(pa_)), complex(real(pb_)), pb_] : [pa_, pb_]
         for k in 1:length(legs)-1
-            dv = legs[k+1] - legs[k]
+            l0 = legs[k]; dv = legs[k+1] - l0
             abs(dv) == 0 && continue
-            s, w = phase_nodes(s -> Ez(legs[k] + s * dv - a, a), Ea, Eb)
-            for i in eachindex(s)
-                vc = legs[k] + s[i] * dv
-                keep(vc) || continue
-                push!(fv, (abs(vc - b) < abs(vc - a) ? Fz(vc - b, b) : Fz(vc - a, a)) * (w[i] * dv)); push!(v, vc)
+            for P in phase_nodes(s -> Ez(l0 + s * dv - a, a), Ea, Eb)
+                u, gw = rule(P.n)
+                for i in 1:P.n
+                    si, wi = pnode(P, u, gw, i); vc = l0 + si * dv; ch = chi(vc)
+                    ((needa && abs(1 - ch) > 1e-15) || (needb && abs(ch) > 1e-15)) || continue
+                    f = (abs(vc - b) < abs(vc - a) ? Fz(vc - b, b) : Fz(vc - a, a)) * (wi * dv)
+                    needa && (acca += f * (1 - ch)); needb && (accb += f * ch)
+                end
             end
         end
     end
     vs = vl = vr = zero(ComplexF64)
-    if ws || wl
-        val = zero(ComplexF64); for k in eachindex(v); val += fv[k] * (1 - chi(v[k])); end
-        ws ? (vs = val) : (vl = val)
-    end
-    if wr
-        val = zero(ComplexF64); for k in eachindex(v); val += fv[k] * chi(v[k]); end
-        vr = val
-    end
+    needa && (ws ? (vs = acca) : (vl = acca))
+    wr && (vr = accb)
     vs, vl, vr
 end
 
@@ -2851,8 +2887,11 @@ function ray_saddle(Efull, dEfull, Ared, first::Float64, p::Int, Rmax::Float64)
     val = zero(ComplexF64)
     # the piece from 0 to the saddle
     E_s = Efull(rho)
-    s, w = pieces_nodes(lam -> Efull(lam * rho), 1.0, min(1 / 8, first / abs(rho)), p, 48)
-    for k in eachindex(s); (S, E) = Ared(s[k] * rho); val += S * exp(Efull(s[k] * rho) + E) * w[k]; end
+    pcs = pieces_nodes(lam -> Efull(lam * rho), 1.0, min(1 / 8, first / abs(rho)), p, 48)
+    for P in pcs
+        u, gw = rule(P.n)
+        for k in 1:P.n; sk, wk = pnode(P, u, gw, k); (S, E) = Ared(sk * rho); val += S * exp(Efull(sk * rho) + E) * wk; end
+    end
     val *= rho
     # the descent from the saddle: straight pieces, each in the direction of steepest descent at its start
     z0 = rho
@@ -2873,8 +2912,11 @@ function ray_saddle(Efull, dEfull, Ared, first::Float64, p::Int, Rmax::Float64)
             Eprev = Ec; L *= 1.4
         end
         isnan(Lend) && (Lend = L)
-        s, w = pieces_nodes(Ef, Lend, min(Lend / 8, first), 1, 48)
-        for k in eachindex(s); (S, E) = Ared(z0 + s[k] * d); val += S * exp(Ef(s[k]) + Ez0 + E) * w[k] * d; end
+        pcs = pieces_nodes(Ef, Lend, min(Lend / 8, first), 1, 48)
+        for P in pcs
+            u, gw = rule(P.n)
+            for k in 1:P.n; sk, wk = pnode(P, u, gw, k); (S, E) = Ared(z0 + sk * d); val += S * exp(Ef(sk) + Ez0 + E) * wk * d; end
+        end
         z0 += Lend * d
         real(Efull(z0) - E_s) < -EXPO && break
         g = dEfull(z0); abs(g) == 0 && break
@@ -2898,21 +2940,30 @@ function rayexp_nc(K::NCK, R::Breaks, a::Float64, sgn::Int, s1, s2, W, alpha::Co
         Rr = raylen(Ef, (-real(be) + sqrt(real(be)^2 + 4aa * EXPO)) / (2aa))
         vs = ray_saddle(Efull, dEfull, Ared, first, p, Rr)
         vs === nothing || return vs
-        s, w = pieces_nodes(Ef, Rr, min(Rr / 8, first), p, 48)
-        for k in eachindex(s); (S, E) = Ared(s[k] * e); val += S * exp(Ef(s[k]) + E) * w[k]; end
+        pcs = pieces_nodes(Ef, Rr, min(Rr / 8, first), p, 48)
+        for P in pcs
+            u, gw = rule(P.n)
+            for k in 1:P.n; sk, wk = pnode(P, u, gw, k); (S, E) = Ared(sk * e); val += S * exp(Ef(sk) + E) * wk; end
+        end
         return val * e
     end
     x0 = -beta / (2alpha)
     Ef1 = lam -> Efull(lam * x0)                                   # the segment to the saddle, rho = lam x0
-    s, w = pieces_nodes(Ef1, 1.0, min(1 / 8, first / abs(x0)), p, 48)
-    for k in eachindex(s); (S, E) = Ared(s[k] * x0); val += S * exp(Ef1(s[k]) + E) * w[k]; end
+    pcs = pieces_nodes(Ef1, 1.0, min(1 / 8, first / abs(x0)), p, 48)
+    for P in pcs
+        u, gw = rule(P.n)
+        for k in 1:P.n; sk, wk = pnode(P, u, gw, k); (S, E) = Ared(sk * x0); val += S * exp(Ef1(sk) + E) * wk; end
+    end
     val *= x0
     E0 = Efull(x0)
     Ef2 = r -> Efull(x0 + r * e) - E0                              # the descent line from the saddle
     Rr = raylen(Ef2, sqrt(EXPO / aa))
-    s, w = pieces_nodes(Ef2, Rr, min(Rr / 8, first), 1, 48)
+    pcs = pieces_nodes(Ef2, Rr, min(Rr / 8, first), 1, 48)
     v2 = zero(ComplexF64)
-    for k in eachindex(s); (S, E) = Ared(x0 + s[k] * e); v2 += S * exp(Ef2(s[k]) + E0 + E) * w[k]; end
+    for P in pcs
+        u, gw = rule(P.n)
+        for k in 1:P.n; sk, wk = pnode(P, u, gw, k); (S, E) = Ared(x0 + sk * e); v2 += S * exp(Ef2(sk) + E0 + E) * wk; end
+    end
     val + v2 * e
 end
 
@@ -2965,9 +3016,12 @@ function inner_gen(V, tj::ComplexF64, R::Breaks, s1::ComplexF64, s2::ComplexF64,
                 # of gaussexp would cross), the oscillation of e^{-beta rho e} along it resolved by pieces_nodes
                 e = exp(-im * angle(alpha) / 2); aa = abs(alpha); be = beta * e
                 Rr = (-real(be) + sqrt(real(be)^2 + 4aa * EXPO)) / (2aa)       # fallen by EXPO
-                s, w = pieces_nodes(r -> -aa * r * r - be * r, Rr, min(Rr / 8, R.ell[j-1]), 1, 48)
+                pcs = pieces_nodes(r -> -aa * r * r - be * r, Rr, min(Rr / 8, R.ell[j-1]), 1, 48)
                 val = zero(ComplexF64)
-                for k in eachindex(s); val += A(s[k] * e) * exp(-aa * s[k] * s[k] - be * s[k]) * w[k]; end
+                for P in pcs
+                    u, gw = rule(P.n)
+                    for k in 1:P.n; sk, wk = pnode(P, u, gw, k); val += A(sk * e) * exp(-aa * sk * sk - be * sk) * wk; end
+                end
                 val *= cst * e
             else
                 if j > 1; lv = min(lv, R.ell[j-1] / 16); p = 4; end
@@ -2987,7 +3041,9 @@ function inner_gen(V, tj::ComplexF64, R::Breaks, s1::ComplexF64, s2::ComplexF64,
                 kap = min(kap, 4KAPPA / L); m = min(m, bb - KAPPA / kap)     # at most twice as sharp
                 dep = min(dep, KAPPA / 4 / kap)
             end
-            chi = v -> (1 + erf(kap * (v - m))) / 2               # 1 near bb, 0 near a
+            # 1 near bb, 0 near a (kap and m bound anew: captured as they are, after the assignments above, they would be
+            # boxed and every evaluation of chi would allocate, about 1 kB per node of the paths)
+            chi = let kap = kap, m = m; v -> (1 + erf(kap * (v - m))) / 2; end
             pa = j > 1 ? 4 : 1
             ws_ = j == 1 && wants; wl_ = j > 1 && want(j - 1); wr_ = want(j)
             (ws_ || wl_ || wr_) || continue
@@ -3079,11 +3135,11 @@ function outer_gen(model::Int, c::Float64, q::Float64, c0::Float64, R::Breaks, t
         ts = [tau + im * w for w in [0.0; wn]]
         P, s1, s2, M0 = tparts(model, c, ts; stat)
         gs = Vector{Float64}(undef, length(wn))
-        tmap!(j -> real(P[j+1] * inner(ts[j+1], s1[j+1], s2[j+1], M0[j+1], 1)[1] * weight(ts[j+1])) * wt[j], gs, length(wn))
+        tmap_last!(j -> real(P[j+1] * inner(ts[j+1], s1[j+1], s2[j+1], M0[j+1], 1)[1] * weight(ts[j+1])) * wt[j], gs, length(wn))
         val = sum(gs) / pi
     else
         gs = Vector{Float64}(undef, length(ts))
-        tmap!(j -> real(P[j] * inner(ts[j], s1[j], s2[j], M0[j], 1)[1] * weight(ts[j])) * cde * cosh(us[j]), gs, length(ts))
+        tmap_last!(j -> real(P[j] * inner(ts[j], s1[j], s2[j], M0[j], 1)[1] * weight(ts[j])) * cde * cosh(us[j]), gs, length(ts))
         gs[1] *= 0.5
         val = sum(gs) * hu / pi
     end
@@ -3124,7 +3180,7 @@ function outer_gen(model::Int, c::Float64, q::Float64, c0::Float64, R::Breaks, t
         te = [tau + im * w for w in [0.0; wn]]
         P, s1, s2, M0 = tparts(model, c, te; stat)
         G = Vector{ComplexF64}(undef, length(wn))
-        tmap!(j -> (t = te[j+1]; P[j+1] * inner(t, s1[j+1], s2[j+1], M0[j+1], 10 + k)[2][k] * weight(t) * exp(t * y)), G, length(wn))
+        tmap_last!(j -> (t = te[j+1]; P[j+1] * inner(t, s1[j+1], s2[j+1], M0[j+1], 10 + k)[2][k] * weight(t) * exp(t * y)), G, length(wn))
         acc = zero(ComplexF64)
         for p in 1:length(edges)-1
             acc += filon_panel(view(G, (p-1)*N+1:p*N), edges[p], edges[p+1], y, N)
