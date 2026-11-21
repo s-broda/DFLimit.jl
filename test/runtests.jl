@@ -321,6 +321,56 @@ end
     @test coef_cdf(-8.039, "SK", -0.001) ≈ 0.0010438037922007037 atol = 1e-12
 end
 
+# Memory (November 2026): two calls that took more than 5 GB.  (1) Case DT at c = 7 in the bulk (x in the hundreds): every
+# new Gauss-Legendre rule of the inner integrals' saddle segment, whose node count grows like x^2, was computed with its
+# n x n matrix of eigenvectors; now by Newton's method above GLEIG nodes, at most RULEMAX nodes, and beyond that the
+# conditional integral.  (2) Case SK at c = c0 = -1e-4 with x > 0: the root of X(v) at x/|c0| made the general kernel's
+# paths billions of nodes long, each stored, with two boxed variables allocating about 1 kB per node; now the paths are
+# lists of pieces summed as they go, at most NODEMAX nodes, and beyond that the conditional integral.  The values: the C
+# engine (dflimit 0.4.0) and the contour integral of the newer engine (DFDet) where the C engine fails.
+footprint() = Sys.isapple() ? (buf = zeros(UInt8, 96); ccall(:proc_pid_rusage, Cint, (Cint, Cint, Ptr{UInt8}), getpid(), 0, buf) == 0 ?
+                               Float64(reinterpret(UInt64, buf[73:80])[1]) : Float64(Sys.maxrss())) : Float64(Sys.maxrss())
+@testset "memory: rules, paths and caches" begin
+    @test (@allocated D.gl(4096)) < 2^20                           # (Golub-Welsch: 129 MB)
+    @test maximum(abs.(D.gl(2048)[1] .- D.gl_newton(2048)[1])) < 1e-15
+    @test D.pathtoolarge(try; D.rule(D.RULEMAX + 1); catch e; e; end) isa D.PathTooLarge
+    f0 = footprint()
+    for (x, Fr) in ((200.0, 0.5122687264383423), (300.0, 0.7020412425838507), (403.7, 0.838656678280211))
+        r = Ref(NaN); a = @allocated (r[] = ltratio_cdf(x, "DT", 7.0))
+        @test r[] ≈ Fr atol = 1e-12
+        @test a < 0.3 * 2^30                                        # (0.42 GB at x = 200 before; 3 GB at 403.7)
+    end
+    @test ltratio_cdf(751.0, "DT", 7.0) ≈ 0.990823749760809 atol = 1e-12   # (the C engine segfaults here; more than 5 GB before)
+    @test ltratio_pdf(751.0, "DT", 7.0) ≈ 9.2924954e-5 rtol = 1e-6
+    @test footprint() - f0 < 0.3 * 2^30
+    # the neighbour of call 2 by the line integral itself (12 GB and 47 GB allocated before)
+    for (x, Fr) in ((0.5, 0.780675601976397), (1.0, 0.893885483036904))
+        r = Ref(NaN); a = @allocated (r[] = ltratio_cdf(x, "SK", -0.1; c0 = -0.1))
+        @test r[] ≈ Fr atol = 1e-12
+        @test a < 0.2 * 2^30
+    end
+    # call 2: x <= 0 by the line integral, x > 0 by the conditional integral, which flags some of them (a warning)
+    f0 = footprint()
+    F = @test_logs (:warn, r"the conditional integral that takes these points flags") match_mode = :any ltratio_cdf([-1.0, 0.05, 0.5, 1.0, 1.5], "SK", -1e-4; c0 = -1e-4)
+    @test F ≈ [0.1666135587511895, 0.531233538152, 0.700742367308, 0.847290600876, 0.936188673511] atol = 1e-6
+    @test footprint() - f0 < 0.5 * 2^30
+    # a path beyond the bounds: the engine refuses it before evaluating it, the user-level functions name the arguments
+    e = errmsg(() -> ltratio_cdf(1.0, "SK", -1e-4; c0 = -1e-4, method = :single))
+    @test occursin("the line integral needs more nodes than the engine allows", e) && occursin("c0 = -0.0001, x = 1.0", e)
+    @test occursin("at large x above the unit root", errmsg(() -> ltratio_cdf(751.0, "DT", 7.0; method = :single)))
+    @test D.pathtoolarge(try; D.cdf(1.0, 1; c = -1e-4, c0 = -1e-4, start = :stationary); catch e; e; end) isa D.PathTooLarge
+    nm = D.NODEMAX[]; D.NODEMAX[] = 1000
+    try
+        @test occursin("case DG has the line integral representation only", errmsg(() -> ltratio_cdf(0.5, "DG", -1.0; c0 = -0.01)))
+        @test ltratio_cdf(0.5, "DK", 0.0; c0 = -0.01) ≈ 0.821459268187 atol = 1e-11    # (routed: the conditional integral)
+    finally
+        D.NODEMAX[] = nm
+    end
+    # the caches kept per point or per c are bounded
+    ltratio_cdf(collect(range(-4, 1; length = 100)), "DU", -5)
+    @test length(D.LAYOUTSK) <= D.CACHEMAX && length(D.LAYOUTS) <= D.CACHEMAX
+end
+
 # the engine's own checks (test/engine/, from the directory julia/ of the paper's repository, where the engine was
 # developed): quickcheck.jl (K_0 against AMOS, node doubling, contour independence, closed forms, the applications, the
 # contour integral, the default and verified) and test_dfexact.jl (all the stored values far from the unit root and of
