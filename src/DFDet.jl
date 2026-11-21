@@ -2907,14 +2907,22 @@ function tnode_specs!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, 
     t = CP.t[k]; dt = CP.dt[k]; tr = real(t)
     # the pieces of every term, active on this node (e^{-Re(t) a^2} not negligible at the lower end)
     pcs = [[(sp, active.(xpieces_gen(sp.q, sp.c0, sp.A, sp.vmax), tr)...) for sp in S] for S in specs]
-    c0s = Float64[]; rsp = 0.0; rsm = 0.0; ak = Mo.a; d3 = false
+    c0s = Float64[]; rsp = 0.0; rsm = 0.0; rAp = 0.0; rAm = 0.0; ak = Mo.a; d3 = false
     for S in pcs, (sp, plus, minus) in S
         ak = max(ak, abs(sp.A)); d3 |= sp.dc0 != 0
+        # (the kernel psi(s, A) of every term carries e^{-A s}, on G+ for A > 0 and on G- for A < 0, which decays only on
+        # the scale 1/|A|: at the edge of the support (b near -a, A small) far beyond the roots, where the rays ended.
+        # P(U <= b) in case DK was off by 1.9e-7 at b = -0.499, P(U - aV <= b) at a = 0.1 by 1.9e-8 at b = -0.4999 (`xscale`
+        # takes the scale of the v-kernel, 1/max|X|, which is short for a convex X).  The rays reach 1/|A| for every
+        # term, beyond the cap 1e4 of `xscale`: at b = -0.49999 (A = 1e-5) the cap left an error of 7e-12)
+        if sp.A != 0
+            sp.A > 0 ? (rAp = max(rAp, 1 / sp.A)) : (rAm = max(rAm, -1 / sp.A))
+        end
         sp.c0 == 0 && continue
         sp.c0 in c0s || push!(c0s, sp.c0)
         rsp = max(rsp, xscale(tr, sp.c0, sp.q, sp.A, plus)); rsm = max(rsm, xscale(tr, sp.c0, sp.q, sp.A, minus))
     end
-    rsp = min(rsp, 1e4); rsm = min(rsm, 1e4)
+    rsp = max(min(rsp, 1e4), min(rAp, 1e8)); rsm = max(min(rsm, 1e4), min(rAm, 1e8))
     Sp, Mp, Ep, Sm, Mm, Em = ushapes(CP, k, logMt, c0s, rsp, rsm, alpha, ak, n, ntail;
                                      xq = max(0.0, maximum((sp.q for S in specs for sp in S); init = 0.0)))
     for (ix, S) in enumerate(pcs)

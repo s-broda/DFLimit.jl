@@ -6,7 +6,7 @@
 # would take the general engine itself.
 using DFLimit
 using DFLimit.DFDet
-using Test, QuadGK, LinearAlgebra, Logging
+using Test, QuadGK, LinearAlgebra, Logging, SpecialFunctions
 const DX = DFLimit.DFExact
 
 function sigma_bf(P, θ)
@@ -224,6 +224,20 @@ end
             ref = [1 - sum(w[k] * imag(M[k] * exp(-t[k] * y) * dt[k] / t[k]) for k in eachindex(us) if isfinite(M[k])) for y in ys]
             @test maximum(abs, v_cdf(trend(-1), ys, c) - ref) < 1e-10
             @test all(>(0), v_pdf(trend(-1), ys, c))
+        end
+        # the law of U (a = 0) at the edge of its support: P(U <= b) = erf(sqrt((2b + 1)/(2 s2))), s2 = (e^{2c} - 1)/(2c)
+        # (case DK; in case DG the gamma law of U + 1/2); and small a against the classical code (the rays of the kernel
+        # e^{-A s} reach 1/|A|, `tnode_specs!`)
+        bs = [-0.5 + 1e-7, -0.49999, -0.4999, -0.499, -0.4, 0.0, 1.0]
+        for c in (0.0, -5.0, 2.0)
+            s2 = c == 0 ? 1.0 : expm1(2c) / (2c)
+            @test maximum(abs, lin_cdf(trend(-1), bs, 0.0, c) - [erf(sqrt((2b + 1) / (2s2))) for b in bs]) < 1e-14
+        end
+        kg = DX.lincond_setup("DG", 0.0, -13.5).kap
+        @test maximum(abs, lin_cdf(trend(1), bs, 0.0, 0.0; gls = -13.5) - [erf(sqrt(kg * (b + 0.5))) for b in bs]) < 1e-14
+        for a in (1e-3, 0.1, -1e-3, -0.1)
+            ba = [-0.49999, -0.4999, -0.499, -0.49]
+            @test maximum(abs, lin_cdf(trend(-1), ba, a, -5.0) - ltratio_lincdf(ba, a, "DK", -5.0; engine = :classical)) < 2e-12
         end
         # the density of U - aV against a difference quotient of its distribution function
         h = 1e-4
