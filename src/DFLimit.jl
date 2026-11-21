@@ -35,6 +35,18 @@ export Determ, trend, perron, fdesign, ltrend, design_from_matrix, detrend_first
        dist_moments, coef_pdf, coef_quantile, coef_cdf_gp, local_power, lin_cdf, lin_pdf, lin_quantile, v_cdf, v_pdf,
        adfmax_quantile, region_prob, simulate_tratio, simulate_gls, simulate_first, empty_caches!
 
+# the statistics of the paper on general deterministic terms: the point-optimal statistic and the envelope for any design,
+# the LM statistic, MZ_alpha and MSB (in the module DFDet, whose file stays that of df-deterministics)
+Base.include(DFDet, joinpath(@__DIR__, "DFDet_paper2.jl"))
+using .DFDet: pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_quantile, lm_power, mza_cdf, mza_quantile, msb_cdf, msb_quantile
+export pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_quantile, lm_power, mza_cdf, mza_quantile, msb_cdf, msb_quantile
+
+# one interface over the two engines, and the choice between them (autoengine)
+using SpecialFunctions: erfinv
+include("merged.jl")
+DFExact.ROUTE[] = router
+__init__() = (DFExact.ROUTE[] = router; nothing)
+
 # A precompile workload: without it the first call of each function waits for compilation, about 6 s for most of them
 # on an Apple M4 (1.4 to 8.7 s), with it a fraction of a second; it adds about 20 s to the precompilation (4.5 s to 22
 # s) and 46 MB to the cache file.  The engine's __init__ does not run while the package

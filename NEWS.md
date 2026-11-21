@@ -1,5 +1,29 @@
 # News
 
+## Unreleased
+
+- **Two engines in one package.** The general engine of the paper on general deterministic terms (any regressors that
+  are piecewise polynomial or smooth functions of r = t/n with known break dates; the inversion formula on paths around
+  the singularities of the joint moment generating function) is now part of the package, as the submodule
+  `DFLimit.DFDet` (the file of the repository df-deterministics), with its outer paths of the classical cases at the unit
+  root (`data/paths`). New dependencies: StaticArrays, Random.
+- **One interface.** The classical functions (`ltratio_cdf`, `ltratio_pdf`, `ltratio_icdf`, `ltratio_mom`, `coef_cdf`,
+  `coef_icdf`, `adfmax_cdf`, `adfmax_pdf`, `adfmax_icdf`, `ltratio_lincdf`, `ltratio_region`, `power_envelope`) take a
+  design in place of the case string: `trend(p)`, `perron(model, breaks)`, `fdesign(f)`, `ltrend(p)`,
+  `design_from_matrix(X)`, `detrend_first(D)`, with the keywords `g0` (a fixed start), `start = :stationary` and
+  `gls = cbar` (GLS detrending). The general engine's own functions (`dist_cdf`, `dist_pdf`, `dist_quantile`,
+  `dist_moments`, `lin_cdf`, `v_cdf`, `region_prob`, `local_power`, ...) are exported too; its `coef_cdf`,
+  `adfmax_cdf`, `adfmax_pdf` and `power_envelope` are `DFLimit.DFDet.coef_cdf` and so on.
+- **The engine chosen automatically.** Every call, with a case string or a design, takes the engine of
+  `DFLimit.autoengine` (`engine = :auto`), or the one forced by `engine = :classical` or `engine = :general`; the rule
+  and its measurements are the table "Which engine" of the README. Where the classical engine keeps the computation its
+  values are unchanged bit for bit, and its checks of the arguments (the range of c, the region of the fixed start) are
+  those of 0.5.0 for case strings; a design beyond them goes to the general engine.
+- **The statistics of the second paper as functions:** the point-optimal statistic and the Gaussian power envelope for
+  any design (`pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`, `pt_envelope`; `power_envelope(c, D)`), the LM statistic
+  of Schmidt and Phillips and of Amsler and Lee (`lm_cdf`, `lm_quantile`, `lm_power`) and the companions of the
+  GLS-detrended t-ratio, MZ_alpha (`mza_cdf`, `mza_quantile`) and MSB (`msb_cdf`, `msb_quantile`).
+
 ## 0.5.0
 
 Three errors of the engine are repaired. Values outside the regions named below are unchanged bit for bit.

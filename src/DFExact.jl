@@ -2115,8 +2115,27 @@ function route_warn(cas::AbstractString, c::Float64, c0::Float64, g0::Float64)
     nothing
 end
 
-function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, verified::Bool = false, kw...)
+"""
+The engine of the user-level functions (the merged package DFLimit, which holds this engine and the general one,
+DFLimit.DFDet): ROUTE[] is set by DFLimit to its router, `ROUTE[](f, engine, args...; kw...)`, which returns the value
+computed by the general engine, or nothing where this engine keeps the computation.  The keyword `engine` of the
+user-level functions: :auto (the default: DFLimit.autoengine decides, after this engine's checks of the arguments),
+:classical (this engine, as before the merge) or :general (the general engine, without this engine's checks).  Where
+this engine computes, the values are those of the engine before the merge, bit for bit.
+"""
+const ROUTE = Ref{Any}(nothing)
+"""engine = :auto and :general only; nothing (this engine) with :classical or without a router"""
+function route(f::Symbol, engine::Symbol, args...; kw...)
+    engine in (:auto, :classical, :general) || throw(ArgumentError("engine must be :auto, :classical or :general"))
+    (engine === :classical || ROUTE[] === nothing) && return nothing
+    ROUTE[](f, engine, args...; kw...)
+end
+
+function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, verified::Bool = false,
+                      engine::Symbol = :auto, kw...)
+    engine === :general && return route(:dist, engine, kind, x, cas, c; c0, g0, method, verified, kw...)
     model, stat, c0, g0, method = ltratio_args(cas, c; c0, g0, method)
+    r = route(:dist, engine, kind, x, cas, c; c0, g0, method, verified, kw...); r === nothing || return r
     start = stat ? :stationary : :zero
     xs = x isa Number ? [Float64(x)] : Float64.(vec(collect(x)))
     F = [isnan(xk) ? NaN : xk == Inf ? (kind == 2 ? 1.0 : 0.0) : xk == -Inf ? 0.0 : 0.0 for xk in xs]
@@ -2323,15 +2342,19 @@ as the derivative, safeguarded by bisection, started at the normal approximation
 
     ltratio_icdf([0.01, 0.05, 0.10], "DU")          # the asymptotic critical values of tau_mu
 """
-function ltratio_icdf(p, cas::AbstractString, c::Real = 0; tol::Real = 1e-10, c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, kw...)
+function ltratio_icdf(p, cas::AbstractString, c::Real = 0; tol::Real = 1e-10, c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto,
+                      engine::Symbol = :auto, kw...)
+    engine === :general && return route(:icdf, engine, p, cas, c; tol, c0, g0, method, kw...)
     model, = ltratio_args(cas, c; c0, g0, method)
+    r = route(:icdf, engine, p, cas, c; tol, c0, g0, method, kw...); r === nothing || return r
+    kw = (; kw..., engine)
     brittle_once(() -> ltratio_icdf_(p, cas, c, model; tol, c0, g0, method, kw...))   # (a brittle regime warned once, not at every step)
 end
 function ltratio_icdf_(p, cas::AbstractString, c::Real, model::Int; tol::Real, c0::Real, g0::Real, method::Symbol, kw...)
     if model == 4                                                     # (no moments for case DG: a rough start, the search is safeguarded)
         mu = -1.9 + 0.1min(c, 0.0); sd = 0.8
     else
-        m = ltratio_mom(2, cas, c; c0, g0)
+        m = ltratio_mom(2, cas, c; c0, g0, engine = :classical)       # (the start: this engine's moments, whichever engine evaluates)
         mu = m[1]; sd = sqrt(max(m[2] - m[1]^2, 1e-6))
     end
     one(pk) = begin
@@ -2362,10 +2385,12 @@ limit in the Supplementary Material; `moments`).
 
     ltratio_mom(4, "DU")[2]                         # 3.0559953450 (Nabeya, 1999)
 """
-function ltratio_mom(p::Int, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, kw...)
+function ltratio_mom(p::Int, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, engine::Symbol = :auto, kw...)
     p >= 1 || throw(ArgumentError("p must be a positive integer"))
+    engine === :general && return route(:mom, engine, p, cas, c; c0, g0, kw...)
     model, stat, c0, g0, _ = ltratio_args(cas, c; c0, g0)
     model == 4 && throw(ArgumentError("the moments are not available for case DG"))
+    r = route(:mom, engine, p, cas, c; c0, g0, kw...); r === nothing || return r
     moments(model; c = Float64(c), c0, g0, start = stat ? :stationary : :zero, pmax = p, kw...)
 end
 
@@ -5285,9 +5310,11 @@ LTRATIO_LINCDF of the MATLAB programs.
 
     ltratio_lincdf(-0.2639, -3.5, "DK", 0)          # 0.05: the size of the point-optimal test at cbar = -7
 """
-function ltratio_lincdf(b, a::Real, cas::AbstractString, c::Real = 0; kw...)
+function ltratio_lincdf(b, a::Real, cas::AbstractString, c::Real = 0; engine::Symbol = :auto, kw...)
+    engine === :general && return route(:lincdf, engine, b, a, cas, c; kw...)
     uppercase(String(cas)) in ("DK", "DG") || throw(ArgumentError("ltratio_lincdf: the case must be DK or DG"))
     (c isa Real && isfinite(c)) || throw(ArgumentError("ltratio_lincdf: c must be a finite real scalar"))
+    r = route(:lincdf, engine, b, a, cas, c; kw...); r === nothing || return r
     tr_gilpelaez(b, a, cas, c; kw...)[1]
 end
 
@@ -5305,9 +5332,11 @@ cbar = c; alpha for c >= 0.  To about 1e-10.  As POWER_ENVELOPE of the MATLAB pr
 
     power_envelope(-7, "DK")                        # 0.4994: at cbar = -7 the envelope has power one half
 """
-function power_envelope(c, cas::AbstractString = "DK"; alpha::Real = 0.05, kw...)
+function power_envelope(c, cas::AbstractString = "DK"; alpha::Real = 0.05, engine::Symbol = :auto, kw...)
+    engine === :general && return route(:envelope, engine, c, cas; alpha, kw...)
     cas = uppercase(String(cas)); cas == "DU" && (cas = "DK")
     cas in ("DK", "DG") || throw(ArgumentError("power_envelope: the case must be DK (or DU) or DG"))
+    r = route(:envelope, engine, c, cas; alpha, kw...); r === nothing || return r
     one(ck) = begin
         ck = Float64(ck)
         ck < 0 || return Float64(alpha)
@@ -5437,9 +5466,11 @@ bnd is a structure with the same fields.
 
     ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK", 0)   # 0.05 (the critical values of the weighted-average-power test in the paper)
 """
-function ltratio_region(bnd, cas::AbstractString = "DK", c::Real = 0; kw...)
+function ltratio_region(bnd, cas::AbstractString = "DK", c::Real = 0; engine::Symbol = :auto, kw...)
+    engine === :general && return route(:region, engine, bnd, cas, c; kw...)
     uppercase(String(cas)) == "DK" || throw(ArgumentError("ltratio_region: the case must be DK (zero start)"))
     c = checkc("ltratio_region", c)
+    r = route(:region, engine, bnd, cas, c; kw...); r === nothing || return r
     tr_region(bnd, c; kw...)[1]
 end
 
@@ -5779,11 +5810,13 @@ function tr_adfmax(x::Real, cas::String, c::Real; pdf::Bool = false, kw...)
     stat && !(c <= CSTAT) && throw(ArgumentError(STAT_MSG))
     stat ? stat_two(Float64(x), model, Float64(c); pdf, kw...) : zero_two(Float64(x), model, Float64(c); pdf, kw...)
 end
-function adfmax_vals(pdf::Bool, x, cas::AbstractString, c::Real; kw...)
+function adfmax_vals(pdf::Bool, x, cas::AbstractString, c::Real; engine::Symbol = :auto, kw...)
+    engine === :general && return route(:adfmax, engine, pdf, x, cas, c; kw...)
     cas = uppercase(String(cas))
     cas in ("DU", "DT", "SU", "ST") || throw(ArgumentError("adfmax: the case must be one of DU, DT, SU, ST"))
     c = checkc("adfmax", c)
     cas[1] == 'S' && !(c <= CSTAT) && throw(ArgumentError(STAT_MSG))
+    r = route(:adfmax, engine, pdf, x, cas, c; kw...); r === nothing || return r
     one(xk) = isnan(xk) ? NaN : xk == Inf ? (pdf ? 0.0 : 1.0) : xk == -Inf ? 0.0 :
               (v = tr_adfmax(Float64(xk), cas, c; pdf, kw...)[1]; (pdf && v < 0) ? 0.0 : v)
     x isa Number ? one(x) : map(one, x)

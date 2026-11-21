@@ -393,6 +393,13 @@ end
     @test (Base.include(Module(), joinpath(@__DIR__, "engine", f)); true)
 end
 
+# the merged package: the interface over the two engines and the choice of engine (merged.jl), the general engine's own tests
+# (general/runtests.jl, the tests of df-deterministics) and the statistics of the paper on general deterministic terms
+# (general/paper2.jl); each in a module of its own
+@testset "merged package: $f" for f in ("merged.jl", joinpath("general", "runtests.jl"), joinpath("general", "paper2.jl"))
+    @test (Base.include(Module(), joinpath(@__DIR__, f)); true)
+end
+
 end # @testset "DFLimit"
 
 @printf("DFLimit tests: %.0f s\n", time() - T0)
