@@ -100,7 +100,7 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         c0 == 0 || return :classical
         fixed && return :general
         (cas in ("DT", "ST") && c <= 0) && return :general
-        (cas == "DU" && -10 <= c <= 0) && return :general
+        (cas == "DU" && c == 0) && return :general                          # (from c = -1 on the classical search is the faster, by 1.1 to 1.3)
         return :classical
     elseif f === :mom
         # 1.1 to 20 times faster down to c = -50; below, the classical engine (its stored values far from the unit root,

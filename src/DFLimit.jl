@@ -10,6 +10,10 @@ The numbers come from the Julia engine of the paper, the module `DFLimit.DFExact
 `ltratio_pdf`, `ltratio_icdf`, `ltratio_mom`, `adfmax_cdf`, `adfmax_pdf`, `adfmax_icdf`, `coef_cdf`, `coef_icdf`,
 `ltratio_region`, `ltratio_lincdf`, `power_envelope`, `ltratio_bisect`), and the functions it does not export are
 reached as `DFLimit.DFExact.cdf` and so on.  The engine is multithreaded: start Julia with `-t auto`.
+
+The general engine of the companion paper on general deterministic terms is the module `DFLimit.DFDet` (the file
+`src/DFDet.jl`); the classical functions take its designs (`trend`, `perron`, `fdesign`, ...) in place of the case, and
+`DFLimit.autoengine` chooses the engine of every call (`src/merged.jl`; the README, "Two engines").
 """
 module DFLimit
 
@@ -68,6 +72,9 @@ PrecompileTools.@compile_workload begin
     ltratio_mom(2, "DU")
     adfmax_cdf(-2.5, "DU"); adfmax_pdf(-2.5, "DU")
     ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK", 0)
+    # the general engine: a design beyond the classical cases, and a classical cell it takes
+    ltratio_cdf(-2.0, perron(:C, 0.3), -5); ltratio_pdf(-2.0, perron(:C, 0.3), -5)
+    ltratio_cdf(-1.0, "SU", -10; c0 = -10)
 end
 
 end # module

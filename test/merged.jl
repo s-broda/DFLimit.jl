@@ -29,7 +29,7 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:dist, spec("DG"), -10, 0, -2) == :classical
         # the other functions
         @test ae(:icdf, spec("DT"), -5, 0, 0) == :general && ae(:icdf, spec("ST"), -10, 0, 0) == :general
-        @test ae(:icdf, spec("DU"), 0, 0, 0) == :general && ae(:icdf, spec("DU"), -50, 0, 0) == :classical
+        @test ae(:icdf, spec("DU"), 0, 0, 0) == :general && ae(:icdf, spec("DU"), -10, 0, 0) == :classical
         @test ae(:icdf, spec("DK"), 0, 0, 0) == :classical && ae(:icdf, spec("DG"), 0, 0, 0) == :classical
         @test ae(:icdf, spec("DU"; g0 = 1.0), -5, 0, 0) == :general && ae(:icdf, spec("DU"; g0 = 0.5), -20, 2, 0) == :classical
         @test ae(:mom, spec("DT"), -5, 0, 0) == :general && ae(:mom, spec("SK"), -300, -300, 0) == :classical
