@@ -2071,10 +2071,14 @@ into parts of length at most 30/Omega (Omega the largest over the roots at the p
 above e^{-40}; a Gauss-Legendre rule of 24 nodes integrates e^{i Omega w} over 30/Omega to about 1e-18); the roots
 are continued along the new nodes.  Without the cut the panels doubling in w carried up to 25 oscillations, and the upper
 tail at c = 5 (x = 194, F = 0.991) was off by 2.3e-4.  The number of nodes grows with xmax like xmax (about 2 xmax at c = 5).
-Returns CP itself when no panel needs cutting.
+Returns CP itself when no panel needs cutting.  amax: the values |A| of the kernels (default the shift a of the model, the
+A of the t-ratio), each with its own damping; the parabola terms of the linear form U - aV <= b have A = a + b, and their
+factor e^{-s A} at the root, e^{-A s_k(t)}, oscillates in w at the rate kappa |A| (with x = 0 the cut is to that rate
+alone: P(U - aV <= b) in case DK at c = 5, a = -3.5, b = 770 was off by 2.5e-6 on the doubling panels, to 1e-15 on the
+cut ones).
 """
-function line_refine(CP::CPath, xmax::Float64; nq::Int = linenq(CP))
-    (isnan(CP.h) && xmax > 0) || return CP
+function line_refine(CP::CPath, xmax::Float64; nq::Int = linenq(CP), amax = CP.Mo.a)
+    (isnan(CP.h) && (xmax > 0 || maximum(amax) > CP.Mo.a)) || return CP
     cuts = linecuts(CP, nq); np = length(cuts) - 1
     w = imag.(CP.t); τ = CP.tau
     # only a line with the default panels (`linecpath` without cuts) is refined: a refined line has other panels, and
@@ -2089,14 +2093,14 @@ function line_refine(CP::CPath, xmax::Float64; nq::Int = linenq(CP))
         for j in ((k - 1) * nq + 1, k * nq)
             wj = w[j]; wj > 0 || continue
             lmv = real(logMtilde(view(CP.R, :, j), CP.Mo.rp, CP.lP[j], 0.0im))      # log |M_V(t)|
-            for r in view(CP.R, :, j)
+            for r in view(CP.R, :, j), am in amax
                 kap = abs(imag(r)) / wj; ar = abs(real(r))
                 # the largest |x| <= xmax whose term is not negligible: tau v_s^2 + |Re s_k| X(v_s) - log|M_V| < 40 with
                 # v_s = kap x/2 and X(v_s) = kap x^2/2 + a (the frequency and the damping both grow with x)
-                num = 40 + lmv - ar * CP.Mo.a; den = τ * kap^2 / 4 + ar * kap / 2
+                num = 40 + lmv - ar * am; den = τ * kap^2 / 4 + ar * kap / 2
                 num > 0 || continue
                 xu = den > 0 ? min(xmax, sqrt(num / den)) : xmax
-                Om = max(Om, kap^2 * xu^2 / 4 + kap * CP.Mo.a)
+                Om = max(Om, kap^2 * xu^2 / 4 + kap * am)
             end
         end
         m = max(1, ceil(Int, min((b - a) * Om / 30, 1e6)))
@@ -2116,18 +2120,22 @@ const LINE_MAXPANELS = 4000
 """the number of nodes of a refined line above which `line_refine` refuses (about 100 bytes a node and eight root
 evaluations each)"""
 const LINE_MAXNODES = 400_000
-"""`line_refine` cached per path and xmax rounded up to a power of two (nothing to do unless CP is a vertical line)"""
-function line_refined(CP::CPath, xs::AbstractVector{Float64})
+"""`line_refine` cached per path, xmax and the values amax beyond the shift a rounded up to powers of two (nothing to do
+unless CP is a vertical line)"""
+function line_refined(CP::CPath, xs::AbstractVector{Float64}; amax = CP.Mo.a)
     isnan(CP.h) || return CP
     fin = [abs(x) for x in xs if isfinite(x)]
-    isempty(fin) && return CP
-    xm = maximum(fin); xm > 0 || return CP
-    xb = 2.0^ceil(log2(xm))
+    xm = isempty(fin) ? 0.0 : maximum(fin)
+    xb = xm > 0 ? 2.0^ceil(log2(xm)) : 0.0
+    ab = sort(unique([2.0^ceil(log2(a)) for a in amax if isfinite(a) && a > CP.Mo.a]))
+    (xb > 0 || !isempty(ab)) || return CP
     # (keyed by the contents of the path, not its address, which a freed path can pass on to a new one)
-    key = hash((CP.t, CP.c, CP.Mo.start, CP.Mo.g0, dkey(CP.Mo.P.D), CP.Mo.P.cbar, xb))
+    key = isempty(ab) ? hash((CP.t, CP.c, CP.Mo.start, CP.Mo.g0, dkey(CP.Mo.P.D), CP.Mo.P.cbar, xb)) :
+                        hash((CP.t, CP.c, CP.Mo.start, CP.Mo.g0, dkey(CP.Mo.P.D), CP.Mo.P.cbar, xb, ab))
+    ab = [CP.Mo.a; ab]
     hit = lock(CPLOCK) do; get(LINECACHE, key, nothing); end
     hit === nothing || return hit
-    CPr = line_refine(CP, xb)
+    CPr = line_refine(CP, xb; amax = ab)
     lock(CPLOCK) do; cache_put!(LINECACHE, LINEORDER, key, CPr); end
     CPr
 end
@@ -2221,6 +2229,18 @@ end v = 0 is the lower end of the first piece of every x)"""
         M0 += nf * G0; M1 -= nf * b2 * G0; M2 += nf * (b2 * b2 + 1 / (2alpha)) * G0
     end
     M0, M1, M2
+end
+"""the terms of `ctr_rend` at the end v with the factor E = e^{-s X(v)} in place of e^{-t v^2 - s X(v)}: at a root v of X
+the part of the kernel that Filon's rule integrates against e^{-t v^2} (`filon_roots`); beta = q s, i1 = 1/sa"""
+@inline function rend_part(v::Float64, sa::ComplexF64, i1::ComplexF64, beta::ComplexF64, E::ComplexF64)
+    z = sa * v + beta * i1 / 2
+    if real(z) >= 0
+        g0, g1, g2 = ctr_h(z)
+    else
+        h0, h1, h2 = ctr_h(-z); g0 = -h0; g1 = h1; g2 = -h2
+    end
+    i2 = i1 * i1; i3 = i2 * i1
+    E * i1 * g0, E * (v * i1 * g0 + i2 * g1), E * (v * v * i1 * g0 + 2v * i2 * g1 + i3 * g2)
 end
 """h_k(z), k = 0..3 (ctr_h with h_3 = h_1 - z h_2 by the recurrence 2 h_k + 2 z h_{k-1} = (k - 1) h_{k-2}, and the
 asymptotic series to the term of h_3 for |z| >= 6)"""
@@ -2659,10 +2679,11 @@ end
 
 """the terms of node k for every x (`tnode_inner!`); AFo and Afo receive the error weights of the terms (see there)"""
 function tnode_values_m!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, AFo::AbstractVector{Float64}, Afo::AbstractVector{Float64},
-                         CP::CPath, k::Int, xs::Vector{Float64}, c0::Float64, n::Int, ntail::Int, alpha::Float64, vpow::Int = 2)
+                         CP::CPath, k::Int, xs::Vector{Float64}, c0::Float64, n::Int, ntail::Int, alpha::Float64, vpow::Int = 2;
+                         vr = nothing, JFo = nothing, Jfo = nothing)
     Mo = CP.Mo; fx = CP.fx[k]; rts = CP.R[:, k]
-    fx === nothing ? tnode_inner!(Fo, fo, AFo, Afo, CP, k, xs, c0, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], nothing, 0.0, zeros(ComplexF64, 0, 0)), vpow) :
-                     tnode_inner!(Fo, fo, AFo, Afo, CP, k, xs, c0, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], fx, Mo.g0^2, fixbuf(Mo.r)), vpow)
+    fx === nothing ? tnode_inner!(Fo, fo, AFo, Afo, CP, k, xs, c0, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], nothing, 0.0, zeros(ComplexF64, 0, 0)), vpow; vr, JFo, Jfo) :
+                     tnode_inner!(Fo, fo, AFo, Afo, CP, k, xs, c0, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], fx, Mo.g0^2, fixbuf(Mo.r)), vpow; vr, JFo, Jfo)
 end
 """
     ushapes(CP, k, logMt, c0s, rsp, rsm, alpha, A, n, ntail) -> (Sp, Mp, Ep, Sm, Mm, Em)
@@ -2786,7 +2807,8 @@ sums over the nodes s_j of the U-shapes with weights w_j and kernels K_F, K_f: e
 error of the inner sum, the factor 1 + |log Mt| that of exp(log Mt) when its logarithm is large.
 """
 function tnode_inner!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, AFo::AbstractVector{Float64}, Afo::AbstractVector{Float64},
-                      CP::CPath, k::Int, xs::Vector{Float64}, c0::Float64, n::Int, ntail::Int, alpha::Float64, logMt::LogMt{F}, vpow::Int = 2) where {F}
+                      CP::CPath, k::Int, xs::Vector{Float64}, c0::Float64, n::Int, ntail::Int, alpha::Float64, logMt::LogMt{F}, vpow::Int = 2;
+                      vr = nothing, JFo = nothing, Jfo = nothing) where {F}
     Mo = CP.Mo; A = Mo.a
     t = CP.t[k]; dt = CP.dt[k]; tr = real(t)
     rsp = 0.0; rsm = 0.0
@@ -2807,6 +2829,14 @@ function tnode_inner!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, 
         plus, minus = xpieces(x, c0, A)
         plus = active(plus, tr); minus = active(minus, tr)
         IF = zero(ComplexF64); If = zero(ComplexF64); aF = 0.0; af = 0.0
+        JF = zero(ComplexF64); Jf = zero(ComplexF64)
+        v1 = vr === nothing ? 0.0 : vr[ix]
+        # (with Filon's rule, `filon_roots`: the sign of the root v1 as an end of the pieces of each side)
+        sgp = 0; sgm = 0
+        if v1 > 0
+            for (a, b) in plus; b == v1 && (sgp -= 1); a == v1 && (sgp += 1); end
+            for (a, b) in minus; b == v1 && (sgm -= 1); a == v1 && (sgm += 1); end
+        end
         for j in eachindex(Sp)
             s = Sp[j]; m = Mp[j]
             ps = psp[j]
@@ -2816,6 +2846,15 @@ function tnode_inner!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, 
             else
                 M0, M1, M2, M3 = isempty(plus) ? (0.0im, 0.0im, 0.0im, 0.0im) : ctr_moments3(t, s, c0, x, A, plus)
                 tF = m * (x * M0 + 2c0 * M1 + ps); tf = m * 2M3
+            end
+            if sgp != 0
+                E = sgp * exp(-s * (c0 * v1 * v1 + x * v1 + A))
+                if vpow == 2
+                    e0, e1, e2 = rend_part(v1, sqp[j], iqp[j], x * s, E); Jf += 2m * e2
+                else
+                    _, e0, e1, _, e3 = ctr_rend3(v1, sqp[j], x * s, E); Jf += 2m * e3
+                end
+                JF += m * (x * e0 + 2c0 * e1)
             end
             IF += tF; If += tf; aF += Ep[j] * fabs(tF); af += Ep[j] * fabs(tf)
         end
@@ -2828,7 +2867,21 @@ function tnode_inner!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, 
                 M0, M1, M2, M3 = isempty(minus) ? (0.0im, 0.0im, 0.0im, 0.0im) : ctr_moments3(t, s, c0, x, A, minus)
                 tF = m * (x * M0 + 2c0 * M1 - 1 / s); tf = m * 2M3
             end
+            if sgm != 0
+                E = sgm * exp(-s * (c0 * v1 * v1 + x * v1 + A))
+                if vpow == 2
+                    e0, e1, e2 = rend_part(v1, sqm[j], iqm[j], x * s, E); Jf += 2m * e2
+                else
+                    _, e0, e1, _, e3 = ctr_rend3(v1, sqm[j], x * s, E); Jf += 2m * e3
+                end
+                JF += m * (x * e0 + 2c0 * e1)
+            end
             IF += tF; If += tf; aF += Em[j] * fabs(tF); af += Em[j] * fabs(tf)
+        end
+        if v1 > 0
+            eb = exp(-t * v1 * v1)
+            IF -= eb * JF; If -= eb * Jf
+            JFo[ix] = JF * dt / t; Jfo[ix] = Jf * dt
         end
         Fo[ix] = imag(IF * dt / t); fo[ix] = imag(If * dt)
         AFo[ix] = aF * abs(dt / t); Afo[ix] = af * abs(dt)
@@ -2902,7 +2955,8 @@ end
 
 """the terms of node k for events made of the parabola terms specs[i] (`XSpec`), i = 1..length(specs), as `tnode_inner!`"""
 function tnode_specs!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, AFo::AbstractVector{Float64}, Afo::AbstractVector{Float64},
-                      CP::CPath, k::Int, specs::Vector{Vector{XSpec}}, n::Int, ntail::Int, alpha::Float64, logMt::LogMt{F}) where {F}
+                      CP::CPath, k::Int, specs::Vector{Vector{XSpec}}, n::Int, ntail::Int, alpha::Float64, logMt::LogMt{F};
+                      vr = nothing, JFo = nothing, Jfo = nothing) where {F}
     Mo = CP.Mo
     t = CP.t[k]; dt = CP.dt[k]; tr = real(t)
     # the pieces of every term, active on this node (e^{-Re(t) a^2} not negligible at the lower end)
@@ -2927,6 +2981,8 @@ function tnode_specs!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, 
                                      xq = max(0.0, maximum((sp.q for S in specs for sp in S); init = 0.0)))
     for (ix, S) in enumerate(pcs)
         IF = zero(ComplexF64); If = zero(ComplexF64); aF = 0.0; af = 0.0
+        JF = zero(ComplexF64); Jf = zero(ComplexF64)
+        v1 = vr === nothing ? 0.0 : vr[ix]
         for side in (1, -1)
             Ss = side == 1 ? Sp : Sm; Ms = side == 1 ? Mp : Mm; Es = side == 1 ? Ep : Em
             for j in eachindex(Ss)
@@ -2935,6 +2991,17 @@ function tnode_specs!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, 
                 for (sp, plus, minus) in S
                     pc = side == 1 ? plus : minus
                     c0 = sp.c0; q = sp.q
+                    if v1 > 0
+                        # the part of the kernel at the end v1 (the root of X; `filon_roots`) without its factor e^{-t v1^2}
+                        # (X(v1) = 0): the terms of `ctr_moments` at v1, with the sign of v1 as an upper (-) or lower (+) end
+                        sg = 0
+                        for (a, b) in pc; b == v1 && (sg -= 1); a == v1 && (sg += 1); end
+                        if sg != 0
+                            sa = sqrt(c0 == 0 ? t : t + c0 * s)
+                            e0, e1, e2 = rend_part(v1, sa, 1 / sa, q * s, sg * exp(-s * (c0 * v1 * v1 + q * v1 + sp.A)))
+                            JF += m * sp.w * (q * e0 + 2c0 * e1); Jf += m * sp.w * 2 * (sp.dq * e2 + sp.dA * e1)
+                        end
+                    end
                     if isempty(pc)
                         M0 = M1 = M2 = M3 = zero(ComplexF64)
                     elseif d3
@@ -2955,15 +3022,22 @@ function tnode_specs!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64}, 
                 IF += tF; If += tf; aF += Es[j] * fabs(tF); af += Es[j] * fabs(tf)
             end
         end
+        if v1 > 0
+            # (the remainder, and the part at the root for Filon's rule, `contour_sum_filon`)
+            eb = exp(-t * v1 * v1)
+            IF -= eb * JF; If -= eb * Jf
+            JFo[ix] = JF * dt / t; Jfo[ix] = Jf * dt
+        end
         Fo[ix] = imag(IF * dt / t); fo[ix] = imag(If * dt)
         AFo[ix] = aF * abs(dt / t); Afo[ix] = af * abs(dt)
     end
     nothing
 end
-function tnode_specs_m!(Fo, fo, AFo, Afo, CP::CPath, k::Int, specs::Vector{Vector{XSpec}}, n::Int, ntail::Int, alpha::Float64)
+function tnode_specs_m!(Fo, fo, AFo, Afo, CP::CPath, k::Int, specs::Vector{Vector{XSpec}}, n::Int, ntail::Int, alpha::Float64;
+                        vr = nothing, JFo = nothing, Jfo = nothing)
     Mo = CP.Mo; fx = CP.fx[k]; rts = CP.R[:, k]
-    fx === nothing ? tnode_specs!(Fo, fo, AFo, Afo, CP, k, specs, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], nothing, 0.0, zeros(ComplexF64, 0, 0))) :
-                     tnode_specs!(Fo, fo, AFo, Afo, CP, k, specs, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], fx, Mo.g0^2, fixbuf(Mo.r)))
+    fx === nothing ? tnode_specs!(Fo, fo, AFo, Afo, CP, k, specs, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], nothing, 0.0, zeros(ComplexF64, 0, 0)); vr, JFo, Jfo) :
+                     tnode_specs!(Fo, fo, AFo, Afo, CP, k, specs, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], fx, Mo.g0^2, fixbuf(Mo.r)); vr, JFo, Jfo)
 end
 """
     contour_eval_specs(CP, specs; n, ntail, alpha = 0.5, tol = 1e-17, warn = true) -> (F, f, nodes, (F = eF, f = ef))
@@ -2973,7 +3047,14 @@ X_sp(sqrt V), sqrt V <= sp.vmax) and f[i] its derivative in the parameter of the
 outer contour CP, with the estimates of the rounding error and the warnings of `contour_eval`.
 """
 function contour_eval_specs(CP::CPath, specs::Vector{Vector{XSpec}}; n = nothing, ntail = nothing, alpha::Float64 = 0.5,
-                            tol::Float64 = 1e-17, warn::Bool = true)
+                            tol::Float64 = 1e-17, warn::Bool = true, filon::Bool = true)
+    vr = filon && isnan(CP.h) ? filon_roots(CP, specs) : nothing
+    if vr !== nothing
+        fixed = CP.Mo.start == :fixed
+        n = n === nothing ? (fixed ? 48 : 24) : Int(n); ntail = ntail === nothing ? (fixed ? 64 : 40) : Int(ntail)
+        return contour_sum_filon(CP, length(specs), (gF, gf, aF, af, jF, jf, k) -> tnode_specs_m!(gF, gf, aF, af, CP, k, specs, n, ntail, alpha; vr, JFo = jF, Jfo = jf),
+                                 tol, warn, vr .^ 2)
+    end
     if warn && isnan(CP.h)
         b2 = 0.0; neg = false
         for S in specs, sp in S
@@ -3005,14 +3086,21 @@ the paths and the sums cancel), when a value is not finite, or when the outer co
 terms above 1e-10.  Measured against DFLimit with a fixed start, the actual error is 0.005 to 0.03 times the estimate
 where rounding dominates (badly placed paths) and of the order of the estimate or below elsewhere
 (`scripts/check_fixed_far.jl`).  The estimate covers rounding and cancellation, not the discretization error, which the
-panel rules control (`nsplit`, the grading toward roots and origin).  contour_eval(P, CP, xs; ...) is the same (P is
+panel rules control (`nsplit`, the grading toward roots and origin).  On the vertical line the parts of the kernels at
+the root of the parabola, which carry e^{-t v^2}, go to Filon's rule (`filon_roots_x`, `contour_sum_filon`; filon =
+false: the line's Gauss-Legendre rule for them as well, as before).  contour_eval(P, CP, xs; ...) is the same (P is
 not used).
 """
 function contour_eval(CP::CPath, xs::Vector{Float64}; c0::Real = 0.0, n = nothing, ntail = nothing, alpha::Float64 = 0.5,
-                      tol::Float64 = 1e-17, warn::Bool = true, vpow::Int = 2)
+                      tol::Float64 = 1e-17, warn::Bool = true, vpow::Int = 2, filon::Bool = true)
     fixed = CP.Mo.start == :fixed
     n = n === nothing ? (fixed ? 48 : 24) : Int(n); ntail = ntail === nothing ? (fixed ? 64 : 40) : Int(ntail)
     c0 = Float64(c0)
+    vr = filon && isnan(CP.h) ? filon_roots_x(CP, xs, c0) : nothing
+    if vr !== nothing
+        return contour_sum_filon(CP, length(xs), (gF, gf, aF, af, jF, jf, k) -> tnode_values_m!(gF, gf, aF, af, CP, k, xs, c0, n, ntail, alpha, vpow; vr, JFo = jF, Jfo = jf),
+                                 tol, warn, vr .^ 2)
+    end
     if warn && isnan(CP.h)
         b2 = 0.0
         for x in xs
@@ -3027,7 +3115,10 @@ end
     line_edge_warn(CP, b2)
 
 The warning of the vertical line (c > 0, or GLS detrending with a small |cbar|, beyond the steepest hyperbola) for a
-parabola X(v) with a positive root b, b^2 = b2.  The kernels of the pieces of v that end at b carry e^{-t b^2} (X(b) = 0), so that the outer integrand oscillates in
+parabola X(v) with a positive root b, b^2 = b2, where Filon's rule does not take the part at the root (`filon_roots`,
+`filon_roots_x`: it does for the linear form and for the t-ratio and the coefficient statistic with one root; the
+warning remains for ADFmax and for two roots, c0 > 0 with x < 0).  The text below describes the
+line without Filon's rule (`filon = false`).  The kernels of the pieces of v that end at b carry e^{-t b^2} (X(b) = 0), so that the outer integrand oscillates in
 w at the rate b^2, damped on the line only by e^{-tau b^2}, and tau = min(1, t_*/2) is tiny above the unit root (1.1e-3 at
 c = 5 in case DK).  With c0 < 0 the root is large in the bulk (b close to x/|c0|: b^2 = 986 at c = 5, c0 = -3, x = 95), and
 the panels in w, which `line_refine` cuts to the stationary point of the v-kernel only, carry up to hundreds of these
@@ -3062,6 +3153,205 @@ function line_edge_warn(CP::CPath, b2::Float64, c0neg::Bool = false)
     end
     est > 1e-6 && @warn "contour_eval: on the vertical line Re t = $(round(CP.tau, sigdigits = 3)) (c = $(CP.c)$(isnan(CP.Mo.P.cbar) ? "" : ", GLS detrending"): no hyperbola keeps the positive roots right of the origin) the parabola has a root b with b^2 = $(round(b2, sigdigits = 3)), whose part of the outer integrand (of size $(round(est, sigdigits = 2))) oscillates up to $(round(worst, sigdigits = 2)) times faster than its panels resolve: the result may be off by more than 1e-5 (see `line_edge_warn`)"
     nothing
+end
+# ---------- Filon's rule on the vertical line ----------
+"""
+    filon_roots(CP, specs) -> vr (vector) or nothing
+
+On the vertical line CP (Gauss-Legendre panels, `linepanels`), the events whose parts at a root of the parabola go to
+Filon's rule (`contour_sum_filon`): an event of one term with q = 0 (the linear form U - aV <= b, `lin_cdf`, `lin_pdf`,
+`lin_quantile`), c0 != 0, no derivative in c0, vmax = Inf: vr[i] its positive root of X(v) = c0 v^2 + A (0 without one).
+The kernels of the pieces that end at the root carry e^{-t vr^2} exactly (X(vr) = 0), which oscillates on the line at the
+rate vr^2, damped only by e^{-tau vr^2}: with tau = min(1, t_*/2) tiny above the unit root (1.1e-3 at c = 5 in case DK)
+the doubling panels of the line do not resolve it, and P(U - aV <= b) was off by up to 4e-3 in case DK at c = 4 to 7
+(against the classical code; also with GLS detrending at small |cbar|, by 2e-5 to 1e-4).  Without the term in v (q = 0)
+the rest of those kernels is smooth along the line: z = sqrt(t + c0 s) vr stays in Re z >= 0, so that no reflection of
+`ctr_rend` (whose Gaussian part would carry no e^{-t vr^2}) splits it.  nothing: every event as before (another event).
+"""
+function filon_roots(CP::CPath, specs::Vector{Vector{XSpec}})
+    linepanels(CP) === nothing && return nothing
+    vr = zeros(length(specs)); found = false
+    for (i, S) in enumerate(specs)
+        roots = Float64[]
+        for sp in S
+            plus, minus = xpieces_gen(sp.q, sp.c0, sp.A, sp.vmax)
+            for (a, b) in (plus..., minus...); (isfinite(b) && b > 0) && push!(roots, b); end
+        end
+        isempty(roots) && continue
+        (length(S) == 1 && S[1].q == 0 && S[1].c0 != 0 && S[1].dc0 == 0 && !isfinite(S[1].vmax) && length(unique(roots)) == 1) || return nothing
+        vr[i] = roots[1]; found = true
+    end
+    found ? vr : nothing
+end
+"""
+    filon_roots_x(CP, xs, c0) -> vr (vector) or nothing
+
+`filon_roots` for the t-ratio and the coefficient statistic (`contour_eval`): vr[i] the positive root of X(v) = c0 v^2 + x_i v + a where it
+has one (0 without), nothing where an X has two (c0 > 0 with x < 0) or CP is not a line of Gauss-Legendre panels.  With
+x != 0 the end terms at the root are reflected where Re z < 0 (`ctr_rend`), and the Gaussian that the reflection adds
+carries no e^{-t vr^2}: their split is smooth only where the reflection does not switch on a panel; at the switch
+z = sqrt(t + c0 s) vr + x s/(2 sqrt(t + c0 s)) is imaginary, and the jump of the split, e^{z^2}, is negligible once |z|
+is large, as on the panels where the oscillation is fast (beta L >= FILON_OMIN[]; the slower panels keep the
+Gauss-Legendre rule, `contour_sum_filon`).
+"""
+function filon_roots_x(CP::CPath, xs::Vector{Float64}, c0::Float64)
+    c0 == 0 && return nothing
+    linepanels(CP) === nothing && return nothing
+    vr = zeros(length(xs)); found = false
+    for (i, x) in enumerate(xs)
+        isfinite(x) || continue
+        plus, minus = xpieces(x, c0, CP.Mo.a)
+        roots = unique([b for (a, b) in (plus..., minus...) if isfinite(b) && b > 0])
+        isempty(roots) && continue
+        length(roots) == 1 || return nothing
+        vr[i] = roots[1]; found = true
+    end
+    found ? vr : nothing
+end
+"""
+    linepanels(CP) -> (nq, wa, L) or nothing
+
+The Gauss-Legendre panels [wa[p], wa[p] + L[p]] of the line CP (`linecpath`, with its default or refined panels), each
+with the nq nodes of `glrule` (24, or 32 in the variant of `verify_eval`), from the nodes themselves (the first and the
+last of each panel); nothing if the nodes are not such panels.
+"""
+function linepanels(CP::CPath)
+    isnan(CP.h) || return nothing
+    for nq in (24, 32, 16, 48)
+        r = linepanels(CP, nq)
+        r === nothing || return r
+    end
+    nothing
+end
+function linepanels(CP::CPath, nq::Int)
+    K = length(CP.t); np = K ÷ nq
+    (np > 0 && np * nq == K) || return nothing
+    z = glrule(nq)[1]; w = imag.(CP.t)
+    wa = zeros(np); L = zeros(np)
+    for p in 1:np
+        j1 = (p - 1) * nq + 1; j2 = p * nq
+        L[p] = (w[j2] - w[j1]) / (z[nq] - z[1]); wa[p] = w[j1] - L[p] * z[1]
+        all(abs(w[j1+q-1] - (wa[p] + L[p] * z[q])) <= 1e-9 * (abs(wa[p]) + L[p]) for q in 1:nq) || return nothing
+    end
+    nq, wa, L
+end
+"""the data of Filon's rule on a panel of nq Gauss-Legendre nodes z on [0, 1]: the barycentric weights lam and the
+derivatives of orders 0..nq-1 of the interpolating polynomial at x = 0 (D0) and x = 1 (D1), as rows applied to its values
+(from the inverse of the Vandermonde matrix in 512-bit arithmetic)"""
+struct FilonData
+    z::Vector{Float64}; lam::Vector{Float64}; D0::Matrix{Float64}; D1::Matrix{Float64}
+end
+const FILON = Dict{Int,FilonData}()
+const FILONLOCK = ReentrantLock()
+function filondata(nq::Int)
+    lock(FILONLOCK) do
+        get!(FILON, nq) do
+            z = glrule(nq)[1]
+            lam = [1 / prod(z[q] - z[j] for j in 1:nq if j != q) for q in 1:nq]
+            setprecision(BigFloat, 512) do
+                Vi = inv([BigFloat(z[q])^j for q in 1:nq, j in 0:nq-1])
+                D0 = [factorial(big(k)) * Vi[k+1, q] for k in 0:nq-1, q in 1:nq]
+                D1 = [sum(factorial(big(j)) / factorial(big(j - k)) * Vi[j+1, q] for j in k:nq-1) for k in 0:nq-1, q in 1:nq]
+                FilonData(z, lam, Float64.(D0), Float64.(D1))
+            end
+        end
+    end
+end
+"""
+    filon_int(F, g, om) -> int_0^1 p(x) e^{-i om x} dx
+
+p the polynomial through the values g at the nodes of F.  For om <= 2000 a composite Gauss-Legendre rule (64 nodes on
+each of ceil(om/20) parts, p by the barycentric formula); beyond, the expansion by parts, which ends after nq terms for a
+polynomial, sum_k (p^(k)(0) - p^(k)(1) e^{-i om})/(i om)^(k+1) (its terms fall like (2 nq^2/om)^k by the inequality of
+Markov, so that the rounding of the derivatives stays below that of the values)
+"""
+function filon_int(F::FilonData, g::AbstractVector{ComplexF64}, om::Float64)
+    nq = length(F.z)
+    if om <= 2000
+        m = max(1, ceil(Int, om / 20)); zr, wr = glrule(64)
+        acc = zero(ComplexF64)
+        for i in 0:m-1, r in 1:64
+            x = (i + zr[r]) / m
+            num = zero(ComplexF64); den = 0.0; hit = 0
+            for q in 1:nq
+                d = x - F.z[q]
+                d == 0 && (hit = q; break)
+                c = F.lam[q] / d; num += c * g[q]; den += c
+            end
+            acc += (wr[r] / m) * (hit > 0 ? g[hit] : num / den) * cis(-om * x)
+        end
+        return acc
+    end
+    io = 1 / complex(0.0, om); e = cis(-om); acc = zero(ComplexF64); fac = io
+    for k in 1:nq
+        d0 = zero(ComplexF64); d1 = zero(ComplexF64)
+        @inbounds for q in 1:nq; d0 += F.D0[k, q] * g[q]; d1 += F.D1[k, q] * g[q]; end
+        acc += fac * (d0 - d1 * e); fac *= io
+    end
+    acc
+end
+"""the panels on which `contour_sum_filon` takes Filon's rule: beta L >= FILON_OMIN[] = 30 (the slower panels keep the
+Gauss-Legendre rule for the whole integrand, which resolves e^{-i beta w} there: on the first panel of the line, next to
+w = 0, the split parts are nearly singular, and only their sum is smooth)"""
+const FILON_OMIN = Ref(30.0)
+"""
+    contour_sum_filon(CP, nx, node!, tol, warn, beta) -> as `contour_sum`
+
+`contour_sum` on the vertical line CP for events whose terms at the roots are split off (`filon_roots`): node!(GF_k, Gf_k,
+AF_k, Af_k, JF_k, Jf_k, k) fills the terms of the rest as before and, per event, the part J(t_k) t'/t_k (and J(t_k) t' for
+the density) whose integrand is e^{-t beta} J(t).  The rest takes the Gauss-Legendre weights of the line, the parts
+Filon's rule on each panel: (1/pi) Im{e^{-tau beta} L e^{-i beta w_a} int_0^1 p(x) e^{-i beta L x} dx}, p through the
+values of J t'/t on the panel [w_a, w_a + L] (`filon_int`).  Nodes beyond the last chunk computed count as 0.
+"""
+function contour_sum_filon(CP::CPath, nx::Int, node!::NF, tol::Float64, warn::Bool, beta::Vector{Float64}; omin::Float64 = FILON_OMIN[]) where {NF}
+    K1 = length(CP.t)
+    GF = zeros(K1, nx); Gf = zeros(K1, nx); AF = zeros(K1, nx); Af = zeros(K1, nx)
+    JF = zeros(ComplexF64, K1, nx); Jf = zeros(ComplexF64, K1, nx)
+    eb = [exp(-CP.tau * b) for b in beta]
+    done = 0; CH = 32; last = Inf
+    while done < K1
+        k1 = done + 1; k2 = min(done + CH, K1)
+        Threads.@threads :dynamic for k in k1:k2
+            node!(view(GF, k, :), view(Gf, k, :), view(AF, k, :), view(Af, k, :), view(JF, k, :), view(Jf, k, :), k)
+        end
+        done = k2
+        mx = max(maximum(abs, view(GF, k1:k2, :)), maximum(abs, view(Gf, k1:k2, :)))
+        for ix in 1:nx
+            mx = max(mx, eb[ix] * maximum(abs, view(JF, k1:k2, ix)), eb[ix] * maximum(abs, view(Jf, k1:k2, ix)))
+        end
+        last = mx * maximum(view(CP.wt, k1:k2))
+        mx < tol && break
+    end
+    w = CP.wt[1:done]
+    F = [sum(w[k] * GF[k, ix] for k in 1:done) for ix in 1:nx]
+    f = [sum(w[k] * Gf[k, ix] for k in 1:done) for ix in 1:nx]
+    nq, wa, Ls = linepanels(CP); Fd = filondata(nq)
+    for ix in 1:nx
+        b = beta[ix]; b > 0 || continue
+        for p in eachindex(wa)
+            j1 = (p - 1) * nq + 1; j1 > done && break
+            L = Ls[p]
+            if b * L < omin
+                for k in j1:min(j1 + nq - 1, done)
+                    e = exp(-CP.t[k] * b)
+                    F[ix] += CP.wt[k] * imag(e * JF[k, ix]); f[ix] += CP.wt[k] * imag(e * Jf[k, ix])
+                end
+                continue
+            end
+            ph = L * cis(-b * wa[p]) * eb[ix] / pi
+            F[ix] += imag(ph * filon_int(Fd, view(JF, j1:j1+nq-1, ix), b * L))
+            f[ix] += imag(ph * filon_int(Fd, view(Jf, j1:j1+nq-1, ix), b * L))
+        end
+    end
+    eF = [eps() * sum(w[k] * AF[k, ix] for k in 1:done) for ix in 1:nx]
+    ef = [eps() * sum(w[k] * Af[k, ix] for k in 1:done) for ix in 1:nx]
+    if warn && (max(maximum(eF; init = 0.0), maximum(ef; init = 0.0)) > WARN_TOL[] || !all(isfinite, F) || !all(isfinite, f))
+        @warn "contour_eval: the terms of the sums are large: the rounding error may reach $(round(max(maximum(eF), maximum(ef)), sigdigits = 2)); the result may be inaccurate" CP.Mo.start CP.Mo.g0 CP.c
+    end
+    if warn && last > 1e-10
+        @warn "contour_eval: the outer contour ends with terms of size $(round(last, sigdigits = 2)) (it is cut at |t - tau| = $(default_rmax(CP.c))); the result may be inaccurate" CP.Mo.start CP.Mo.g0 CP.c
+    end
+    F, f, done, (F = eF, f = ef)
 end
 """the outer trapezoidal rule of `contour_eval` and `contour_eval_specs`: node!(GF_k, Gf_k, AF_k, Af_k, k) fills the terms
 of node k for the nx points, the nodes are processed in chunks of 32 until a chunk whose terms all stay below tol"""
@@ -3509,8 +3799,9 @@ end
 verified = true, by `verify_eval`"""
 function spec_eval(CP::CPath, specs::Vector{Vector{XSpec}}, which::Int, verified::Bool, vtol::Float64; kw...)
     qm = [maximum((abs(sp.q) for sp in S); init = 0.0) for S in specs]          # (the slopes: x of the t-ratio and ADFmax)
-    verified ? verify_eval((CPv, o) -> contour_eval_specs(line_refined(CPv, qm), specs; o..., kw...)[which], CP, vtol) :
-               contour_eval_specs(line_refined(CP, qm), specs; kw...)[which]
+    am = [abs(sp.A) for S in specs for sp in S]                                 # (the constants of the kernels, `line_refine`)
+    verified ? verify_eval((CPv, o) -> contour_eval_specs(line_refined(CPv, qm; amax = am), specs; o..., kw...)[which], CP, vtol) :
+               contour_eval_specs(line_refined(CP, qm; amax = am), specs; kw...)[which]
 end
 """lin_pdf(D, bs, a, c = 0; kw...) -> the density of U - aV at each b (arguments as `lin_cdf`; a = NaN: of V, `v_pdf`)"""
 function lin_pdf(D::Determ, bs::AbstractVector, a::Real, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing,
@@ -3526,7 +3817,7 @@ end
 function lin_quantile(D::Determ, p::Real, a::Real, c::Real = 0.0; b0::Real = 0.0, tol::Real = 1e-10, start::Symbol = :zero, gamma0::Real = 0.0,
                       gls = nothing, phi = nothing, hfac = 1.0, kw...)
     CP = user_path(D, c, start, gamma0, gls, phi, hfac)
-    FF(b) = (r = contour_eval_specs(CP, [[XSpec(Float64(a), 0.0, CP.Mo.a + b; dA = 1.0)]]; kw...); (r[1][1], r[2][1]))
+    FF(b) = (r = contour_eval_specs(line_refined(CP, Float64[]; amax = [abs(CP.Mo.a + b)]), [[XSpec(Float64(a), 0.0, CP.Mo.a + b; dA = 1.0)]]; kw...); (r[1][1], r[2][1]))
     newton_safe(FF, p, b0, 1.0; tol)
 end
 

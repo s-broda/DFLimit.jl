@@ -239,6 +239,20 @@ end
             ba = [-0.49999, -0.4999, -0.499, -0.49]
             @test maximum(abs, lin_cdf(trend(-1), ba, a, -5.0) - ltratio_lincdf(ba, a, "DK", -5.0; engine = :classical)) < 2e-12
         end
+        # the linear form on the vertical line (c = 5): the parts at the root of the parabola by Filon's rule, the line cut to
+        # the oscillation of e^{-A s_k(t)} (`filon_roots`, `line_refine`); without them off by up to 3e-3
+        let c = 5.0, m = DX.EVdk(5.0)
+            for (a, bl) in ((-1.0, [-0.3, 0.0, 0.3m, m]), (2.5, [-0.3 * 2.5m, -0.49, 0.0]))
+                @test maximum(abs, lin_cdf(trend(-1), bl, a, c) - ltratio_lincdf(bl, a, "DK", c; engine = :classical)) < 1e-12
+            end
+        end
+        # the t-ratio above the unit root with c0 < 0 (the vertical line): the part at the root of X(v) = c0 v^2 + x v + a by
+        # Filon's rule (`filon_roots_x`); without it F was off by 3e-5 to 6.5e-3 and f by more
+        let xs = [22.91, 94.61, 166.3]
+            @test maximum(abs, dist_cdf(trend(-1), xs, 5.0; c0 = -3.0) - ltratio_cdf(xs, "DK", 5.0; c0 = -3.0, engine = :classical)) < 1e-12
+            fc = ltratio_pdf(xs, "DK", 5.0; c0 = -3.0, engine = :classical)
+            @test maximum(abs.(dist_pdf(trend(-1), xs, 5.0; c0 = -3.0) .- fc) ./ fc) < 1e-9
+        end
         # the density of U - aV against a difference quotient of its distribution function
         h = 1e-4
         @test abs(lin_pdf(trend(1), [0.3], -2.0, -5.0)[1] - (lin_cdf(trend(1), [0.3 + h], -2.0, -5.0)[1] - lin_cdf(trend(1), [0.3 - h], -2.0, -5.0)[1]) / 2h) < 1e-7
@@ -267,10 +281,14 @@ end
         q = dist_quantile(trend(0), [0.05, 0.10]; x0 = -2.8)
         @test maximum(abs, q - ltratio_icdf([0.05, 0.10], "DU"; engine = :classical)) < 1e-8
     end
-    @testset "fixed start with c0 > 0 above the unit root; the line with c0 < 0 warns; GLS at a small cbar" begin
+    @testset "fixed start with c0 > 0 above the unit root; the line with c0 < 0 (Filon's rule; without it, the warning); GLS at a small cbar" begin
         m = ltratio_mom(2, "DU", 2.0; c0 = 3.0, g0 = 1.5); xs = m[1] .+ sqrt(m[2] - m[1]^2) .* [0.0, 2.0, 4.0]
         @test maximum(abs, dist_cdf(trend(0), xs, 2.0; c0 = 3.0, start = :fixed, gamma0 = 1.5) - ltratio_cdf(xs, "DU", 2.0; c0 = 3.0, g0 = 1.5, verified = true)) < 1e-10
-        @test_logs (:warn, r"vertical line") match_mode = :any dist_cdf(trend(-1), [94.6], 5.0; c0 = -3.0)
+        @test_logs min_level = Logging.Warn dist_cdf(trend(-1), [94.6], 5.0; c0 = -3.0)
+        @test abs(dist_cdf(trend(-1), [94.6], 5.0; c0 = -3.0)[1] - ltratio_cdf(94.6, "DK", 5.0; c0 = -3.0, engine = :classical)) < 1e-12
+        let CP = DFDet.line_refined(DFDet.user_path(trend(-1), 5.0, :zero, 0.0, nothing, nothing, 1.0), [94.6])
+            @test_logs (:warn, r"vertical line") match_mode = :any DFDet.contour_eval(CP, [94.6]; c0 = -3.0, filon = false)
+        end
         @test abs(DFDet.power_envelope(trend(1), [-2.0])[1] - DFLimit.power_envelope(-2.0, "DG")) < 1e-8
     end
     @testset "bounded caches, no second refinement of a line" begin
