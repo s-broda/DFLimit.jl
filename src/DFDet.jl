@@ -3539,6 +3539,7 @@ builds them again)"""
 function empty_caches!()
     lock(CPLOCK) do
         empty!(CPCACHE); empty!(CPORDER); empty!(LINECACHE); empty!(LINEORDER); empty!(PREPCACHE); empty!(PREPORDER)
+        empty!(LMCACHE); empty!(LMORDER)                        # (the providers of the line integral, DFDet_line.jl)
     end
     nothing
 end
@@ -3618,7 +3619,9 @@ end
 
 The distribution function of the limit (U - c0 V)/sqrt(V) of the t-ratio for phi = 1 + c0/n under phi = 1 + c/n, with
 the start J(0) = 0 (start = :zero), J(0) = gamma0 (:fixed; y_0 = gamma0 sigma sqrt(n)) or J(0) ~ N(0, -1/(2c))
-(:stationary, c < 0).  gls = cbar: the data GLS-detrended at abar = 1 + cbar/n (`prep_gls`; zero start only).
+(:stationary, c < 0).  gls = cbar: the data GLS-detrended at abar = 1 + cbar/n (`prep_gls`; zero start only).  method =
+:auto (the default), :line or :paths: the line integral with the explicit kernel where it covers the design (`line_dist`), or
+the inversion on paths around the roots.
 """
 dist_cdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = 1.0,
          verified::Bool = false, vtol::Real = 1e-9, kw...) =
@@ -3636,7 +3639,8 @@ dist_pdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, ga
 """the value of `dist_cdf` (which = 1) or `dist_pdf` (2): the non-finite points set (`nonfinite`), the finite ones by one
 evaluation of the contour integral or, with verified = true, by `verify_eval`; the infinite density at a tangency"""
 function dist_eval(D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
-                   kw...)
+                   method::Symbol = :auto, kw...)
+    lv = line_dist(method, D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; kw...); lv === nothing || return lv
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     c0 = Float64(get(kw, :c0, 0.0))
     nonfinite(xs, which == 1) do x
@@ -3707,11 +3711,13 @@ end
 
 The p-quantile by Newton's method on F(x) - p with the density from the same evaluation, from x0, the step limited to 1;
 where that does not converge in 30 steps (or leaves the finite numbers), the safeguarded Newton's method of `newton_safe`
-(a bracket, bisection where a step leaves it).  p may be a vector (one quantile each, from the same x0).
+(a bracket, bisection where a step leaves it).  p may be a vector (one quantile each, from the same x0).  method as in
+`dist_cdf` (the search by the line integral: `line_quantile`).
 """
 function dist_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol::Real = 1e-9, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
-                       phi = nothing, hfac = 1.0, kw...)
+                       phi = nothing, hfac = 1.0, method::Symbol = :auto, kw...)
     0 < p < 1 || throw(ArgumentError("dist_quantile: p must lie in (0, 1)"))
+    lq = line_quantile(method, D, p, c; x0, tol, start, gamma0, gls, phi, hfac, kw...); lq === nothing || return lq
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     x = Float64(x0)
     for it in 1:30
