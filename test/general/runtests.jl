@@ -367,6 +367,31 @@ end
         F = with_logger(NullLogger()) do; dist_cdf(D, [-2.0, -1.0], 0.0); end
         @test abs(F[1] - 0.32301) < 1e-4 && abs(F[2] - 0.81626) < 1e-4
     end
+    @testset "verified: the fallback sees the errors raised in the threads of a node loop" begin
+        # (verify_eval caught an ErrorException only, and the errors of the nodes arrive as a CompositeException of
+        # TaskFailedExceptions; an interrupt or an exhausted memory still reaches the caller)
+        CP = DFDet.cpath_cached(DFDet.startmodel(trend(0), -5.0, :zero, 0.0), -5.0)
+        @test !isnan(CP.h)
+        for (exc, caught) in ((ErrorException("the root groups are not separated (a test)"), true), (InterruptException(), false), (OutOfMemoryError(), false))
+            seen = Symbol[]
+            function evalf(CPv, o)
+                lvl = CPv === CP ? :default : CPv.phi > CP.phi + 1e-9 ? :steeper : :same
+                push!(seen, lvl)
+                if lvl === :steeper
+                    Threads.@threads :dynamic for k in 1:4
+                        k == 3 && throw(exc)
+                    end
+                end
+                [0.25]
+            end
+            if caught
+                @test DFDet.verify_eval(evalf, CP, 1e-9) == [0.25] && seen == [:default, :steeper, :same]
+            else
+                @test_throws CompositeException DFDet.verify_eval(evalf, CP, 1e-9)
+                @test seen == [:default, :steeper]
+            end
+        end
+    end
     @testset "the path tables of cases DK, DU, DT at c = 0" begin
         xs = [-4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0]
         for p in -1:1

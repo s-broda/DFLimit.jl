@@ -3546,7 +3546,8 @@ function verify_eval(evalf, CP::CPath, vtol::Float64)
     v2 = try
         evalf(variant_path(CP, 1), (alpha = 0.3, n = n0 + 16, ntail = nt0 + 24))
     catch e
-        e isa ErrorException || rethrow()
+        # (any error, as in the C engine; those of the node loops arrive wrapped by their threads)
+        nofallback(e) && rethrow()
         evalf(variant_path(CP, 0), (alpha = 0.3, n = n0 + 16, ntail = nt0 + 24))     # (the groups not separated on the steeper hyperbola)
     end
     d = maximum(abs, v1 .- v2; init = 0.0)
@@ -3556,6 +3557,11 @@ function verify_eval(evalf, CP::CPath, vtol::Float64)
     d3 <= vtol || @warn "verified: two evaluations by different rules differ by $(round(d3, sigdigits = 2)) (above $vtol)" Mo.P.D.name Mo.start CP.c
     v3
 end
+"""whether the error e must reach the caller instead of the fallback of `verify_eval`: an interrupt or an exhausted
+memory, also when it arrives wrapped by the threads of a node loop (TaskFailedException, CompositeException, as
+DFExact.pathtoolarge unwraps them)"""
+nofallback(e) = e isa InterruptException || e isa OutOfMemoryError ||
+    (e isa TaskFailedException && nofallback(e.task.exception)) || (e isa CompositeException && any(nofallback, e.exceptions))
 """the outer contour of a variant rule (`verify_eval`): level 1 steeper and with a shorter step, level 0 the same with the
 default angle, level 2 the default angle with half the step; on the vertical line more nodes per panel"""
 function variant_path(CP::CPath, level::Int)
