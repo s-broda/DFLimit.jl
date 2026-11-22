@@ -3934,7 +3934,7 @@ function newton_safe(FF, p::Real, x0::Real, step::Real; tol::Real = 1e-10, maxit
         F, f = FF(x)
         F > p ? (hi = x) : (lo = x)
         xn = x - (F - p) / f
-        (lo < xn < hi && isfinite(xn)) || (xn = (lo + hi) / 2)
+        (lo <= xn <= hi && isfinite(xn)) || (xn = (lo + hi) / 2)     # (a step below half an ulp lands on the end of the bracket: converged)
         abs(xn - x) < tol && return xn
         x = xn
     end

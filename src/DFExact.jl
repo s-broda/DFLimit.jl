@@ -2374,7 +2374,7 @@ function ltratio_icdf_(p, cas::AbstractString, c::Real, model::Int; tol::Real, c
             F = ltratio_cdf(x, cas, c; c0, g0, method, kw...); f = ltratio_pdf(x, cas, c; c0, g0, method, kw...)
             F > pk ? (hi = x) : (lo = x)
             xn = x - (F - pk) / f
-            (lo < xn < hi && isfinite(xn)) || (xn = (lo + hi) / 2)
+            (lo <= xn <= hi && isfinite(xn)) || (xn = (lo + hi) / 2)     # (a step below half an ulp lands on the end of the bracket: converged)
             abs(xn - x) < tol && return xn
             x = xn
         end
@@ -6142,7 +6142,7 @@ function adfmax_icdf(p, cas::AbstractString, c::Real = 0; tol::Float64 = 1e-10, 
             F = adfmax_cdf(x, cas, c; kw...); f = adfmax_pdf(x, cas, c; kw...)
             F > pk ? (hi = x) : (lo = x)
             xn = x - (F - pk) / f
-            (lo < xn < hi && isfinite(xn)) || (xn = (lo + hi) / 2)
+            (lo <= xn <= hi && isfinite(xn)) || (xn = (lo + hi) / 2)     # (a step below half an ulp lands on the end of the bracket: converged)
             abs(xn - x) < tol && return xn
             x = xn
         end
