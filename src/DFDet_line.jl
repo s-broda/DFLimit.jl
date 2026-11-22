@@ -134,6 +134,9 @@ function line_continue(lm::LineModel, ta::ComplexF64, La::ComplexF64, tb::Comple
     L
 end
 
+"""nothing (log P continued along the points by `line_continue`, the default), or a function (lm, t, v) -> Im log P(t)^{-2}
+that fixes the branch at each point (DFKan.line_phase, switched by DFKan.line_pointwise!)"""
+const LINE_PHASE = Ref{Any}(nothing)
 """P(t), s_1(t), s_2(t) and M_0(t) on the points t of the line (t[1] real) for the classical integrator: s_1 the negative
 root and s_2 the positive one (rank two), s_1 the positive root (rank one, s_2 and M_0 unused); M_0 = (-s_1)^{-1/2} s_2^{-1/2}
 with the principal branches (both arguments stay in the right half-plane on the line); P from log P^{-2} continued from the
@@ -155,9 +158,14 @@ function LX.tparts(lm::LineModel, c::Float64, t::Vector{ComplexF64}; stat::Bool 
             abs(imag(Lr) - 2pi * m) < 1e-7 || @warn "the line integral: D_V mu_+ (-mu_-) not positive at the real point" Lr
             Ln = complex(real(Lr), 0.0)
         else
-            dpred = isnan(dprev) ? 0.0 : (j > 2 ? dprev * abs(t[j] - t[j-1]) / abs(t[j-1] - t[j-2]) : dprev)
-            Ln = line_continue(lm, t[j-1], L, t[j], Lr, dpred, isnan(dprev), 0)
-            dprev = imag(Ln) - imag(L)
+            if LINE_PHASE[] !== nothing                            # the branch at the point (DFKan.line_phase)
+                ph = LINE_PHASE[](lm, t[j], v)::Float64
+                Ln = complex(real(Lr), imag(Lr) + 2pi * round((ph - imag(Lr)) / 2pi))
+            else
+                dpred = isnan(dprev) ? 0.0 : (j > 2 ? dprev * abs(t[j] - t[j-1]) / abs(t[j-1] - t[j-2]) : dprev)
+                Ln = line_continue(lm, t[j-1], L, t[j], Lr, dpred, isnan(dprev), 0)
+                dprev = imag(Ln) - imag(L)
+            end
         end
         L = Ln
         P[j] = exp(-L / 2)

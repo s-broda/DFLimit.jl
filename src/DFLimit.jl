@@ -52,6 +52,10 @@ include("merged.jl")
 DFExact.ROUTE[] = router
 __init__() = (DFExact.ROUTE[] = router; nothing)
 
+# Prototypes of the devices of Bao and Kan (the characteristic function with the branch fixed at each point, jets, the
+# single inversion with tail completion): the module DFLimit.DFKan, nothing of it exported
+include("DFKan.jl")
+
 # A precompile workload: without it the first call of each function waits for compilation, about 6 s for most of them
 # on an Apple M4 (1.4 to 8.7 s), with it a fraction of a second; it adds about 20 s to the precompilation (4.5 s to 22
 # s) and 46 MB to the cache file.  The engine's __init__ does not run while the package

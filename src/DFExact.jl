@@ -172,6 +172,9 @@ function Dfun(model::Int, c::T, s::Complex{T}, t::Complex{T}; stat::Bool = false
     end
 end
 
+"""nothing (the branches of `tparts` by continuity along the grid, the default), or a function (model, c, t; stat) -> (P, s1,
+s2, M0) that fixes them at each point (DFKan.tparts_pointwise, switched by DFKan.pointwise!)"""
+const POINTWISE = Ref{Any}(nothing)
 function unwrap!(ph::Vector{T}) where {T}
     for j in 2:length(ph)
         d = ph[j] - ph[j-1]
@@ -185,6 +188,7 @@ M3 (unused for M1), on the grid t = tau + i w, w increasing from 0, with the bra
 roots and the labelling of the roots fixed by continuity along the grid.  For c > CGIRS with a zero start
 the roots and P(t) come from the Girsanov forms (girsanov), which are free of the cancellation of D."""
 function tparts(model::Int, c::T, t::Vector{Complex{T}}; stat::Bool = false) where {T}
+    (POINTWISE[] === nothing || T !== Float64) || return POINTWISE[](model, c, t; stat)::NTuple{4,Vector{ComplexF64}}
     nt = length(t)
     P = Vector{Complex{T}}(undef, nt); s1 = similar(P); s2 = similar(P); M0 = similar(P)
     if model == 1 && !stat
