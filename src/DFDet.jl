@@ -1928,7 +1928,7 @@ The asymptotic angle of the outer hyperbola with a fixed start: the start adds g
 the unit root (|c| g0^2 large) grows along a flat hyperbola, so that the O(1) value of F comes out of large terms that
 cancel.  As DFExact.ctr_phi1 in case DK: the smallest of the angles PHI_FIXED at which the largest term
 |M_V(t_k) e^{g0^2 cf(t_k)} t'(u_k)/t_k| h/pi of the outer rule is at most 2 (the steepest one if none qualifies).  The
-same rule (without the term of the start) chooses the angle with a zero and a stationary start below c = -100, where
+same rule (without the term of the start) chooses the angle with a zero and a stationary start below c = -60 (FAR_CMIN), where
 M_V(t), close to e^{t E V} with E V of order 1/(2|c|) while |t| << c^2, grows along a flat hyperbola like
 e^{Re(t)/(2|c|)}: on the 45-degree hyperbola the terms reach 1e4 at |t| = 6000 for c = -150, and the distribution function
 was off by 3e-6, at c = -200 by 5e4.
@@ -1961,11 +1961,20 @@ function fixed_phi(Mo::Model, c::Float64, ts_::Float64, τ::Float64, hfac::Float
     PHI_FIXED[end] * pi / 180
 end
 
-"""the end |t - tau| of the outer contour: 1e5, and 20 c^2 below c = -100.  Far from the unit root the transform decays along
-the contour only once |t| exceeds c^2 (M_V(t) carries e^{-(c + theta)/2}, and c + theta stays small while |t| << c^2), so
-that at |t| = 1e5 the terms are of order e^{-16} at c = -150 and the distribution function was off by 3e-6 (the density, whose
-kernel decays faster, by 2e-13); at 20 c^2 the factor e^{-Re(c + theta)/2} is below e^{-70} for c < -100 (on the 45-degree hyperbola)."""
-default_rmax(c::Float64) = c < -100 ? max(1e5, 20 * c * c) : 1e5
+"""the end |t - tau| of the outer contour: the larger of 1e5 and 20 c^2 (20 c^2 from c = -70.7 on).  Far from the unit root the
+transform decays along the contour only once |t| exceeds c^2 (M_V(t) carries e^{-(c + theta)/2}, and c + theta stays small
+while |t| << c^2), so that at |t| = 1e5 the terms are of order e^{-16} at c = -150 and the distribution function was off by
+3e-6 (the density, whose kernel decays faster, by 2e-13); at 20 c^2 the factor e^{-Re(c + theta)/2} is below e^{-70} (on
+the 45-degree hyperbola).  (Until November 2026 the end was 1e5 down to c = -100.)"""
+default_rmax(c::Float64) = max(1e5, 20 * c * c)
+"""the c below which the engine takes its rules for c far from the unit root (until November 2026: c = -100): the outer
+hyperbola the angle of `fixed_phi` with a zero and a stationary start as well (with a fixed start always), and the U-shapes
+the caps 20/min(A, 40/|sigma|) of their segments (`ucaps`).  On the 45-degree hyperbola the terms grow far from the unit
+root, and from c = -70 to -100 the distribution function was off by 1e-11 to 1.4e-9 (cases DU, DT, SK, SU at c0 = 0 against
+the line integral, case DU at c0 = 2) and the linear form of the envelope by up to 9e-10; with both rules from c = -60 on
+within 5e-13 (case DK 3e-11, as below c = -100), and at 0.2 to 1.5 times the cost on that range (faster in cases DU, DT,
+1.3 to 1.5 times slower in cases DK and SU, from 25 and 37 ms to 32-38 and 47-57 ms for nine points)."""
+const FAR_CMIN = -60.0
 
 """
     cpath(Mo, c; phi = nothing, hfac = 1, sub = 8, rmax = default_rmax(c), tau = nothing)
@@ -1979,7 +1988,7 @@ function cpath_(Mo::Model, c::Float64, phi, hfac::Float64, sub::Int, rmax, tau)
     ts_ = tstar(Mo, c)[1]
     τ = tau === nothing ? min(1.0, ts_ / 2) : Float64(tau)
     auto = phi === nothing
-    phi === nothing && (phi = (Mo.start == :fixed || c < -100) ? fixed_phi(Mo, c, ts_, τ, Float64(hfac), Float64(rmax)) : pi / 4)
+    phi === nothing && (phi = (Mo.start == :fixed || c < FAR_CMIN) ? fixed_phi(Mo, c, ts_, τ, Float64(hfac), Float64(rmax)) : pi / 4)
     phi = Float64(phi)
     local a, b, h, K, tt, R, lP, FX, minpos, maxneg
     while true
@@ -2721,14 +2730,14 @@ function ubranch(sp::Float64, hi::Float64, tr::Float64, c0s, alpha::Float64)
     end
     sp
 end
-"""the caps (hp, hm) of the panels of the segments of G+ and G- (`ushapes`): 20/A, and below c = -100 20/min(A, 40/|sigma|).
-(Below c = -100 the segments lie far from the origin, where the kernels are damped: on the segment Re s = sigma the
-v-kernel e^{-s X} oscillates at the rate |X| with the modulus e^{-|sigma X|}, and e^{-A s} has the modulus e^{-A sigma}, so
-that only rates up to 40/|sigma| matter.  At c = -300 in case DU the segment of G- lies at -45300 and the cap 20/A gave it
-54608 nodes.)"""
+"""the caps (hp, hm) of the panels of the segments of G+ and G- (`ushapes`): 20/A, and below c = FAR_CMIN = -60
+20/min(A, 40/|sigma|).  (Far from the unit root the segments lie far from the origin, where the kernels are damped: on the
+segment Re s = sigma the v-kernel e^{-s X} oscillates at the rate |X| with the modulus e^{-|sigma X|}, and e^{-A s} has the
+modulus e^{-A sigma}, so that only rates up to 40/|sigma| matter.  At c = -300 in case DU the segment of G- lies at -45300
+and the cap 20/A gave it 54608 nodes.)"""
 function ucaps(c::Float64, sp::Float64, sm::Float64, A::Float64)
     hseg = 20 / A
-    (c < -100 && sp > 0 ? 20 / min(A, 40 / sp) : hseg), (c < -100 && sm < 0 ? 20 / min(A, 40 / abs(sm)) : hseg)
+    (c < FAR_CMIN && sp > 0 ? 20 / min(A, 40 / sp) : hseg), (c < FAR_CMIN && sm < 0 ? 20 / min(A, 40 / abs(sm)) : hseg)
 end
 """the nodes of the narrow U-shapes of the zero and the stationary start at the abscissas sp, sm: the segments, at most hp
 or hm per panel with n nodes, a lower bound of their count (within 1% of it beyond 1e5) -> (nodes, longest segment)"""
@@ -4005,7 +4014,7 @@ does not: M_V(t) = M(0, t) is analytic off the real half-line t >= t_*, and the 
 at s = 0, which `vsum` continues along the path.  On the line the integrand M_V(t) e^{-t y}/t oscillates in w at the
 rate y, damped only by e^{-tau y} with tau = min(1, t_*/2) tiny above the unit root, and the doubling panels of
 `linecpath` do not resolve it: P(V <= y) was off by 2e-3 in case DK at c = 5.  Here the hyperbola at the angle the path
-would have without the steepening for the roots (pi/4, or `fixed_phi` with a fixed start and below c = -100), on which
+would have without the steepening for the roots (pi/4, or `fixed_phi` with a fixed start and below c = -60), on which
 e^{-t y} decays.  An angle given by phi is kept (and so is the line, if that is what it gives).
 """
 function v_path(D::Determ, c::Real, start::Symbol, gamma0::Real, gls, phi, hfac)
@@ -4016,14 +4025,14 @@ end
     v_own(CP; hfac = 1, build = cpath_cached) -> CPath
 
 The path of `v_path` from the path CP of the design: CP itself, or where CP is the vertical line the hyperbola of the
-law of V alone (pi/4, or `fixed_phi` with a fixed start and below c = -100), built by build(Mo, c; phi, hfac).  The LM
+law of V alone (pi/4, or `fixed_phi` with a fixed start and below c = -60), built by build(Mo, c; phi, hfac).  The LM
 statistic (`lmpath`) takes it with build = `cpath`: its prepared design is not that of `prep_cached`, under whose key
 `cpath_cached` would keep its paths.
 """
 function v_own(CP::CPath; hfac = 1.0, build = cpath_cached)
     isnan(CP.h) || return CP
     Mo = CP.Mo; cf = CP.c
-    ph = (Mo.start == :fixed || cf < -100) ?
+    ph = (Mo.start == :fixed || cf < FAR_CMIN) ?
          blas1f(() -> fixed_phi(Mo, cf, CP.tstar, CP.tau, Float64(hfac), default_rmax(cf)), dense_la(Mo)) : pi / 4
     build(Mo, cf; phi = ph, hfac)
 end

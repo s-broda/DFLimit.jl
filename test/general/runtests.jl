@@ -396,6 +396,15 @@ end
         e = try; dist_moments(trend(0), 1e5); nothing; catch err; err; end
         @test e isa ErrorException && occursin("beyond the range of the moments", e.msg)
     end
+    @testset "the rules far from the unit root from c = -60 on (FAR_CMIN)" begin
+        # (on -100 <= c < -60 the 45-degree hyperbola left errors up to 1.4e-9 against the line integral; the angle of
+        # fixed_phi and the caps of the segments from c = -60 on give 5e-13, case DK 3e-11)
+        for (cas, p, st) in (("DK", -1, :zero), ("DU", 0, :zero), ("DT", 1, :zero), ("SU", 0, :stationary)), c in (-70.0, -85.0, -100.0)
+            xs = ltratio_icdf([0.01, 0.5, 0.99], cas, c; engine = :classical)
+            F = with_logger(NullLogger()) do; dist_cdf(trend(p), xs, c; start = st); end
+            @test maximum(abs, F .- ltratio_cdf(xs, cas, c; engine = :classical, method = :single)) < 1e-10
+        end
+    end
     @testset "non-finite arguments: a limit or an error that names the argument (as the C engine and MATLAB)" begin
         D = trend(0); DT = trend(1)
         q(f) = with_logger(NullLogger()) do; f(); end

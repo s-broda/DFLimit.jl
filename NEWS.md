@@ -60,7 +60,14 @@
   on); the linear form at a = +-Inf gave NaN (an error; a = NaN is the law of V), the region below a line needs a
   finite slope; the law of V is 0 at y <= 0 and at -Inf, where it gave NaN; the envelopes (`DFDet.power_envelope`,
   `pt_envelope`) are NaN at c = NaN, where they gave the level, and 1 at c = -Inf, and refuse a level outside (0, 1);
-  `local_power` checks its level and c0.
+  `local_power` checks its level and c0. The rules far from the unit root start at c = -60 (`FAR_CMIN`; they started at
+  c = -100): on -100 <= c < -60 the outer contour was the 45-degree hyperbola, on which the terms grow far from the
+  unit root, and the distribution function was off by 1e-11 at c = -70 and by up to 1.4e-9 at c = -100 against the
+  line integral (cases DU, DT, SK, SU at c0 = 0, case DU at c0 = 2), the linear form of the envelope by up to 9e-10;
+  with the angle of `fixed_phi` for every start and the caps 20/min(A, 40/|sigma|) of the segments from c = -60 on,
+  and the contour's end at the larger of 1e5 and 20 c^2 for every c, within 5e-13 there (case DK 3e-11, as below c =
+  -100), at 0.2 to 0.95 times the former time in cases DU, DT and 1.3 to 1.5 times in cases DK, SU; elsewhere the
+  values are unchanged bit for bit.
 - **The statistics of the second paper as functions:** the point-optimal statistic and the Gaussian power envelope for
   any design (`pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`, `pt_envelope`; `power_envelope(c, D)`), the LM statistic
   of Schmidt and Phillips and of Amsler and Lee (`lm_cdf`, `lm_quantile`, `lm_power`) and the companions of the
