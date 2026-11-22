@@ -77,7 +77,7 @@ the arguments (`DFExact.ROUTE`), and the rule `DFLimit.autoengine`.
 
 | call | computes |
 |---|---|
-| `ltratio_cdf(x, D, c = 0; c0, g0, start, gls, engine)`, `ltratio_pdf` | the t-ratio of any design D |
+| `ltratio_cdf(x, D, c = 0; c0, g0, start, gls, method, engine)`, `ltratio_pdf` | the t-ratio of any design D |
 | `ltratio_icdf(p, D, c = 0; ...)`, `ltratio_mom(p, D, c = 0; ...)` | its quantiles and moments |
 | `coef_cdf(y, D, c = 0; ...)`, `coef_icdf(p, D, c = 0; ...)` | the coefficient statistic |
 | `adfmax_cdf(x, D, c = 0; start)`, `adfmax_pdf`, `adfmax_icdf` | ADFmax |
@@ -95,11 +95,16 @@ c)`, `trend(1)` with `start = :stationary` is case ST and with `gls = -13.5` cas
 engine's checks of the arguments (the range of c, the region of the fixed start), as in 0.5.0; a design beyond them goes
 to the general engine. Every call takes the engine of `autoengine` (`engine = :auto`); `engine = :classical` forces the
 classical engine (an `ArgumentError` for a design it does not have) and `engine = :general` the general one (without the
-classical checks; `method`, which names a representation of the classical engine, then must be `:auto`). A `method`
+classical checks; `method` then names the general engine's representation, `:auto`, `:line` or `:paths`). A `method`
 other than `:auto`, `verified = true` and the classical engine's own keywords keep the classical engine for a case
-string. The general engine is checked from c = -480 to 10.
+string. Where the general engine computes (a design the classical engine does not have, or `engine = :general`),
+`method` is the general engine's own: `:auto`, `:line` (the line integral with the explicit kernel) or `:paths` (the
+inversion on paths around the roots), see "Which engine"; for a design that is a classical case `method = :line` is the
+classical line integral and `method = :paths` the general engine's paths, so that `ltratio_cdf(x, trend(2), c; method =
+:paths)` and `ltratio_icdf(p, trend(0), c; method = :paths)` force the paths and `ltratio_cdf(x, "DU", c; engine =
+:general, method = :line)` the general engine's line integral. The general engine is checked from c = -480 to 10.
 
-The general engine's own functions are exported as well: `dist_cdf(D, xs, c; c0, start, gamma0, gls)`, `dist_pdf`,
+The general engine's own functions are exported as well: `dist_cdf(D, xs, c; c0, start, gamma0, gls, method)`, `dist_pdf`,
 `dist_quantile`, `dist_moments`, `coef_pdf`, `coef_quantile`, `coef_cdf_gp`, `lin_cdf`, `lin_pdf`, `lin_quantile`,
 `v_cdf`, `v_pdf`, `adfmax_quantile`, `region_prob`, `local_power`, `simulate_tratio`, `simulate_gls`, `simulate_first`
 and the designs; its `coef_cdf`, `adfmax_cdf`, `adfmax_pdf` and `power_envelope`, whose names are the classical
@@ -118,15 +123,31 @@ BenchmarkTools minimum of 2; F and f at x = mean + (-2, -1, 0, 1, 2) sd for the 
 they differ by more than 1e-8 it compares each with the other's checked computation (`verified = true`). The rule,
 `autoengine` in `src/merged.jl`, takes the faster engine at the same accuracy, and the right one where they disagree.
 
+Within the general engine, `dist_cdf`, `dist_pdf` and `dist_quantile` (and the classical functions with a design, through
+them) choose between two representations by the keyword `method`: `:auto` (the default) takes the line integral with
+the explicit kernel where it covers the design and c0 = 0, and the inversion on paths around the roots otherwise;
+`:line` forces the line integral (an `ArgumentError` with the reason where it does not cover the design, the start or
+the options) and `:paths` the inversion on paths. The line integral covers the designs whose numerator has rank one or
+two: no deterministic terms, the continuous designs that do not vanish at the origin and whose span is closed under
+differentiation (polynomial trends of any order, an intercept with sines and cosines), and `detrend_first` of a
+continuous design that does not vanish at the origin, with a zero or a stationary start and least squares detrending
+(not GLS detrending, a fixed start or a design with a jump). It is the classical engine's integrator with P(t) and the
+two roots supplied by the general engine's transform (`src/DFDet_line.jl`). On warm calls at c0 = 0 it is 3 to 5 times
+faster than the paths below the unit root (at least 1.3 times for every covered design, start and c from -50 to 2) and
+on par with the classical engine for the intercept and the trend; with c0 != 0 it is 2 to 5 times slower, hence the
+rule. A case string or a classical design with `engine = :general` at c0 = 0 therefore takes the general engine's line
+integral; with `method = :paths` it takes the paths (as the general column of the table below at c0 = 0, measured before
+the line integral was added).
+
 | cell | engine | classical (ms) | general (ms) | largest difference | why |
 |---|---|---|---|---|---|
 | t-ratio, c0 = 0, zero or stationary start (any c), cases DK, DU, DT, SK, SU, ST, DG | classical | 3.1 to 59 | 21 to 158 | 1.3e-12 | 1.4 to 18 times faster |
-| zero start, c0 < 0, -100 <= c <= 0 | classical | 7.7 to 54 | 25 to 103 | 1.4e-9 (c = -100) | up to 3.3 times faster in case DK; in cases DU, DT the general engine is at most 1.1 times faster |
+| zero start, c0 < 0, -100 <= c <= 0 | classical | 7.7 to 54 | 25 to 103 | 7.4e-10 (c = -100; the classical engine's one evaluation, the general engine within 1.4e-12 of the classical checked value since its rules far from the unit root start at c = -60) | up to 3.3 times faster in case DK; in cases DU, DT the general engine is at most 1.1 times faster |
 | zero start, c0 > 0, -100 < c <= 1 | general | 69 to 368 | 23 to 86 | 7.7e-12 | 1.8 to 4.7 times faster |
 | the same, case DK, within 1e-3 of the tangency x* = -sqrt(2 c0) above it | classical | | | | the density is infinite at x*; just above it the general engine's density is off by up to 1.5e-3 relative (x* + 1e-9), the classical by 5e-10; below x* the general engine is the right one (the classical density off by 10% at x* - 1e-9 at c = -20, c0 = 0.5) |
-| zero start, c0 > 0 otherwise (c <= -100 or c > 1) | classical | 19 to 370 | 59 to 434 | 1.5e-9 | 1.2 to 3.1 times faster |
+| zero start, c0 > 0 otherwise (c <= -100 or c > 1) | classical | 19 to 370 | 59 to 434 | 2.0e-12 | 1.2 to 3.1 times faster |
 | zero start, c0 != 0, c < -100 | general | 193 to 502 | 76 to 133 | 1.7e-10 | 2.5 to 3.8 times faster |
-| stationary start, c0 != 0, c <= -3e-3 | general | 153 to 8430 | 35 to 116 | 9.8e-10 (c = -100) | 2.7 to 190 times faster (case SK at c = c0 = -0.1: 8.4 s against 45 ms); values below 1e-3 go back to the classical conditional integral, whose error is relative |
+| stationary start, c0 != 0, c <= -3e-3 | general | 153 to 8430 | 35 to 116 | 1.6e-10 (case SK at c = -0.1, the classical engine's one evaluation) | 2.7 to 190 times faster (case SK at c = c0 = -0.1: 8.4 s against 45 ms); values below 1e-3 go back to the classical conditional integral, whose error is relative |
 | stationary start, c0 != 0, c > -3e-3 | classical | | | 8.1e-10 (c = -1e-3) | next to zero the general engine is off by 1e-10 to 7e-8 in cases SU, ST |
 | above the unit root, c0 < 0 (c >= 4) | classical | 43 to 412 | 157 to 658 | 2.1e-13 | 1.2 to 15 times faster; the general engine, within 2.1e-13 since its repair (Filon's rule on the vertical line; before, off by 8.5e-5 in F and 1e-2 in f), is 2.3 times faster in case DK at c = 4, c0 = -0.5 |
 | above the unit root, the bulk at c >= 7 | classical | 218 to 916 | 535 to 19775 | 1.4e-14 | 1.6 to 22 times faster |
@@ -138,7 +159,7 @@ they differ by more than 1e-8 it compares each with the other's checked computat
 | moments, zero start, c0 != 0 | classical in cases DK, DU, general in case DT | 17 to 338 | 46 to 241 | 1.8e-10 relative | 1.6 to 2.8 times faster in cases DK, DU; 1.4 times faster in case DT |
 | quantiles at c0 = 0: a fixed start, cases DT (c <= 0), ST (c <= -1), DU at c = 0 | general | 246 to 650 | 107 to 272 | 9.6e-11 | 1.8 to 4.7 times faster (one path, F and f in one pass) |
 | quantiles otherwise | classical | 37 to 254 | 66 to 346 | 2.8e-11 | equal to 9.4 times faster (case DT at c = 3: the general engine 1.2 times faster); each evaluation of the search routed |
-| the coefficient statistic | as the t-ratio at x = 0 with the null value c0 + y | 8.5 to 132 | 17 | 3.9e-12 | (case SU at c = -5: 8 times faster by the general engine) |
+| the coefficient statistic | as the t-ratio at x = 0 with the null value c0 + y, except with a zero start (cases DK, DU, DT, -100 < c <= 1): c0 + y > 0 classical, c0 + y < 0 in case DK for c > -5 general | 8.5 to 132 | 17 | 3.9e-12 | (case SU at c = -5: 8 times faster by the general engine); one point per call at x = 0: with c0 + y > 0 the classical line integral 2 to 12 times faster, with c0 + y < 0 in case DK for c > -5 the general engine 1.4 to 2.7 times (c from 1 to -80, y at the 1 to 99% quantiles) |
 | P(V <= b) (`ltratio_lincdf` with a = NaN), case DK | general | 5.5 to 310 | 0.04 to 0.17 | 4.8e-15 below c = 4; above, the classical inversion is off by 5.9e-10 (c = 4) to 1.8e-7 (c = 7) | 33 to 4400 times faster, and above the unit root the more accurate (the general engine within 4.4e-12 of the closed form of M_V inverted on hyperbolas of its own) |
 | P(U - aV <= b), case DK | classical | 5.3 to 18 | 5.0 to 274 | 9.6e-13 | up to 30 times faster (above the unit root 12 to 30 times); the general engine 1.1 times faster at a = 2, c = -5 and at a = 0, c = 0 |
 | P(U - aV <= b), case DG, a != 0, cbar <= -2 (cbar <= -1 above the unit root), and every c > 4 | general | 86 to 11265 | 21 to 141 | 7.1e-12 | 1.4 to 80 times faster (at cbar = -7 and -10 below the unit root equal); beyond c = 4 the classical code refuses |

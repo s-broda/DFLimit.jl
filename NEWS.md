@@ -68,6 +68,33 @@
   and the contour's end at the larger of 1e5 and 20 c^2 for every c, within 5e-13 there (case DK 3e-11, as below c =
   -100), at 0.2 to 0.95 times the former time in cases DU, DT and 1.3 to 1.5 times in cases DK, SU; elsewhere the
   values are unchanged bit for bit.
+- **The line integral for the general designs of rank one or two.** `dist_cdf`, `dist_pdf` and `dist_quantile` take
+  `method = :auto` (the default), `:line` or `:paths`: the line integral with the explicit kernel where it covers the
+  design and c0 = 0, the inversion on paths around the roots otherwise. The line integral is the classical engine's
+  integrator with P(t) and the two roots supplied by the general engine's transform (`src/DFDet_line.jl`). It covers the
+  designs whose numerator has rank one or two: no deterministic terms, the continuous designs that do not vanish at the
+  origin and whose span is closed under differentiation (polynomial trends of any order, an intercept with sines and
+  cosines) and `detrend_first` of a continuous design that does not vanish at the origin, with a zero or a stationary
+  start and least squares detrending; `method = :line` refuses the rest (GLS detrending, a fixed start, a design with a
+  jump or a numerator of another rank) with the reason, `:auto` takes the paths there. On warm calls at c0 = 0 it is 3
+  to 5 times faster than the paths below the unit root (at least 1.3 times for every covered design, start and c from
+  -50 to 2) and on par with the classical engine for the intercept and the trend; with c0 != 0 it is 2 to 5 times
+  slower, hence the rule. Its values are within 1.7e-11 of the paths' (trends of order 3, 4, 6 and the intercept with
+  the first sine and cosine at c = 0, -13.5, -20, -50). Through the one interface `method = :line` or `:paths` forces
+  the general engine's representation for a design the classical engine does not have and with `engine = :general`; for
+  a design that is a classical case `:line` is the classical line integral and `:paths` the general engine's paths.
+  `empty_caches!` drops the line integral's providers too. With `engine = :general` a classical case at c0 = 0 now takes
+  the general engine's line integral (`method = :paths` for the paths).
+- **The coefficient statistic's engine.** `coef_cdf` and `coef_icdf` evaluate the t-ratio's distribution function at
+  x = 0 with the null value c0 + y, one point per call, where the rule of the t-ratio (measured with five points) took
+  the general engine for c0 + y > 0. At x = 0 with a zero start (cases DK, DU, DT, -100 < c <= 1) the rule now takes the
+  classical line integral for c0 + y > 0 (2 to 12 times faster there) and the general engine for c0 + y < 0 in case DK
+  with c > -5 (1.4 to 2.7 times faster); elsewhere the rule of the t-ratio. The values move within the differences of
+  the two engines (within 3e-11 in these cells).
+- **Case DG faster.** The transform behind the linear form and the power envelope of case DG (`cf_gls`) formed 3 x 3
+  complex matrices on the heap with a matrix solve and a determinant at each of the 60001 points of its grid; written
+  out, it is 6 times faster (82 to 14 ms; the classical envelope of case DG at c = -5, -10, -20 from 623 to 151 ms),
+  within 2e-15 of before on the grid and 1.1e-16 in the linear form.
 - **The statistics of the second paper as functions:** the point-optimal statistic and the Gaussian power envelope for
   any design (`pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`, `pt_envelope`; `power_envelope(c, D)`), the LM statistic
   of Schmidt and Phillips and of Amsler and Lee (`lm_cdf`, `lm_quantile`, `lm_power`) and the companions of the
