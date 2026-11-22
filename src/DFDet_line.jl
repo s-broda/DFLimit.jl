@@ -303,7 +303,7 @@ arguments (`line_refusal`, the rank), or where options of the paths are given (p
 takes the paths silently.
 """
 function line_select(method::Symbol, D::Determ, c::Real, start::Symbol, gamma0::Real, gls, phi, hfac, c0::Float64, kw)
-    other = [string(k) for k in keys(kw) if k !== :c0]
+    other = String[string(k) for k in keys(kw) if k !== :c0]
     phi === nothing || push!(other, "phi"); hfac == 1 || push!(other, "hfac")
     why = !isempty(other) ? "the options $(join(other, ", ")) belong to the inversion on paths" :
           !(isfinite(c) && isfinite(c0)) ? "c and c0 must be finite" : nothing

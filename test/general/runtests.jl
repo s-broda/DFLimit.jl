@@ -294,7 +294,7 @@ end
     @testset "bounded caches, no second refinement of a line" begin
         old = DFDet.CACHE_MAX[]; DFDet.CACHE_MAX[] = 3
         try
-            for c in (-1.0, -2.0, -3.0, -4.0, -5.0); dist_cdf(trend(0), [-2.0], c); end
+            for c in (-1.0, -2.0, -3.0, -4.0, -5.0); dist_cdf(trend(0), [-2.0], c; method = :paths); end   # (the paths: the line integral keeps no outer contour)
             @test length(DFDet.CPCACHE) <= 3 && length(DFDet.CPORDER) == length(DFDet.CPCACHE)
         finally
             DFDet.CACHE_MAX[] = old

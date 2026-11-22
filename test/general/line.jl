@@ -96,6 +96,10 @@ end
     @test occursin("GLS", errl(() -> GL.dist_cdf(GL.trend(2), xs, -5.0; gls = -13.5, method = :line)))
     @test occursin("fixed start", errl(() -> GL.dist_cdf(GL.trend(2), xs, -5.0; start = :fixed, gamma0 = 1.0, method = :line)))
     @test occursin("belong to the inversion on paths", errl(() -> GL.dist_cdf(GL.trend(2), xs, 0.0; n = 32, method = :line)))
+    @test occursin("hfac", errl(() -> GL.dist_cdf(GL.trend(2), xs, 0.0; hfac = 0.5, method = :line)))
+    @test occursin("phi", errl(() -> GL.dist_quantile(GL.trend(2), 0.05, 0.0; phi = 1.0, method = :line)))
+    @test occursin("c0 must be", errl(() -> GL.dist_cdf(GL.trend(2), xs, 0.0; c0 = NaN, method = :line)))
+    @test occursin("c <= -0.0001", errl(() -> GL.dist_cdf(GL.trend(2), xs, -1e-5; start = :stationary, method = :line)))
     @test occursin("method must be", errl(() -> GL.dist_cdf(GL.trend(2), xs, 0.0; method = :single)))
     @test occursin("method must be", errl(() -> GL.dist_quantile(GL.trend(2), 0.05, 0.0; method = :contour)))
     # the automatic choice takes the paths there, silently
@@ -116,6 +120,15 @@ end
     for (D, c, c0) in ((GL.trend(2), -5.0, -3.0), (GL.trend(2), -5.0, 3.0))
         @test GL.dist_cdf(D, xs, c; c0) == GL.dist_cdf(D, xs, c; c0, method = :paths)
     end
+    # the providers are cached per design, start and c, at most CACHE_MAX[] of them
+    old = GL.CACHE_MAX[]; GL.CACHE_MAX[] = 3
+    try
+        for c in (-1.0, -2.0, -3.0, -4.0, -5.0); GL.dist_cdf(GL.trend(2), [-2.0], c); end
+        @test length(GL.LMCACHE) <= 3 && length(GL.LMORDER) == length(GL.LMCACHE)
+    finally
+        GL.CACHE_MAX[] = old
+    end
+    empty_caches!(); @test isempty(GL.LMCACHE)
     # the merged interface takes it through the general functions
     @test ltratio_cdf(xs, GL.trend(2), -5.0) == GL.dist_cdf(GL.trend(2), xs, -5.0; method = :line)
 end
