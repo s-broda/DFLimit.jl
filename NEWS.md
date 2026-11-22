@@ -151,6 +151,12 @@ Four errors of the engine are repaired. Values outside the regions named below a
   `test/engine/quickcheck.jl` and `test/engine/test_dfexact.jl` run with `Pkg.test()` (JSON and Random are test
   dependencies), the longer checks and the writers of stored values are in `dev/`. The engine and the results are
   unchanged.
+- IntelVectorMath is a weak dependency (`[weakdeps]`, compat 0.5): its use, on x86-64 Linux and Windows, is in the
+  package extension `DFLimitIntelVectorMathExt`, which Julia loads when IntelVectorMath is loaded in the session; the
+  engine no longer loads it from the active environment itself. Without it the values are unchanged, bit for bit.
+- The tests run on GitHub Actions on every push to `main`, on tags and on pull requests (Julia 1.10 and the current
+  release on Linux, the current release on macOS and Windows, and one job with IntelVectorMath), with coverage on
+  Codecov; CompatHelper keeps the compatibility bounds current.
 
 ## 0.2.0
 
