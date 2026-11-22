@@ -372,7 +372,9 @@ function adfmax_icdf(p, D::DFDet.Determ, c::Real = 0; tol::Float64 = 1e-10, x0::
 end
 function ltratio_lincdf(b, a::Real, D::DFDet.Determ, c::Real = 0; start = nothing, g0::Real = 0.0, gls = nothing, engine::Symbol = :auto, kw...)
     S = design_spec(D; g0, start, gls)
-    cas = S.case == "DK" ? "DK" : (S.case == "DG") ? "DG" : nothing
+    # (the classical linear form has the zero start only: no deterministic terms with a fixed start, case string "DK",
+    # take the general engine)
+    cas = S.start != :zero ? nothing : S.case == "DK" ? "DK" : (S.case == "DG") ? "DG" : nothing
     if engine !== :general && cas !== nothing
         return ltratio_lincdf(b, a, cas, c; engine, kw...)
     end
