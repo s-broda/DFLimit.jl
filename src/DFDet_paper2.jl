@@ -61,8 +61,39 @@ end
 """the characteristic function of Q under c on the grid of the Gil-Pelaez rule (u = sinh(v), N steps to umax): Q = U + 1/2 +
 cbar^2 V, so that E exp(iuQ) = e^{iu/2} M(iu, iu cbar^2), the square root of the determinant continued along u from the origin"""
 struct QGrid; u::Vector{Float64}; w::Vector{Float64}; lM::Vector{ComplexF64}; end
+"""
+the distance of the nearest singularity of phi(u) = E e^{iuQ} from the real line: Q is a quadratic form, whose
+transform M(s, cbar^2 s) is singular on the real line only, at the first zeros s_+ > 0 and s_- < 0 of its determinant
+(scanned by factors of 1.1 from 1e-10, then bisected), the smaller of s_+ and |s_-|
+"""
+function qedge(Mo::Model, cbar::Float64, c::Float64)
+    W = MWork(Mo); Bf = fixbuf(Mo.r)
+    bad(s) = (r = logmgf_point(Mo, c, complex(s), complex(cbar^2 * s), W, Bf); !(isfinite(real(r[2])) && abs(imag(r[2])) < 1.0))
+    e = Inf
+    for sg in (1.0, -1.0)
+        s = 1e-10
+        while s < 1e4 && !bad(sg * 1.1 * s); s *= 1.1; end
+        s < 1e4 || continue
+        lo = s; hi = 1.1 * s
+        for _ in 1:40; m = sqrt(lo * hi); bad(sg * m) ? (hi = m) : (lo = m); end
+        e = min(e, lo)
+    end
+    e
+end
+"""
+the smallest ratio of the distance d of the singularity of phi (`qedge`) to the step h = asinh(umax)/N of the grid of
+`qgrid` near the origin.  The error of the rule of Gil-Pelaez on the grid is about exp(-2 pi d/h): with a linear trend at
+cbar = -13.5, d/h = 14 at c = 3 (off by 5e-10), 1.6 at c = 4 (9e-6), 0.2 at c = 5 (F from -0.1 to 3.4); with an
+intercept at cbar = -7, 3.3 at c = 3 (3e-10), 0.7 at c = 4 (3e-3); Perron's model B at cbar = -17.8, 7.5 at c = 4
+(4e-11), 0.75 at c = 5 (2e-3).  Below the unit root d/h is 3.7 to 33 for the critical values of the envelope (c = 0,
+cbar from -10 to -30) and above 3000 for its power.  Above the unit root the law of Q widens like e^{2c} and d shrinks;
+below PT_EDGE the functions refuse (a larger N, which shrinks h, extends them).
+"""
+const PT_EDGE = 3.3
 function qgrid(P::Prep, cbar::Float64, c::Float64; N::Int = 60000, umax::Float64 = 4000.0)
     Mo = model(P); u, w = gpgrid(N, umax)
+    d = blas1f(() -> qedge(Mo, cbar, c), dense_la(Mo)); h = asinh(umax) / N
+    d / h >= PT_EDGE || throw(ArgumentError("the point-optimal statistic at c = $c, cbar = $cbar: the transform of Q has a singularity at $(round(d, sigdigits = 3)) from the real line, which the grid of the inversion (step $(round(h, sigdigits = 3)) near the origin) does not resolve (far above the unit root); it needs N >= $(ceil(Int, PT_EDGE * asinh(umax) / d))"))
     L0 = Vector{ComplexF64}(undef, N + 1); LD = Vector{ComplexF64}(undef, N + 1)
     Threads.@threads :static for ch in collect(Iterators.partition(1:N+1, cld(N + 1, Threads.nthreads())))
         W = MWork(Mo); Bf = fixbuf(Mo.r)
@@ -75,8 +106,16 @@ function qgrid(P::Prep, cbar::Float64, c::Float64; N::Int = 60000, umax::Float64
     end
     QGrid(u, w, lM)
 end
-"""P(Q <= q) and the density at q (the inversion formula of Gil-Pelaez on the grid G)"""
+"""
+P(Q <= q) and the density at q (the inversion formula of Gil-Pelaez on the grid G).  |q| at most 0.15/h, h = asinh(umax)/N
+the step of the grid in v (1000 with the default grid): beyond, the steps of u near the origin do not resolve e^{-iuq}
+(with a linear trend at c = 0, F came out as 1 - 4e-11 at q = 1e3, 1 - 8e-8 at 1e4, 3.0 at 1e5 and 24 at 1e6), and the
+point is refused.
+"""
 function ptF(G::QGrid, q::Float64)
+    isnan(q) && return (NaN, NaN)
+    isinf(q) && return (q > 0 ? 1.0 : 0.0, 0.0)
+    abs(q) * 2 * G.w[1] <= 0.15 || throw(ArgumentError("the point-optimal statistic: q = $q lies beyond the range of the inversion (|q| at most $(round(0.15 / (2 * G.w[1]), sigdigits = 3)) = 0.15 N/asinh(umax); a larger N extends it)"))
     F = 0.0; f = 0.0
     @inbounds for k in eachindex(G.u)
         z = exp(G.lM[k] - im * G.u[k] * q); F += imag(z) / G.u[k] * G.w[k]; f += real(z) * G.w[k]
@@ -98,7 +137,9 @@ end
 
 The limit of P(P_T <= q) at the points qs, P_T the point-optimal statistic of Elliott, Rothenberg and Stock against cbar
 (`prep_pt`) for the design D, under phi = 1 + c/n, zero start, by the inversion formula of Gil-Pelaez (one inversion of
-the characteristic function of the quadratic form Q).
+the characteristic function of the quadratic form Q).  Refused where the grid of the inversion does not resolve the
+transform (`PT_EDGE`: far above the unit root, with a linear trend at cbar = -13.5 from about c = 3.7) and at points q
+beyond its range (`ptF`: |q| > 1000 with the default grid).
 """
 function pt_cdf(D::Determ, qs::AbstractVector, cbar::Real, c::Real = 0.0; N::Int = 60000, umax::Real = 4000.0)
     G = qgrid(prep_pt(D, Float64(cbar)), Float64(cbar), Float64(c); N, umax = Float64(umax))
