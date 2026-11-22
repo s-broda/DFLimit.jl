@@ -381,7 +381,10 @@ function ltratio_lincdf(b, a::Real, D::DFDet.Determ, c::Real = 0; start = nothin
 end
 function ltratio_region(bnd, D::DFDet.Determ, c::Real = 0; start = nothing, g0::Real = 0.0, engine::Symbol = :auto, kw...)
     S = design_spec(D; g0, start)
-    engine !== :general && S.case == "DK" && return ltratio_region(bnd, "DK", c; engine, kw...)
+    # (the classical regions have the zero start only: no deterministic terms with a fixed start, whose case string is
+    # also "DK", take the general engine, as in the C router)
+    dk = S.case == "DK" && S.start == :zero
+    engine !== :general && dk && return ltratio_region(bnd, "DK", c; engine, kw...)
     engine === :classical && throw(ArgumentError("engine = :classical: the regions of the classical engine have case DK only"))
     DFDet.region_prob(S.D, bnd, Float64(c); start = S.start, gamma0 = S.g0, kw...)
 end

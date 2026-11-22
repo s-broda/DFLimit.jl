@@ -131,4 +131,14 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test occursin("engine must be", errm(() -> ltratio_cdf(-2.0, "DU", 0; engine = :fast)))
         @test occursin("exclude each other", errm(() -> ltratio_cdf(-2.0, D, -5; g0 = 1.0, start = :stationary)))
     end
+
+    @testset "regions without deterministic terms and with a fixed start" begin
+        # (the classical regions have the zero start only, and the fixed start was dropped: the zero start's 0.285 for
+        # 0.975 below).  The parabola is the t-ratio, which the classical engine has with the fixed start
+        bp = (type = "parabola", x = -2.0); bl = (type = "line", a = -3.5, b = -0.2639)
+        @test abs(ltratio_region(bp, trend(-1), -5; g0 = 1.5) - ltratio_cdf(-2.0, "DK", -5; g0 = 1.5, engine = :classical)) < 1e-10
+        Fl = lin_cdf(trend(-1), [-0.2639], -3.5, -5.0; start = :fixed, gamma0 = 1.5)[1]
+        @test ltratio_region(bl, trend(-1), -5; g0 = 1.5) == Fl && abs(Fl - ltratio_region(bl, "DK", -5)) > 0.1
+        @test occursin("case DK only", errm(() -> ltratio_region(bl, trend(-1), -5; g0 = 1.5, engine = :classical)))
+    end
 end
