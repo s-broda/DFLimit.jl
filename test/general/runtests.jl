@@ -396,6 +396,56 @@ end
         e = try; dist_moments(trend(0), 1e5); nothing; catch err; err; end
         @test e isa ErrorException && occursin("beyond the range of the moments", e.msg)
     end
+    @testset "non-finite arguments: a limit or an error that names the argument (as the C engine and MATLAB)" begin
+        D = trend(0); DT = trend(1)
+        q(f) = with_logger(NullLogger()) do; f(); end
+        msg(f) = try; q(f); ""; catch e; sprint(showerror, e); end
+        # coef_cdf_gp at y = +-Inf, NaN without the sum (at Inf the sum did not return), umax finite
+        @test isequal(q(() -> coef_cdf_gp(D, [Inf, -Inf, NaN], -5.0)), [1.0, 0.0, NaN])
+        @test occursin("umax must be", msg(() -> coef_cdf_gp(D, [-8.0], -5.0; umax = Inf)))
+        # c, c0, gamma0, cbar
+        @test occursin("c must be a finite real scalar", msg(() -> dist_cdf(D, [-2.0], NaN)))
+        @test occursin("c0 must be a finite real scalar", msg(() -> dist_cdf(D, [-2.0], -5.0; c0 = Inf)))
+        @test occursin("gamma0 must be a finite real scalar", msg(() -> dist_cdf(D, [-2.0], -5.0; start = :fixed, gamma0 = -Inf)))
+        @test occursin("needs cbar < 0", msg(() -> dist_cdf(DT, [-2.0], -5.0; gls = -Inf)))
+        @test occursin("c0 must be a finite real scalar", msg(() -> dist_moments(D, -5.0; c0 = NaN)))
+        # the searches: the start value and the tolerance (Newton's method from +-Inf did not return)
+        @test occursin("x0 must be a finite", msg(() -> dist_quantile(D, 0.05, -5.0; x0 = Inf)))
+        @test occursin("tol must be a positive finite", msg(() -> dist_quantile(D, 0.05, -5.0; tol = Inf)))
+        @test occursin("y0 must be a finite", msg(() -> coef_quantile(D, 0.05, -5.0; y0 = -Inf)))
+        @test occursin("b0 must be a finite", msg(() -> lin_quantile(D, 0.05, -3.5, -5.0; b0 = Inf)))
+        @test occursin("p must lie in (0, 1)", msg(() -> lin_quantile(D, NaN, -3.5, -5.0)))
+        @test occursin("a must be a finite", msg(() -> lin_quantile(D, 0.05, Inf, -5.0)))
+        @test occursin("x0 must be a finite", msg(() -> adfmax_quantile(D, 0.05, -5.0; x0 = -Inf)))
+        @test occursin("p must lie in (0, 1)", msg(() -> adfmax_quantile(D, 1.5, -5.0)))
+        # the law of V: 0 at y <= 0 and -Inf, 1 (density 0) at Inf, NaN at NaN
+        @test isequal(q(() -> v_cdf(D, [-Inf, -1.0, 0.0, Inf, NaN], -5.0)), [0.0, 0.0, 0.0, 1.0, NaN])
+        @test isequal(q(() -> v_pdf(D, [-Inf, -1.0, Inf, NaN], -5.0)), [0.0, 0.0, 0.0, NaN])
+        # the linear form and the region below a line: a finite slope (NaN: the law of V)
+        @test occursin("a must be a finite", msg(() -> lin_cdf(D, [-0.26], Inf, -5.0)))
+        @test occursin("a must be a finite", msg(() -> lin_pdf(D, [-0.26], -Inf, -5.0)))
+        @test occursin("slope a of the line", msg(() -> region_prob(D, (type = "line", a = NaN, b = -0.26), -5.0)))
+        # the envelopes: 1 at -Inf, NaN at NaN, the level at Inf; the levels in (0, 1)
+        @test isequal(q(() -> DFDet.power_envelope(D, [-Inf, NaN, Inf])), [1.0, NaN, 0.05])
+        @test isequal(q(() -> pt_envelope(DT, [-Inf, NaN, Inf])), [1.0, NaN, 0.05])
+        @test occursin("the level must lie in (0, 1)", msg(() -> DFDet.power_envelope(D, [-5.0]; level = NaN)))
+        @test occursin("the level must lie in (0, 1)", msg(() -> local_power(D, [-5.0]; level = Inf)))
+        @test occursin("c0 must be a finite", msg(() -> local_power(D, [-5.0]; c0 = NaN)))
+        # the point-optimal statistic (c = +-Inf did not return), the LM statistic, MSB
+        @test occursin("c must be a finite", msg(() -> pt_cdf(DT, [4.0], -13.5, Inf)))
+        @test occursin("needs cbar < 0", msg(() -> pt_cdf(DT, [4.0], -Inf, -5.0)))
+        @test occursin("umax must be", msg(() -> pt_cdf(DT, [4.0], -13.5, -5.0; umax = Inf)))
+        @test occursin("c must be a finite", msg(() -> lm_cdf(DT, [-2.0], NaN)))
+        @test occursin("c must be a finite", msg(() -> msb_cdf(DT, [0.2], Inf)))
+        @test isequal(q(() -> msb_cdf(DT, [-Inf, Inf, NaN], -5.0)), [0.0, 1.0, NaN])
+        # the router: the envelope at c = -Inf (1) and its level, the linear form at a = +-Inf, the regions of case DK at
+        # a non-finite b (the classical code gave 0, also at NaN)
+        @test isequal(q(() -> DFLimit.power_envelope([-Inf, NaN, Inf], "DK")), [1.0, NaN, 0.05])
+        @test occursin("the level must lie in (0, 1)", msg(() -> DFLimit.power_envelope([-5.0], "DK"; alpha = NaN)))
+        @test occursin("a must be a finite", msg(() -> ltratio_lincdf(-0.26, Inf, "DK", -5.0)))
+        @test isequal([q(() -> ltratio_region((type = "line", a = -3.5, b = b), "DK", -5.0)) for b in (Inf, -Inf, NaN)], [1.0, 0.0, NaN])
+        @test occursin("slope a of the line", msg(() -> ltratio_region((type = "line", a = Inf, b = -0.26), "DK", -5.0)))
+    end
     @testset "verified: the fallback sees the errors raised in the threads of a node loop" begin
         # (verify_eval caught an ErrorException only, and the errors of the nodes arrive as a CompositeException of
         # TaskFailedExceptions; an interrupt or an exhausted memory still reaches the caller)

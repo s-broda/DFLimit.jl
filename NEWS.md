@@ -48,7 +48,19 @@
   outer contour, as (1 + r, 1{r <= 0.4}) on the vertical line at every c, needs U-shapes of millions of nodes: it is
   refused with an error before any inner integral is evaluated (`ushape_guard`, from the roots the outer path carries,
   at the nodes where the transform is not negligible), in 0.2 s and a few MB, where the refusal came after 3 to 4 s and
-  0.8 GB (`USHAPE_MAXNODES`).
+  0.8 GB (`USHAPE_MAXNODES`). The outer hyperbola refuses more than 1e5 nodes (`PATH_MAXNODES`: a factor `hfac` of its
+  step far below one, or not positive) and `dist_moments` a grid of more than 1e6 points (c beyond 2.5e4).
+  Non-finite arguments, as in the C engine and MATLAB: every function gives at +-Inf and NaN either the limit or an
+  error that names the argument. `coef_cdf_gp` did not return at y = +-Inf (now 1 and 0 without the sum, NaN at NaN);
+  the searches from a start value of +-Inf (`dist_quantile`, `coef_quantile`, `lin_quantile`, `adfmax_quantile`,
+  `mza_quantile`) did not return or returned +-Inf, and a tolerance of +Inf stopped them after one step (now errors);
+  `lin_quantile` and `adfmax_quantile` refuse p outside (0, 1) (at p = NaN they returned 1 and -1); the point-optimal
+  statistic did not return at c = +-Inf (an error, also for umax = Inf and cbar = -Inf); a non-finite c gave "matrix
+  contains Infs or NaNs", a non-finite c0 or gamma0 NaN or an InexactError (now "c must be a finite real scalar" and so
+  on); the linear form at a = +-Inf gave NaN (an error; a = NaN is the law of V), the region below a line needs a
+  finite slope; the law of V is 0 at y <= 0 and at -Inf, where it gave NaN; the envelopes (`DFDet.power_envelope`,
+  `pt_envelope`) are NaN at c = NaN, where they gave the level, and 1 at c = -Inf, and refuse a level outside (0, 1);
+  `local_power` checks its level and c0.
 - **The statistics of the second paper as functions:** the point-optimal statistic and the Gaussian power envelope for
   any design (`pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`, `pt_envelope`; `power_envelope(c, D)`), the LM statistic
   of Schmidt and Phillips and of Amsler and Lee (`lm_cdf`, `lm_quantile`, `lm_power`) and the companions of the

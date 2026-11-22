@@ -260,6 +260,9 @@ function gen_lincdf(b, a::Real, S::Spec, c::Real)
     outshape(v, b)
 end
 function route_lincdf(engine::Symbol, b, a::Real, cas::AbstractString, c::Real; cbar::Real = DX.CBAR_GLS, kw...)
+    # (a = +-Inf gave 0.5 in the classical code: refused, as by the general engine and the C router; NaN is the law of V)
+    isinf(a) && throw(ArgumentError("ltratio_lincdf: a must be a finite real scalar (NaN: the law of V)"))
+    isfinite(cbar) || throw(ArgumentError("ltratio_lincdf: cbar must be a finite real scalar < 0"))
     S = lin_spec(cas, cbar)
     if engine === :auto
         isempty(kw) || return nothing
@@ -268,16 +271,19 @@ function route_lincdf(engine::Symbol, b, a::Real, cas::AbstractString, c::Real; 
     gen_lincdf(b, a, S, c)
 end
 function gen_envelope(c, S::Spec; alpha::Real = 0.05)
-    one(ck) = Float64(ck) < 0 ? DFDet.power_envelope(S.D, [Float64(ck)]; level = alpha)[1] : Float64(alpha)
+    one(ck) = isnan(ck) ? NaN : Float64(ck) < 0 ? DFDet.power_envelope(S.D, [Float64(ck)]; level = alpha)[1] : Float64(alpha)
     c isa Number ? one(c) : map(one, c)
 end
 function route_envelope(engine::Symbol, c, cas::AbstractString; alpha::Real = 0.05, kw...)
     cas = uppercase(String(cas))
     S = cas == "DG" ? Spec(DFDet.trend(1), :zero, 0.0, nothing, "DG") : cas in ("DK", "DU") ? Spec(DFDet.trend(-1), :zero, 0.0, nothing, "DK") :
         throw(ArgumentError("power_envelope: the case must be DK (or DU) or DG"))
+    0 < alpha < 1 || throw(ArgumentError("power_envelope: the level must lie in (0, 1)"))
     engine === :general && return gen_envelope(c, S; alpha)
     isempty(kw) || return nothing
-    one(ck) = autoengine(:envelope, S, Float64(ck), 0.0, 0.0) === :general ? gen_envelope(ck, S; alpha) :
+    # (1 at c = -Inf, the limit, where the classical bisection found no bracket; NaN at NaN, where the classical engine
+    # gave the level, as the C router; the level at c >= 0)
+    one(ck) = isnan(ck) ? NaN : Float64(ck) == -Inf ? 1.0 : autoengine(:envelope, S, Float64(ck), 0.0, 0.0) === :general ? gen_envelope(ck, S; alpha) :
               DX.power_envelope(ck, cas; alpha, engine = :classical)
     c isa Number ? one(c) : map(one, c)
 end
@@ -298,7 +304,22 @@ function route_adfmax(engine::Symbol, pdf::Bool, x, cas::AbstractString, c::Real
     isempty(tl) || (v[tl] = DX.adfmax_vals(pdf, xs[tl], cas, c; engine = :classical))
     outshape(v, x)
 end
+"""the region below a line or a parabola at a non-finite b or x: 1, 0, NaN (the classical code gave 0, also at NaN), an
+error for a slope a or a c0 that is not finite; nothing for the other boundaries and for finite ones (as the C router)"""
+function region_nonfinite(bnd)
+    fld(f) = bnd isa AbstractDict ? get(bnd, f, get(bnd, String(f), nothing)) : (haskey(bnd, f) ? bnd[f] : nothing)
+    ty = fld(:type); ty === nothing && return nothing
+    ty = lowercase(String(ty)); ty in ("line", "parabola") || return nothing
+    (fld(:v0) === nothing && fld(:brks) === nothing) || return nothing
+    s, v = ty == "line" ? (fld(:a), fld(:b)) : (something(fld(:c0), 0.0), fld(:x))
+    (s === nothing || v === nothing) && return nothing
+    isfinite(s) || throw(ArgumentError(ty == "line" ? "region_prob: the slope a of the line must be a finite real scalar" :
+                                                      "region_prob: c0 of the parabola must be a finite real scalar"))
+    isfinite(v) && return nothing
+    isnan(v) ? NaN : v > 0 ? 1.0 : 0.0
+end
 function route_region(engine::Symbol, bnd, cas::AbstractString, c::Real; kw...)
+    v = region_nonfinite(bnd); v === nothing || return v
     S = Spec(DFDet.trend(-1), :zero, 0.0, nothing, "DK")
     if engine === :auto
         isempty(kw) || return nothing

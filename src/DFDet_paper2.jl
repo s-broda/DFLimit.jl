@@ -19,6 +19,7 @@ statistic and A = C - cbar^2 B_g (the construction of `prep_gls` with another nu
 (1 - cbar) J_g(1)^2).  The test rejects for small Q.
 """
 function prep_pt(D::Determ, cbar::Float64)
+    (cbar < 0 && isfinite(cbar)) || throw(ArgumentError("the point-optimal statistic needs cbar < 0 (a finite number)"))
     K = nreg(D); np = npc(D); deg = size(D.C[1], 1) - 1; br = copy(D.br)
     rows = [permutedims(dval(D, 0.0))]
     for j in 1:np-1
@@ -91,6 +92,9 @@ below PT_EDGE the functions refuse (a larger N, which shrinks h, extends them).
 """
 const PT_EDGE = 3.3
 function qgrid(P::Prep, cbar::Float64, c::Float64; N::Int = 60000, umax::Float64 = 4000.0)
+    # (c = +-Inf did not return, and umax = Inf gives an infinite step)
+    isfinite(c) || throw(ArgumentError("the point-optimal statistic: c must be a finite real scalar"))
+    (umax > 0 && isfinite(umax)) || throw(ArgumentError("the point-optimal statistic: umax must be a positive finite number"))
     Mo = model(P); u, w = gpgrid(N, umax)
     d = blas1f(() -> qedge(Mo, cbar, c), dense_la(Mo)); h = asinh(umax) / N
     d / h >= PT_EDGE || throw(ArgumentError("the point-optimal statistic at c = $c, cbar = $cbar: the transform of Q has a singularity at $(round(d, sigdigits = 3)) from the real line, which the grid of the inversion (step $(round(h, sigdigits = 3)) near the origin) does not resolve (far above the unit root); it needs N >= $(ceil(Int, PT_EDGE * asinh(umax) / d))"))
@@ -156,14 +160,17 @@ end
 The p-quantile at c = 0 of the limit of the point-optimal statistic against cbar: the critical value of the level-p test
 (it rejects for small values).
 """
-pt_quantile(D::Determ, p::Real, cbar::Real; N::Int = 60000, umax::Real = 4000.0) =
+function pt_quantile(D::Determ, p::Real, cbar::Real; N::Int = 60000, umax::Real = 4000.0)
+    0 < p < 1 || throw(ArgumentError("pt_quantile: p must lie in (0, 1)"))
     ptquantile(qgrid(prep_pt(D, Float64(cbar)), Float64(cbar), 0.0; N, umax = Float64(umax)), p)
+end
 """
     pt_power(D, cbar, c; level = 0.05) -> (b, power)
 
 The critical value b of the level-`level` point-optimal test against cbar and its limiting power at c.
 """
 function pt_power(D::Determ, cbar::Real, c::Real; level::Real = 0.05, N::Int = 60000, umax::Real = 4000.0)
+    0 < level < 1 || throw(ArgumentError("pt_power: the level must lie in (0, 1)"))
     P = prep_pt(D, Float64(cbar))
     b = ptquantile(qgrid(P, Float64(cbar), 0.0; N, umax = Float64(umax)), level)
     b, ptF(qgrid(P, Float64(cbar), Float64(c); N, umax = Float64(umax)), b)[1]
@@ -174,8 +181,11 @@ end
 The Gaussian power envelope for the design D at each c in cs: the power at c of the point-optimal test against cbar = c
 (level for c >= 0).  For no deterministic terms, an intercept and a linear trend it is `power_envelope` (to 1e-8).
 """
-pt_envelope(D::Determ, cs::AbstractVector; level::Real = 0.05, kw...) =
-    [Float64(c) < 0 ? pt_power(D, Float64(c), Float64(c); level, kw...)[2] : Float64(level) for c in cs]
+function pt_envelope(D::Determ, cs::AbstractVector; level::Real = 0.05, kw...)
+    0 < level < 1 || throw(ArgumentError("pt_envelope: the level must lie in (0, 1)"))
+    # (NaN at NaN, where it gave the level; 1 at -Inf, the limit)
+    [isnan(c) ? NaN : c == -Inf ? 1.0 : Float64(c) < 0 ? pt_power(D, Float64(c), Float64(c); level, kw...)[2] : Float64(level) for c in cs]
+end
 
 # ---------------------------------------------------------------------------------------------------------------------
 # The LM statistic (Schmidt and Phillips; with breaks, Amsler and Lee, Lee and Strazicich)
@@ -250,6 +260,7 @@ const LM_CMAX = 10.0
 the vertical line of the path of the t-ratio by a hyperbola (on the line P(V <= y) was off by 6e-3 at c = 5 with a linear
 trend, and F exceeded 1); c at most LM_CMAX"""
 function lmpath(P::Prep, c::Real)
+    isfinite(c) || throw(ArgumentError("the LM statistic: c must be a finite real scalar"))
     Float64(c) <= LM_CMAX || throw(ArgumentError("the LM statistic: c must be at most $LM_CMAX (above, its distribution is not computed accurately: off by 2e-7 at c = 12 and by 3e-5 at c = 15)"))
     v_own(cpath(model(P), Float64(c)); build = cpath)
 end

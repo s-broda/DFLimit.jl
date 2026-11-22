@@ -518,7 +518,7 @@ Prep carries cbar (NaN for least squares detrending).  No fixed or stationary st
 """
 function prep_gls(D::Determ, cbar::Real)
     cbar = Float64(cbar)
-    cbar < 0 || throw(ArgumentError("GLS detrending needs cbar < 0"))
+    (cbar < 0 && isfinite(cbar)) || throw(ArgumentError("GLS detrending needs cbar < 0 (a finite number)"))
     D.detrend == :first && throw(ArgumentError(FIRST_GLS_MSG))
     K = nreg(D); np = npc(D); deg = size(D.C[1], 1) - 1; br = copy(D.br)
     # the directions b with d(0)' b = 0 and Delta_i' b = 0
@@ -3223,6 +3223,7 @@ function contour_eval(CP::CPath, xs::Vector{Float64}; c0::Real = 0.0, n = nothin
     fixed = CP.Mo.start == :fixed
     n = n === nothing ? (fixed ? 48 : 24) : Int(n); ntail = ntail === nothing ? (fixed ? 64 : 40) : Int(ntail)
     c0 = Float64(c0)
+    isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))     # (+-Inf gave NaN, NaN an InexactError)
     ushape_guard(CP, (c0,), CP.Mo.a, n, alpha, tol, max(0.0, maximum(xs; init = 0.0)))
     vr = filon && isnan(CP.h) ? filon_roots_x(CP, xs, c0) : nothing
     if vr !== nothing
@@ -3609,6 +3610,10 @@ cpath_cached(P::Prep, c::Real; kw...) = cpath_cached(model(P), c; kw...)
 
 """the model of D with the start: start = :zero (default), :fixed (J(0) = gamma0), :stationary (c < 0)"""
 function startmodel(D::Determ, c::Real, start::Symbol, gamma0::Real, gls = nothing)
+    # (the checks of check_common of the C engine: a non-finite c gave "matrix contains Infs or NaNs", a non-finite gamma0
+    # NaN)
+    isfinite(c) || throw(ArgumentError("c must be a finite real scalar"))
+    isfinite(gamma0) || throw(ArgumentError("gamma0 must be a finite real scalar"))
     start == :stationary && c >= 0 && throw(ArgumentError("the stationary start needs c < 0"))
     model(prep_cached(D, gls), start, gamma0)
 end
@@ -3702,6 +3707,12 @@ function variant_path(CP::CPath, level::Int)
     cpath_cached(Mo, c; phi = CP.phi, hfac = 0.5)
 end
 
+"""the checks of the start value x0 (named name) and the tolerance tol of a search of fn"""
+function search_args(fn::String, name::String, x0::Real, tol::Real)
+    isfinite(x0) || throw(ArgumentError("$fn: $name must be a finite real scalar"))
+    (tol > 0 && isfinite(tol)) || throw(ArgumentError("$fn: tol must be a positive finite number"))
+    nothing
+end
 """
     dist_quantile(D, p, c = 0; x0, tol = 1e-9, c0, start, gamma0, kw...) -> x
 
@@ -3712,6 +3723,7 @@ where that does not converge in 30 steps (or leaves the finite numbers), the saf
 function dist_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol::Real = 1e-9, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
                        phi = nothing, hfac = 1.0, kw...)
     0 < p < 1 || throw(ArgumentError("dist_quantile: p must lie in (0, 1)"))
+    search_args("dist_quantile", "x0", x0, tol)
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     x = Float64(x0)
     for it in 1:30
@@ -3784,9 +3796,13 @@ u^{-r/2} and the truncation at umax shows.
 function coef_cdf_gp(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
                      N::Int = 60000, umax::Real = 4000.0)
     Mo = startmodel(D, c, start, gamma0, gls); c = Float64(c)
+    isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
+    (umax > 0 && isfinite(umax)) || throw(ArgumentError("coef_cdf_gp: umax must be a positive finite number"))
     u, w = gpgrid(N, Float64(umax))
     out = Float64[]
     for y in ys
+        # (1, 0, NaN at Inf, -Inf, NaN, without the sum: at Inf the transform at t = -i Inf u did not return)
+        isfinite(y) || (push!(out, isnan(y) ? NaN : y > 0 ? 1.0 : 0.0); continue)
         a = Float64(c0) + Float64(y)
         L0 = Vector{ComplexF64}(undef, N + 1); LD = Vector{ComplexF64}(undef, N + 1)
         # (one BLAS thread, see `blas1`)
@@ -3844,6 +3860,7 @@ from y0, the step limited to 5.
 function coef_quantile(D::Determ, p::Real, c::Real = 0.0; y0::Real = -10.0, tol::Real = 1e-9, c0::Real = 0.0, start::Symbol = :zero,
                        gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = 1.0, kw...)
     0 < p < 1 || throw(ArgumentError("coef_quantile: p must lie in (0, 1)"))
+    search_args("coef_quantile", "y0", y0, tol)
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     y = Float64(y0)
     for it in 1:40
@@ -3868,6 +3885,8 @@ t-ratio (statistic = :tratio) or n(phi^ - phi0) (:coef).
 """
 function local_power(D::Determ, cs::AbstractVector; level::Real = 0.05, statistic::Symbol = :tratio, c0::Real = 0.0, start::Symbol = :zero,
                      gamma0::Real = 0.0, gls = nothing, kw...)
+    0 < level < 1 || throw(ArgumentError("local_power: the level must lie in (0, 1)"))
+    isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
     if statistic == :tratio
         q = dist_quantile(D, level, c0; c0, start, gamma0, gls, x0 = gls === nothing ? -3.5 : -2.5, tol = 1e-11, kw...)
         return [dist_cdf(D, [q], c; c0, start, gamma0, gls, kw...)[1] for c in cs]
@@ -3923,6 +3942,7 @@ P(V <= b) (`v_cdf`).
 function lin_cdf(D::Determ, bs::AbstractVector, a::Real, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing,
                  hfac = 1.0, verified::Bool = false, vtol::Real = 1e-9, kw...)
     isnan(a) && return v_cdf(D, bs, c; start, gamma0, gls, phi, hfac)
+    isfinite(a) || throw(ArgumentError("lin_cdf: a must be a finite real scalar (NaN: the law of V)"))
     CP = user_path(D, c, start, gamma0, gls, phi, hfac)
     nonfinite(bs, true) do b
         specs = [[XSpec(Float64(a), 0.0, CP.Mo.a + bk; dA = 1.0)] for bk in b]
@@ -3941,6 +3961,7 @@ end
 function lin_pdf(D::Determ, bs::AbstractVector, a::Real, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing,
                  hfac = 1.0, verified::Bool = false, vtol::Real = 1e-9, kw...)
     isnan(a) && return v_pdf(D, bs, c; start, gamma0, gls, phi, hfac)
+    isfinite(a) || throw(ArgumentError("lin_pdf: a must be a finite real scalar (NaN: the law of V)"))
     CP = user_path(D, c, start, gamma0, gls, phi, hfac)
     nonfinite(bs, false) do b
         specs = [[XSpec(Float64(a), 0.0, CP.Mo.a + bk; dA = 1.0)] for bk in b]
@@ -3950,6 +3971,9 @@ end
 """lin_quantile(D, p, a, c = 0; b0 = 0, tol = 1e-10, kw...) -> b with P(U - aV <= b) = p (`newton_safe` on `lin_cdf`, `lin_pdf`)"""
 function lin_quantile(D::Determ, p::Real, a::Real, c::Real = 0.0; b0::Real = 0.0, tol::Real = 1e-10, start::Symbol = :zero, gamma0::Real = 0.0,
                       gls = nothing, phi = nothing, hfac = 1.0, kw...)
+    0 < p < 1 || throw(ArgumentError("lin_quantile: p must lie in (0, 1)"))
+    isfinite(a) || throw(ArgumentError("lin_quantile: a must be a finite real scalar"))
+    search_args("lin_quantile", "b0", b0, tol)
     CP = user_path(D, c, start, gamma0, gls, phi, hfac)
     FF(b) = (r = contour_eval_specs(line_refined(CP, Float64[]; amax = [abs(CP.Mo.a + b)]), [[XSpec(Float64(a), 0.0, CP.Mo.a + b; dA = 1.0)]]; kw...); (r[1][1], r[2][1]))
     newton_safe(FF, p, b0, 1.0; tol)
@@ -3964,12 +3988,13 @@ the contour integral representation, a probability for V alone).
 """
 function v_cdf(D::Determ, ys::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = 1.0)
     CP = v_path(D, c, start, gamma0, gls, phi, hfac)
-    [1 - vsum(CP, Float64(y), true) for y in ys]
+    # (0 at y <= 0, where the factor e^{-t y} grows along the path and the sum gave NaN, and at -Inf (V > 0); 1 at Inf)
+    [isnan(y) ? NaN : !(y > 0) ? 0.0 : isinf(y) ? 1.0 : 1 - vsum(CP, Float64(y), true) for y in ys]
 end
 """v_pdf(D, ys, c = 0; kw...) -> the density of V (the inversion (1/2 pi i) int_C M_V(t) e^{-t y} dt)"""
 function v_pdf(D::Determ, ys::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = 1.0)
     CP = v_path(D, c, start, gamma0, gls, phi, hfac)
-    [vsum(CP, Float64(y), false) for y in ys]
+    [isnan(y) ? NaN : (!(y > 0) || isinf(y)) ? 0.0 : vsum(CP, Float64(y), false) for y in ys]
 end
 """
     v_path(D, c, start, gamma0, gls, phi, hfac) -> the outer contour of the law of V alone
@@ -4043,9 +4068,12 @@ function power_envelope(D::Determ, cs::AbstractVector; level::Real = 0.05, kw...
     trendcase = K == 2 && D.br == [0.0, 1.0] && size(D.C[1], 1) == 2 && D.C[1] == [1.0 0.0; 0.0 1.0]
     nodet = K == 0 || (K == 1 && D.br == [0.0, 1.0] && size(D.C[1], 1) == 1 && D.C[1] == fill(1.0, 1, 1))
     (trendcase || nodet) || throw(ArgumentError("power_envelope: the design must be trend(-1), trend(0) or trend(1) (the limit of the point-optimal statistic of other designs was not derived)"))
+    0 < level < 1 || throw(ArgumentError("power_envelope: the level must lie in (0, 1)"))
     map(cs) do c
         c = Float64(c)
+        isnan(c) && return NaN
         c < 0 || return Float64(level)
+        c == -Inf && return 1.0
         if nodet
             a = c / 2
             b = lin_quantile(trend(-1), level, a, 0.0; b0 = 0.0, kw...)
@@ -4104,6 +4132,8 @@ adfmax_pdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, 
 """adfmax_quantile(D, p, c = 0; x0 = -2, tol = 1e-10, kw...) -> x (`newton_safe` on `adfmax_cdf`, `adfmax_pdf`)"""
 function adfmax_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol::Real = 1e-10, start::Symbol = :zero, gamma0::Real = 0.0,
                          phi = nothing, hfac = 1.0, kw...)
+    0 < p < 1 || throw(ArgumentError("adfmax_quantile: p must lie in (0, 1)"))
+    search_args("adfmax_quantile", "x0", x0, tol)
     CP = user_path(D, c, start, gamma0, nothing, phi, hfac)
     FF(x) = (r = contour_eval_specs(line_refined(CP, [x]), [adfmax_specs(x, CP.Mo.a)]; kw...); (r[1][1], r[2][1]))
     newton_safe(FF, p, x0, 1.0; tol)
@@ -4123,6 +4153,7 @@ function region_prob(D::Determ, bnd, c::Real = 0.0; kw...)
     fld(f) = bnd isa AbstractDict ? get(bnd, f, get(bnd, String(f), nothing)) : (haskey(bnd, f) ? bnd[f] : nothing)
     ty = lowercase(String(fld(:type)))
     if ty == "line"
+        isfinite(fld(:a)) || throw(ArgumentError("region_prob: the slope a of the line must be a finite real scalar"))
         return lin_cdf(D, [Float64(fld(:b))], Float64(fld(:a)), c; kw...)[1]
     elseif ty == "parabola"
         c0 = fld(:c0); c0 = c0 === nothing ? 0.0 : Float64(c0)
@@ -4162,6 +4193,7 @@ rule in log s with step h on [min(-60, -2c - 40), max(8, log(80|c|))]; err is th
 function dist_moments(D::Determ, c::Real = 0.0; p::Int = 4, c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
                       Nu::Int = 64, h::Float64 = 0.05)
     D.detrend == :first && throw(ArgumentError(FIRST_MOM_MSG))
+    isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
     Mo = startmodel(D, c, start, gamma0, gls); c = Float64(c); c0 = Float64(c0)
     tlo = min(-60.0, -2c - 40); thi = c < -20 ? max(8.0, log(80 * abs(c))) : 8.0
     # (the grid grows with c above the unit root: 2c/h points, 4e5 at c = 1e4; beyond 1e6 an error)
