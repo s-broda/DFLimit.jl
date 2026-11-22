@@ -172,11 +172,26 @@ function router(f::Symbol, engine::Symbol, args...; kw...)
     f === :region && return route_region(engine, args...; kw...)
     throw(ArgumentError("router: unknown function $f"))
 end
-nomethod(method::Symbol) = method === :auto || throw(ArgumentError("method = :$method names a representation of the classical engine; it does not apply with engine = :general"))
-"""the general engine's F (kind = 2) or f (kind = 1) at the points xs"""
-function gen_dist(kind::Int, xs::Vector{Float64}, S::Spec, c::Real; c0::Real = 0.0, verified::Bool = false, kw...)
-    v = kind == 2 ? DFDet.dist_cdf(S.D, xs, Float64(c); c0 = Float64(c0), verified, gkw(S)..., kw...) :
-                    DFDet.dist_pdf(S.D, xs, Float64(c); c0 = Float64(c0), verified, gkw(S)..., kw...)
+"""
+    genmethod(method) -> :auto, :line or :paths
+
+The keyword `method` where the general engine computes (engine = :general, or a design the classical engine does not
+have): the general engine's own choice, which `DFDet.dist_cdf`, `dist_pdf` and `dist_quantile` take as their `method`:
+:auto (the line integral with the explicit kernel where it covers the design and c0 = 0, the inversion on paths around
+the roots otherwise), :line (the line integral with the explicit kernel, an ArgumentError with the reason where it does
+not cover the design) or :paths (the inversion on paths).  A representation of the classical engine (:single, :double,
+:conditional, :contour) is refused.  (For a design that is a classical case, with engine = :auto, method = :line is the
+classical engine's line integral, which ltratio_args accepts under that name, and :paths, which it does not accept,
+takes the general engine's paths.)
+"""
+function genmethod(method::Symbol)
+    method in (:auto, :line, :paths) && return method
+    throw(ArgumentError("method = :$method names a representation of the classical engine; it does not apply with engine = :general (whose methods are :auto, :line and :paths)"))
+end
+"""the general engine's F (kind = 2) or f (kind = 1) at the points xs (method: `genmethod`)"""
+function gen_dist(kind::Int, xs::Vector{Float64}, S::Spec, c::Real; c0::Real = 0.0, verified::Bool = false, method::Symbol = :auto, kw...)
+    v = kind == 2 ? DFDet.dist_cdf(S.D, xs, Float64(c); c0 = Float64(c0), verified, method, gkw(S)..., kw...) :
+                    DFDet.dist_pdf(S.D, xs, Float64(c); c0 = Float64(c0), verified, method, gkw(S)..., kw...)
     kind == 1 && (v[v .< 0] .= 0.0)
     v
 end
@@ -184,8 +199,7 @@ end
 function merged_dist(kind::Int, x, S::Spec, c::Real; c0::Real, engine::Symbol, method::Symbol, verified::Bool, kw...)
     xs = xvec(x)
     if engine === :general || S.case === nothing
-        nomethod(method)
-        return outshape(gen_dist(kind, xs, S, c; c0, verified, kw...), x)
+        return outshape(gen_dist(kind, xs, S, c; c0, verified, method = genmethod(method), kw...), x)
     end
     eng = [isfinite(xk) ? autoengine(:dist, S, Float64(c), Float64(c0), xk) : :classical for xk in xs]
     all(==(:classical), eng) && return nothing
@@ -212,7 +226,7 @@ function route_dist(engine::Symbol, kind::Int, x, cas::AbstractString, c::Real; 
     merged_dist(kind, x, S, c; c0, engine, method, verified, kw...)
 end
 """the general engine's p-quantiles of S, started at the normal approximation from its moments where it has them"""
-function gen_icdf(p, S::Spec, c::Real; tol::Real = 1e-10, c0::Real = 0.0, kw...)
+function gen_icdf(p, S::Spec, c::Real; tol::Real = 1e-10, c0::Real = 0.0, method::Symbol = :auto, kw...)
     x0 = -2.0; sd = 1.0
     # (the start from the moments of the engine the rule takes for them; a design without moments starts at -2)
     m = nothing
@@ -228,7 +242,7 @@ function gen_icdf(p, S::Spec, c::Real; tol::Real = 1e-10, c0::Real = 0.0, kw...)
     end
     one(pk) = begin
         0 < pk < 1 || throw(ArgumentError("p must lie in (0, 1)"))
-        DFDet.dist_quantile(S.D, Float64(pk), Float64(c); x0 = x0 + sd * sqrt(2) * erfinv(2pk - 1), tol, c0 = Float64(c0), gkw(S)..., kw...)
+        DFDet.dist_quantile(S.D, Float64(pk), Float64(c); x0 = x0 + sd * sqrt(2) * erfinv(2pk - 1), tol, c0 = Float64(c0), method, gkw(S)..., kw...)
     end
     p isa Number ? one(p) : map(one, p)
 end
@@ -238,8 +252,7 @@ function route_icdf(engine::Symbol, p, cas::AbstractString, c::Real; tol::Real =
         # (otherwise the classical search, with each evaluation routed)
         (method === :auto && isempty(kw) && autoengine(:icdf, S, Float64(c), Float64(c0), 0.0) === :general) || return nothing
     end
-    nomethod(method)
-    gen_icdf(p, S, c; tol, c0, kw...)
+    gen_icdf(p, S, c; tol, c0, method = genmethod(method), kw...)
 end
 gen_mom(p::Int, S::Spec, c::Real; c0::Real = 0.0, kw...) = DFDet.dist_moments(S.D, Float64(c); p, c0 = Float64(c0), gkw(S)..., kw...)[1]
 function route_mom(engine::Symbol, p::Int, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, kw...)
@@ -329,6 +342,11 @@ function route_region(engine::Symbol, bnd, cas::AbstractString, c::Real; kw...)
 end
 
 # ---------- the classical functions with a design in place of the case ----------
+# (method: the classical engine's representations (:auto, :single or :line, :double, :contour) where the classical engine
+# computes; where the general engine computes, its own (`genmethod`): :auto, :line, :paths.  So for a design that is not a
+# classical case method = :line forces the general engine's line integral with the explicit kernel and :paths its
+# inversion on paths; for a design that is a classical case :line is the classical line integral and :paths the general
+# engine's paths; with engine = :general :line and :paths are the general engine's for every design.)
 """the classical function f with the case of S (engine = :auto, its rule) where the classical engine accepts the arguments;
 otherwise nothing (the general engine computes)"""
 function classical_or_nothing(S::Spec, engine::Symbol, c::Real, c0::Real, method::Symbol)
@@ -344,16 +362,14 @@ for (f, kind) in ((:ltratio_cdf, 2), (:ltratio_pdf, 1))
                       verified::Bool = false, engine::Symbol = :auto, kw...)
         S = design_spec(D; g0, start, gls)
         classical_or_nothing(S, engine, c, c0, method) && return DX.ltratio_dist($kind, x, S.case, c; c0, g0 = S.g0, method, verified, engine, kw...)
-        nomethod(method)
-        outshape(gen_dist($kind, xvec(x), S, c; c0, verified, kw...), x)
+        outshape(gen_dist($kind, xvec(x), S, c; c0, verified, method = genmethod(method), kw...), x)
     end
 end
 function ltratio_icdf(p, D::DFDet.Determ, c::Real = 0; tol::Real = 1e-10, c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing,
                       method::Symbol = :auto, engine::Symbol = :auto, kw...)
     S = design_spec(D; g0, start, gls)
     classical_or_nothing(S, engine, c, c0, method) && return ltratio_icdf(p, S.case, c; tol, c0, g0 = S.g0, method, engine, kw...)
-    nomethod(method)
-    gen_icdf(p, S, c; tol, c0, kw...)
+    gen_icdf(p, S, c; tol, c0, method = genmethod(method), kw...)
 end
 function ltratio_mom(p::Int, D::DFDet.Determ, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing, engine::Symbol = :auto, kw...)
     S = design_spec(D; g0, start, gls)

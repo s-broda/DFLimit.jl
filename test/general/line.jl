@@ -133,6 +133,23 @@ end
     @test ltratio_cdf(xs, GL.trend(2), -5.0) == GL.dist_cdf(GL.trend(2), xs, -5.0; method = :line)
 end
 
+@testset "the merged interface: method for a design" begin
+    xs = [-3.5, -2.5, -1.5]
+    # a design the classical engine does not have: :line and :paths are the general engine's
+    @test ltratio_cdf(xs, GL.trend(2), -5.0; method = :line) == GL.dist_cdf(GL.trend(2), xs, -5.0; method = :line)
+    @test ltratio_pdf(xs, GL.trend(2), -5.0; method = :paths) == GL.dist_pdf(GL.trend(2), xs, -5.0; method = :paths)
+    @test ltratio_icdf(0.05, TRIG, 0.0; method = :paths) ≈ ltratio_icdf(0.05, TRIG, 0.0; method = :line) atol = 1e-9
+    @test occursin("a jump", errl(() -> ltratio_cdf(xs, GL.perron(:A, 0.5), 0.0; method = :line)))
+    @test occursin("does not apply with engine = :general", errl(() -> ltratio_cdf(xs, GL.trend(2), -5.0; method = :single)))
+    # a design that is a classical case: :line is the classical line integral, :paths the general engine's paths
+    @test ltratio_cdf(xs, GL.trend(0), -5.0; method = :line) == ltratio_cdf(xs, "DU", -5.0; method = :single)
+    @test ltratio_cdf(xs, GL.trend(0), -5.0; method = :paths) == GL.dist_cdf(GL.trend(0), xs, -5.0; method = :paths)
+    # engine = :general: the general engine's methods for a case string and for a design
+    @test ltratio_cdf(xs, "DU", -5.0; engine = :general, method = :line) == GL.dist_cdf(GL.trend(0), xs, -5.0; method = :line)
+    @test ltratio_cdf(xs, GL.trend(0), -5.0; engine = :general, method = :paths) == GL.dist_cdf(GL.trend(0), xs, -5.0; method = :paths)
+    @test ltratio_icdf(0.05, "DT", -5.0; engine = :general, method = :line) ≈ ltratio_icdf(0.05, "DT", -5.0; engine = :classical) atol = 1e-9
+end
+
 @testset "quantiles and the checked computation" begin
     for (D, c, st) in ((GL.trend(2), 0.0, :zero), (TRIG, -13.5, :stationary))
         ql = GL.dist_quantile(D, 0.05, c; start = st, method = :line, x0 = -3.0)
