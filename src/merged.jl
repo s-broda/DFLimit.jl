@@ -220,7 +220,8 @@ function gen_icdf(p, S::Spec, c::Real; tol::Real = 1e-10, c0::Real = 0.0, kw...)
        autoengine(:mom, S, Float64(c), Float64(c0), 0.0) === :classical
         m = DX.ltratio_mom(2, S.case, c; c0, g0 = S.g0, engine = :classical)
     elseif S.D.detrend != :first
-        m = try; DFDet.dist_moments(S.D, Float64(c); p = 2, c0 = Float64(c0), gkw(S)...)[1]; catch; nothing; end
+        # (where the moments fail, the start at -2; an interrupt or an exhausted memory reaches the caller)
+        m = try; DFDet.dist_moments(S.D, Float64(c); p = 2, c0 = Float64(c0), gkw(S)...)[1]; catch e; DFDet.nofallback(e) && rethrow(); nothing; end
     end
     if m !== nothing
         x0 = m[1]; sd = sqrt(max(m[2] - m[1]^2, 1e-6))

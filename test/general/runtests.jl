@@ -403,6 +403,10 @@ end
                 @test seen == [:default, :steeper]
             end
         end
+        # the predicate, which the start of the merged quantile search (gen_icdf) uses as well
+        failed(exc) = (t = Threads.@spawn throw(exc); try; wait(t); catch e; e; end)
+        @test DFDet.nofallback(InterruptException()) && DFDet.nofallback(CompositeException([failed(OutOfMemoryError())]))
+        @test !DFDet.nofallback(ErrorException("x")) && !DFDet.nofallback(CompositeException([failed(ArgumentError("x"))]))
     end
     @testset "the path tables of cases DK, DU, DT at c = 0" begin
         xs = [-4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0]
