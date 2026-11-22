@@ -54,7 +54,6 @@ const NWORKERS = Ref(1)
 function __init__()
     NWORKERS[] = default_workers()
     HAVE_ACCEL[] = Sys.isapple() && (try; Libdl.dlopen(ACCEL); true; catch; false; end)
-    load_ivm()
     k0tables!()
 end
 
@@ -938,24 +937,24 @@ end
 # exponential of the kernel combine, and the algebraic factors, the partition and the Jacobians are cached.
 # The layouts are geometric panels that resolve every scale that occurs along the line (the narrowest
 # Gaussian width is |q|(2 w)^{-1/2} at w = WMAX), with Gauss-Legendre nodes per panel.  The exponentials of
-# all nodes are taken at once, by Accelerate's vForce on macOS and by a plain loop elsewhere.
+# all nodes are taken at once, by Accelerate's vForce on macOS, by IntelVectorMath on x86-64 Linux and Windows when
+# it is loaded (the package extension DFLimitIntelVectorMathExt, ext/), and by a plain loop otherwise.
 using Libdl
 const ACCEL = "/System/Library/Frameworks/Accelerate.framework/Accelerate"
 const HAVE_ACCEL = Ref(false)                                  # set in __init__: Accelerate's vForce on macOS
-# IntelVectorMath (MKL) where available: x86-64 Linux and Windows; loaded at run time if it is in the environment
+# IntelVectorMath (MKL), a weak dependency: Julia loads the extension DFLimitIntelVectorMathExt when IntelVectorMath
+# is loaded; the extension defines the method of ivm_expsincos! and sets HAVE_IVM in its __init__ (on x86-64 other
+# than macOS).  The call below is to this one generic function with concrete arguments, dispatched when it is
+# compiled: loading the extension invalidates the code that calls it, which is compiled again with the method (about
+# 0.1 s at the first call of a function after it, on an Apple M4).
 const HAVE_IVM = Ref(false)
-const IVM_EXP = Ref{Any}(nothing); const IVM_SIN = Ref{Any}(nothing); const IVM_COS = Ref{Any}(nothing)
-function load_ivm()
-    HAVE_ACCEL[] && return
-    (Sys.ARCH == :x86_64 && !Sys.isapple()) || return
-    try
-        m = Base.require(Main, :IntelVectorMath)
-        IVM_EXP[] = getfield(m, :exp!); IVM_SIN[] = getfield(m, :sin!); IVM_COS[] = getfield(m, :cos!)
-        HAVE_IVM[] = true
-    catch
-        HAVE_IVM[] = false
-    end
-end
+"""
+    ivm_expsincos!(e, sn, cs, a, b, n)
+
+e = exp(a), sn = sin(b), cs = cos(b) for the first n entries of the vectors, by IntelVectorMath: the hook that the
+package extension DFLimitIntelVectorMathExt fills (no method without it).
+"""
+function ivm_expsincos! end
 vecmath() = HAVE_ACCEL[] ? "Accelerate" : HAVE_IVM[] ? "IntelVectorMath" : "none"
 struct ExpBuf
     a::Vector{Float64}; b::Vector{Float64}; e::Vector{Float64}; sn::Vector{Float64}; cs::Vector{Float64}
@@ -1025,9 +1024,9 @@ function vexpsincos!(buf::ExpBuf, n::Int)
         ccall((:vvexp, ACCEL), Cvoid, (Ptr{Float64}, Ptr{Float64}, Ref{Int32}), buf.e, buf.a, Int32(n))
         ccall((:vvsincos, ACCEL), Cvoid, (Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ref{Int32}), buf.sn, buf.cs, buf.b, Int32(n))
     else
-        a = view(buf.a, 1:n); b = view(buf.b, 1:n)
-        IVM_EXP[](view(buf.e, 1:n), a); IVM_SIN[](view(buf.sn, 1:n), b); IVM_COS[](view(buf.cs, 1:n), b)
+        ivm_expsincos!(buf.e, buf.sn, buf.cs, buf.a, buf.b, n)
     end
+    nothing
 end
 
 struct Layout

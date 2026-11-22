@@ -25,10 +25,11 @@ end
 # on an Apple M4 (1.4 to 8.7 s), with it a fraction of a second; it adds about 20 s to the precompilation (4.5 s to 22
 # s) and 46 MB to the cache file.  The engine's __init__ does not run while the package
 # is precompiled, so the workload builds the tables of K_0 first (k0tables!, the part of __init__ that the values depend
-# on; the rest sets the number of tasks and the vector library), and the values computed here and the caches they fill
-# are those of a loaded package (a check: the package and the engine file included directly give the same values bit for
-# bit).  __init__ itself is not called here: on x86-64 Linux and Windows it loads IntelVectorMath from the active
-# environment if it is there, which a precompilation should not do.
+# on; the rest sets the number of tasks and looks for Apple's Accelerate), and the values computed here and the caches
+# they fill are those of a loaded package (a check: the package and the engine file included directly give the same
+# values bit for bit).  __init__ itself is not called here: the number of tasks and the vector library belong to the
+# session that loads the package.  IntelVectorMath, where it is used, comes in through the package extension
+# DFLimitIntelVectorMathExt (ext/), which this workload does not involve.
 import PrecompileTools
 PrecompileTools.@compile_workload begin
     DFExact.k0tables!()
