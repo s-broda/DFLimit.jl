@@ -44,7 +44,11 @@
   `filon_roots_x`, `contour_sum_filon`), and the line is cut to the oscillation of the factor e^{-A s_k(t)} of the
   kernels as well (`line_refine`); the linear form is within 1e-13 of the classical code at c = 4 and 5, the t-ratio
   within 1.4e-12 and its density within 2e-13 at c = 4 to 7 with c0 from -0.5 to -5. ADFmax and parabolas with two
-  roots (c0 > 0 with x < 0) keep the line's Gauss-Legendre rule and its warning.
+  roots (c0 > 0 with x < 0) keep the line's Gauss-Legendre rule and its warning. A design whose roots run off along the
+  outer contour, as (1 + r, 1{r <= 0.4}) on the vertical line at every c, needs U-shapes of millions of nodes: it is
+  refused with an error before any inner integral is evaluated (`ushape_guard`, from the roots the outer path carries,
+  at the nodes where the transform is not negligible), in 0.2 s and a few MB, where the refusal came after 3 to 4 s and
+  0.8 GB (`USHAPE_MAXNODES`).
 - **The statistics of the second paper as functions:** the point-optimal statistic and the Gaussian power envelope for
   any design (`pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`, `pt_envelope`; `power_envelope(c, D)`), the LM statistic
   of Schmidt and Phillips and of Amsler and Lee (`lm_cdf`, `lm_quantile`, `lm_power`) and the companions of the

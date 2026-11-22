@@ -367,17 +367,28 @@ end
         F = with_logger(NullLogger()) do; dist_cdf(D, [-2.0, -1.0], 0.0); end
         @test abs(F[1] - 0.32301) < 1e-4 && abs(F[2] - 0.81626) < 1e-4
     end
-    @testset "the guard on the U-shapes with the zero start" begin
-        # (1 + r, 1{r <= 0.4}) on the vertical line: a positive root runs off (86030 - 764901i at t = 1 + 2749i), the
-        # U-shapes grow to 2e7 nodes, and the call took more than 2 GB within seconds; now the node that needs more than
-        # USHAPE_MAXNODES stops with an error, at about 0.6 GB (4 s)
+    @testset "the guard on the U-shapes, before the outer sum" begin
+        # (1 + r, 1{r <= 0.4}) on the vertical line: a positive root runs off (86030 - 764901i at t = 1 + 2749i), and the
+        # U-shapes need more than USHAPE_MAXNODES nodes from |t| = 6300 on, where the transform is still 1e-15.  The guard
+        # in the U-shapes refused after 3 to 4 s and 0.8 GB; the guard on the outer path (`ushape_guard`) refuses before any
+        # inner integral, with the same error (the path built in 0.2 s, a few MB)
         footprint() = Sys.isapple() ? (buf = zeros(UInt8, 96); ccall(:proc_pid_rusage, Cint, (Cint, Cint, Ptr{UInt8}), getpid(), 0, buf) == 0 ?
                                        Float64(reinterpret(UInt64, buf[73:80])[1]) : Float64(Sys.maxrss())) : Float64(Sys.maxrss())
         D = Determ([0.0, 0.4, 1.0], [[1.0 1.0; 1.0 0.0], [1.0 0.0; 1.0 0.0]], "1 + r, 1{r <= 0.4}")
-        f0 = footprint()
-        e = try; with_logger(NullLogger()) do; dist_cdf(D, [-2.0], 1.0); end; nothing; catch err; err; end
-        @test e !== nothing && occursin("the U-shapes of the zero start", sprint(showerror, e)) && occursin("USHAPE_MAXNODES", sprint(showerror, e))
-        @test footprint() - f0 < 1.5 * 2^30
+        refuse(c) = try; with_logger(NullLogger()) do; dist_cdf(D, [-2.0], c); end; nothing; catch err; err; end
+        refuse(0.0)                                      # (the code compiled; the path of c = 1 is built in the timed call)
+        GC.gc(); f0 = footprint()
+        el = @elapsed e = refuse(1.0)
+        @test e isa ErrorException && occursin("the U-shapes of the zero start", e.msg) && occursin("USHAPE_MAXNODES", e.msg)
+        @test el < 0.5
+        @test footprint() - f0 < 100 * 2^20
+        # a fixed start: d(r) = 1 + r at c = 0, g0 = 1 (the wide U-shapes beyond the cap from |t| = 3400 on), refused before
+        # the outer sum as well, with the count at the placed abscissas
+        Dr = Determ([0.0, 1.0], [reshape([1.0, 1.0], 2, 1)], "1+r")
+        DFDet.cpath(model(prep(Dr), :fixed, 1.0), 0.0)   # (the code compiled; the timed call builds the path again)
+        el = @elapsed e = try; with_logger(NullLogger()) do; dist_cdf(Dr, [-2.0], 0.0; start = :fixed, gamma0 = 1.0); end; nothing; catch err; err; end
+        @test e isa ErrorException && occursin("the U-shapes of the fixed start", e.msg) && occursin("USHAPE_MAXNODES", e.msg)
+        @test el < 0.5
     end
     @testset "verified: the fallback sees the errors raised in the threads of a node loop" begin
         # (verify_eval caught an ErrorException only, and the errors of the nodes arrive as a CompositeException of

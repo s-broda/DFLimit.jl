@@ -2508,8 +2508,9 @@ t_* far out, the segment at a fixed abscissa leaves the strip where the proof bo
 const FIXED_RULE = Ref(:heuristic)
 """the largest height 1 + B of the bound rule (a U-shape beyond it would carry millions of nodes)"""
 const FIXED_HCAP = Ref(1e5)
-"""the largest number of nodes of the U-shapes of a node of the outer contour (`ushapes` stops with an error beyond it:
-with a fixed start by the wide heights, with the zero and the stationary start by the segments of the narrow ones)"""
+"""the largest number of nodes of the U-shapes of a node of the outer contour (with a fixed start by the wide heights, with
+the zero and the stationary start by the segments of the narrow ones): `ushape_guard` stops a call beyond it before the
+outer sum, `ushapes` at a node the guard leaves to it"""
 const USHAPE_MAXNODES = Ref(1_000_000)
 
 """the wide U-shapes of the fixed start (true, the default; false: the narrow ones, kept only so that
@@ -2691,6 +2692,151 @@ function tnode_values_m!(Fo::AbstractVector{Float64}, fo::AbstractVector{Float64
     fx === nothing ? tnode_inner!(Fo, fo, AFo, Afo, CP, k, xs, c0, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], nothing, 0.0, zeros(ComplexF64, 0, 0)), vpow; vr, JFo, Jfo) :
                      tnode_inner!(Fo, fo, AFo, Afo, CP, k, xs, c0, n, ntail, alpha, LogMt(rts, Mo.rp, CP.lP[k], fx, Mo.g0^2, fixbuf(Mo.r)), vpow; vr, JFo, Jfo)
 end
+"""the gap between the root groups of a node and the default abscissas of its U-shapes (`ushapes`): hi = min Re s_+, lo =
+max Re s_- (-Inf without negative roots), sigma+ = alpha hi and sigma- = alpha lo when the gap contains the origin, else
+in the gap (lo2, hi), lo2 = max(lo, hi - 2 max(|hi|, 1)) -> (hi, lo, sp, sm)"""
+function uabscissas(gp::AbstractVector{ComplexF64}, gm::AbstractVector{ComplexF64}, rm::Int, alpha::Float64)
+    hi = minimum(real, gp); lo = rm > 0 ? maximum(real, gm) : -Inf
+    if hi > 0 && lo < 0
+        sp = alpha * hi; sm = alpha * lo
+    else
+        lo2 = max(lo, hi - 2 * max(abs(hi), 1.0))
+        sp = hi - alpha * (hi - lo2); sm = lo2 + alpha * (min(0.0, hi) - lo2)
+    end
+    hi, lo, sp, sm
+end
+"""sigma+ moved right of the branch point -Re(t)/c0 of every c0 > 0 of c0s, to -Re(t)/c0 + alpha (hi + Re(t)/c0) (`ushapes`;
+NaN where a branch point is not left of hi, where `ushapes` refuses)"""
+function ubranch(sp::Float64, hi::Float64, tr::Float64, c0s, alpha::Float64)
+    for c0 in c0s
+        c0 > 0 || continue
+        lb = -tr / c0
+        lb < hi || return NaN
+        sp <= lb && (sp = lb + alpha * (hi - lb))
+    end
+    sp
+end
+"""the caps (hp, hm) of the panels of the segments of G+ and G- (`ushapes`): 20/A, and below c = -100 20/min(A, 40/|sigma|).
+(Below c = -100 the segments lie far from the origin, where the kernels are damped: on the segment Re s = sigma the
+v-kernel e^{-s X} oscillates at the rate |X| with the modulus e^{-|sigma X|}, and e^{-A s} has the modulus e^{-A sigma}, so
+that only rates up to 40/|sigma| matter.  At c = -300 in case DU the segment of G- lies at -45300 and the cap 20/A gave it
+54608 nodes.)"""
+function ucaps(c::Float64, sp::Float64, sm::Float64, A::Float64)
+    hseg = 20 / A
+    (c < -100 && sp > 0 ? 20 / min(A, 40 / sp) : hseg), (c < -100 && sm < 0 ? 20 / min(A, 40 / abs(sm)) : hseg)
+end
+"""the nodes of the narrow U-shapes of the zero and the stationary start at the abscissas sp, sm: the segments, at most hp
+or hm per panel with n nodes, a lower bound of their count (within 1% of it beyond 1e5) -> (nodes, longest segment)"""
+function unarrow(gp::AbstractVector{ComplexF64}, gm::AbstractVector{ComplexF64}, sp::Float64, sm::Float64, hp::Float64, hm::Float64, n::Int)
+    nest = 0.0; hseg = 0.0
+    for (g, σ, side, hh) in ((gp, sp, 1, hp), (gm, sm, -1, hm))
+        isempty(g) && continue
+        ylo, yhi = ulevels(g, σ, side, false)
+        nest += (yhi - ylo) / hh * n; hseg = max(hseg, yhi - ylo)
+    end
+    nest, hseg
+end
+ushape_msg(start::Symbol, t::ComplexF64, nest::Float64, hseg::Float64) =
+    "the U-shapes of the $start start at t = $t would need some $(round(nest, sigdigits = 3)) nodes (segments to $(round(hseg, sigdigits = 3)) long): a root runs off (USHAPE_MAXNODES)"
+ushape_msg_fixed(t::ComplexF64, nest::Float64, hmx::Float64) =
+    "the U-shapes of the fixed start at t = $t would need some $(round(Int, nest)) nodes (heights to $(round(hmx, sigdigits = 3))): the roots run off (USHAPE_MAXNODES)"
+"""
+    ushape_guard(CP, c0s, A, n, alpha, tol, xq)
+
+The guard on the nodes of the U-shapes, before any U-shape is built or any inner integral evaluated (`contour_eval`,
+`contour_eval_specs`; the arguments as there and in `ushapes`).  The outer contour carries the roots at its nodes, and with
+them the count of `ushapes` that its guard compares with USHAPE_MAXNODES at every node t_k: with the zero and the
+stationary start the segments of the narrow U-shapes at the abscissas of `ushapes` (`unarrow`); with a fixed start the wide
+heights at the abscissas of `place`, which needs log Mt at the probe points of each U-shape, so that they are placed only
+where an upper bound of the count exceeds the cap (every abscissa lies in the admissible interval of `place`, and every cap
+of the segments is at least 20/A), a few nodes at most of an ordinary call.  The first node beyond USHAPE_MAXNODES at which
+the transform has not fallen below the tolerance tol of the outer sum, |M_V(t_k) t'_k| max(1, 1/|t_k|) >= tol, stops the
+call with the error of `ushapes`.  The nodes where the transform is below tol are left to the guard of `ushapes`, since the
+outer sum stops before them unless its terms there are not small: d(r) = 1 + r on the vertical line at c = 0 needs more
+than 1e6 nodes from |t| = 3e4 on, where |M_V| is 1e-36, and its sum stops at |t| = 1.6e4 with F right to 1e-4 (at c = -20
+it goes on to the node beyond, which `ushapes` refuses).  The design (1 + r, 1{r <= 0.4}) on the vertical line has the
+positive root 86030 - 764901i at t = 1 + 2749i and needs 1e6 nodes at |t| = 6300, where |M_V| is 1e-15, at every c from
+-1 to 2: it took 3 to 4 s and 0.8 GB before `ushapes` refused, and is refused here before any inner integral.
+"""
+function ushape_guard(CP::CPath, c0s, A::Float64, n::Int, alpha::Float64, tol::Float64, xq::Float64)
+    Mo = CP.Mo; rp = Mo.rp; r = Mo.r; fixed = Mo.start == :fixed
+    cap = USHAPE_MAXNODES[]; lt = log(tol)
+    @inbounds for k in eachindex(CP.t)
+        gp = view(CP.R, 1:rp, k); gm = view(CP.R, rp+1:r, k)
+        hi, lo, sp, sm = uabscissas(gp, gm, Mo.rm, alpha)
+        lo < min(hi, 0.0) || continue                    # (`ushapes` refuses such a node with its own error)
+        tr = real(CP.t[k])
+        if fixed
+            # (an upper bound of the count: sigma+ >= L, the lower end of the interval of `place`, sigma- <= min(hi, 0))
+            L = Mo.rm > 0 ? lo : hi - 2 * max(abs(hi), 1.0)
+            hmx = 0.0
+            for z in gp; hmx = max(hmx, abs(imag(z)) + real(z) - L); end
+            for z in gm; hmx = max(hmx, abs(imag(z)) + min(hi, 0.0) - real(z)); end
+            FIXED_RULE[] == :heuristic && 2 * hmx * A / 20 * n <= cap && continue
+        else
+            sp = ubranch(sp, hi, tr, c0s, alpha)
+            isnan(sp) && continue
+            hp, hm = ucaps(CP.c, sp, sm, A)
+            nest, hseg = unarrow(gp, gm, sp, sm, hp, hm, n)
+            nest > cap || continue
+        end
+        # log |M_V(t_k)| = Re log Mt(0) (with a fixed start and g0^2 Re cf(t_k): E1(0) = 0)
+        fx = CP.fx[k]
+        lmv = real(logMtilde(view(CP.R, :, k), rp, CP.lP[k], 0.0im))
+        fx !== nothing && (lmv += Mo.g0^2 * real(fx.cf))
+        lmv + log(abs(CP.dt[k]) * max(1.0, 1 / abs(CP.t[k]))) >= lt || continue
+        if fixed
+            fx === nothing && continue
+            # (the count of `ushapes`, with its placed abscissas)
+            lm = LogMt(CP.R[:, k], rp, CP.lP[k], fx, Mo.g0^2, fixbuf(r))
+            sp, sm = ufixed_place(CP, lm, c0s, gp, gm, hi, lo, sp, sm, tr, alpha, A, xq)
+            sp = ubranch(sp, hi, tr, c0s, alpha)
+            isnan(sp) && continue
+            hp, hm = ucaps(CP.c, sp, sm, A)
+            hmx = 0.0
+            for z in view(CP.R, :, k); hmx = max(hmx, abs(imag(z)) + abs(real(z) - (real(z) > 0 ? sp : sm))); end
+            nest = 2 * hmx / min(hp, hm) * n
+            nest > cap && error(ushape_msg_fixed(CP.t[k], nest, hmx))
+            continue
+        end
+        error(ushape_msg(Mo.start, CP.t[k], nest, hseg))
+    end
+    nothing
+end
+"""the abscissas (sp, sm) of the U-shapes of the fixed start at a node with the roots gp, gm (`ushapes`): the defaults sp, sm
+of `uabscissas` replaced by `place` (or, with FIXED_RULE[] = :bound, by those of the proof)"""
+function ufixed_place(CP::CPath, logMt::LogMt{FixT}, c0s, gp::AbstractVector{ComplexF64}, gm::AbstractVector{ComplexF64}, hi::Float64,
+                      lo::Float64, sp::Float64, sm::Float64, tr::Float64, alpha::Float64, A::Float64, xq::Float64)
+    Mo = CP.Mo; rp = Mo.rp
+    # the fixed start: the abscissas where the largest |Mt| on the U-shape is smallest.  Above the unit root (c > 0) the
+    # objective also counts the growth e^{sigma^2 xq^2/(4 Re t)} of the v-kernels of the upper tail (x up to xq > 0) on
+    # G+ to the left of the origin (case DK at c = 1, g0 = 1: without it G+ went to -0.82, and F was off by 1e31 at
+    # mean + 5 sd; at c = 0.5 the abscissa left of the origin is the right one)
+    xg = CP.c > 0 ? xq : 0.0
+    # (above the unit root with c0 > 0 the placement is searched right of the branch point -Re(t)/c0, which the
+    # semi-infinite piece of V+ needs, and counts the growth of the v-kernels there with Re(t + c0 s) in place of Re t:
+    # cases DU at c = 2, g0 = 1.5 and DT at c = 2, g0 = 3, both with c0 = 3, were off by 1e-2 and 1e87 at mean + 4 sd)
+    lbp = -Inf
+    if CP.c > 0
+        for c0 in c0s; c0 > 0 && (lbp = max(lbp, -tr / c0)); end
+    end
+    sp0 = isfinite(lbp) ? max(sp, lbp + alpha * (hi - lbp)) : sp
+    c0p = CP.c > 0 ? maximum((c0 for c0 in c0s if c0 > 0); init = 0.0) : 0.0
+    rule = FIXED_RULE[]
+    if rule == :bound && CP.c <= 0 && hi > 0 && lo < 0
+        # the abscissas of the proof: alpha times the real roots at the real point tau of the contour (the first node),
+        # where Re Q_kappa <= Q_kappa(sigma, Re t) on the segment for Re t < t_*
+        sp = alpha * minimum(real, view(CP.R, 1:rp, 1))
+        Mo.rm > 0 && (sm = alpha * maximum(real, view(CP.R, rp+1:Mo.r, 1)))
+        sp = min(sp, alpha * hi); Mo.rm > 0 && (sm = max(sm, alpha * lo))
+    elseif Mo.rm > 0
+        sp = place(logMt, gp, gm, 1, max(lo, lbp), hi, A, sp0; xq = xg, tr, c0p)
+        sm = place(logMt, gm, gp, -1, lo, min(hi, 0.0), A, sm)
+    else
+        sp = place(logMt, gp, gm, 1, max(hi - 2 * max(abs(hi), 1.0), lbp), hi, A, sp0; xq = xg, tr, c0p)
+    end
+    sp, sm
+end
 """
     ushapes(CP, k, logMt, c0s, rsp, rsm, alpha, A, n, ntail) -> (Sp, Mp, Ep, Sm, Mm, Em)
 
@@ -2707,43 +2853,12 @@ function ushapes(CP::CPath, k::Int, logMt::LogMt{F}, c0s, rsp::Float64, rsm::Flo
     t = CP.t[k]; tr = real(t)
     rts = logMt.rts; rp = Mo.rp
     gp = rts[1:rp]; gm = rts[rp+1:end]
-    hi = minimum(real, gp); lo = Mo.rm > 0 ? maximum(real, gm) : -Inf
+    hi, lo, sp, sm = uabscissas(gp, gm, Mo.rm, alpha)
     lo < min(hi, 0.0) || error("the root groups are not separated by a line Re s = sigma < 0 at t = $t (lo = $lo, hi = $hi)")
-    if hi > 0 && lo < 0
-        sp = alpha * hi; sm = alpha * lo
-    else
-        lo2 = max(lo, hi - 2 * max(abs(hi), 1.0))
-        sp = hi - alpha * (hi - lo2); sm = lo2 + alpha * (min(0.0, hi) - lo2)
-    end
     exp_p = ComplexF64[]; exp_m = ComplexF64[]
     if F === FixT
-        # the fixed start: the abscissas where the largest |Mt| on the U-shape is smallest.  Above the unit root (c > 0) the
-        # objective also counts the growth e^{sigma^2 xq^2/(4 Re t)} of the v-kernels of the upper tail (x up to xq > 0) on
-        # G+ to the left of the origin (case DK at c = 1, g0 = 1: without it G+ went to -0.82, and F was off by 1e31 at
-        # mean + 5 sd; at c = 0.5 the abscissa left of the origin is the right one)
-        xg = CP.c > 0 ? xq : 0.0
-        # (above the unit root with c0 > 0 the placement is searched right of the branch point -Re(t)/c0, which the
-        # semi-infinite piece of V+ needs, and counts the growth of the v-kernels there with Re(t + c0 s) in place of Re t:
-        # cases DU at c = 2, g0 = 1.5 and DT at c = 2, g0 = 3, both with c0 = 3, were off by 1e-2 and 1e87 at mean + 4 sd)
-        lbp = -Inf
-        if CP.c > 0
-            for c0 in c0s; c0 > 0 && (lbp = max(lbp, -tr / c0)); end
-        end
-        sp0 = isfinite(lbp) ? max(sp, lbp + alpha * (hi - lbp)) : sp
-        c0p = CP.c > 0 ? maximum((c0 for c0 in c0s if c0 > 0); init = 0.0) : 0.0
+        sp, sm = ufixed_place(CP, logMt, c0s, gp, gm, hi, lo, sp, sm, tr, alpha, A, xq)
         rule = FIXED_RULE[]
-        if rule == :bound && CP.c <= 0 && hi > 0 && lo < 0
-            # the abscissas of the proof: alpha times the real roots at the real point tau of the contour (the first node),
-            # where Re Q_kappa <= Q_kappa(sigma, Re t) on the segment for Re t < t_*
-            sp = alpha * minimum(real, view(CP.R, 1:rp, 1))
-            Mo.rm > 0 && (sm = alpha * maximum(real, view(CP.R, rp+1:Mo.r, 1)))
-            sp = min(sp, alpha * hi); Mo.rm > 0 && (sm = max(sm, alpha * lo))
-        elseif Mo.rm > 0
-            sp = place(logMt, gp, gm, 1, max(lo, lbp), hi, A, sp0; xq = xg, tr, c0p)
-            sm = place(logMt, gm, gp, -1, lo, min(hi, 0.0), A, sm)
-        else
-            sp = place(logMt, gp, gm, 1, max(hi - 2 * max(abs(hi), 1.0), lbp), hi, A, sp0; xq = xg, tr, c0p)
-        end
         if rule != :heuristic
             B, _ = fixbound(logMt.fx, Mo.Dv, t)
             hb = min(1 + B, FIXED_HCAP[])
@@ -2759,45 +2874,29 @@ function ushapes(CP::CPath, k::Int, logMt::LogMt{F}, c0s, rsp::Float64, rsm::Flo
     end
     for c0 in c0s
         c0 == 0 && continue
-        sb = -t / c0
         if c0 > 0
-            lb = -tr / c0
-            lb < hi || error("no abscissa for G+ right of the branch point -t/c0 at t = $t")
-            sp <= lb && (sp = lb + alpha * (hi - lb))
-            push!(exp_p, sb)
+            -tr / c0 < hi || error("no abscissa for G+ right of the branch point -t/c0 at t = $t")
+            push!(exp_p, -t / c0)
         else
-            push!(exp_m, sb)
+            push!(exp_m, -t / c0)
         end
     end
+    sp = ubranch(sp, hi, tr, c0s, alpha)
     Sp = ComplexF64[]; Wp = ComplexF64[]
-    hseg = 20 / A
-    # (below c = -100 the segments lie far from the origin, where the kernels are damped: on the segment Re s = sigma the
-    # v-kernel e^{-s X} oscillates at the rate |X| with the modulus e^{-|sigma X|}, and e^{-A s} has the modulus e^{-A sigma},
-    # so that only rates up to 40/|sigma| matter; the cap is 20/min(A, 40/|sigma|).  At c = -300 in case DU the segment of G-
-    # lies at -45300 and the cap 20/A gave it 54608 nodes)
-    hp = CP.c < -100 && sp > 0 ? 20 / min(A, 40 / sp) : hseg
-    hm = CP.c < -100 && sm < 0 ? 20 / min(A, 40 / abs(sm)) : hseg
+    hp, hm = ucaps(CP.c, sp, sm, A)
     lmf = F === FixT ? logMt : nothing
-    # (a guard on the size of the U-shapes: the wide heights follow a root that runs off, as the root at 31700 - 1.6e6i of
-    # d(r) = 1 + r with a fixed start on the vertical line at |t| = 2.8e4, whose U-shape had 3.9e6 nodes and exhausted the
-    # memory; such a node stops with an error instead)
+    # (the guard on the size of the U-shapes, which `ushape_guard` checks before the outer sum at the nodes where the
+    # transform is not negligible; here at the other nodes, which the sum reaches where its terms are not small.  The wide
+    # heights of the fixed start follow a root that runs off, as the root at 31700 - 1.6e6i of d(r) = 1 + r with a fixed
+    # start on the vertical line at |t| = 2.8e4, whose U-shape had 3.9e6 nodes and exhausted the memory)
     if F === FixT
         hmx = 0.0
         for g in (gp, gm), z in g; hmx = max(hmx, abs(imag(z)) + abs(real(z) - (real(z) > 0 ? sp : sm))); end
         nest = 2 * hmx / min(hp, hm) * n
-        nest > USHAPE_MAXNODES[] && error("the U-shapes of the fixed start at t = $t would need some $(round(Int, nest)) nodes (heights to $(round(hmx, sigdigits = 3))): the roots run off (USHAPE_MAXNODES)")
+        nest > USHAPE_MAXNODES[] && error(ushape_msg_fixed(t, nest, hmx))
     else
-        # (the zero and the stationary start: the segments of the narrow U-shapes, at most hp or hm per panel with n nodes,
-        # a lower bound of their nodes (within 1% of the count beyond 1e5).  The design (1 + r, 1{r <= 0.4}) on the vertical
-        # line has the positive root 86030 - 764901i at t = 1 + 2749i and U-shapes of 2e7 nodes further out, at every c
-        # from -1 to 2, and at c = 1 took more than 2 GB within seconds; such a node stops with the same error)
-        nest = 0.0; hseg = 0.0
-        for (g, σ, side, hh) in ((gp, sp, 1, hp), (gm, sm, -1, hm))
-            isempty(g) && continue
-            ylo, yhi = ulevels(g, σ, side, false)
-            nest += (yhi - ylo) / hh * n; hseg = max(hseg, yhi - ylo)
-        end
-        nest > USHAPE_MAXNODES[] && error("the U-shapes of the $(Mo.start) start at t = $t would need some $(round(nest, sigdigits = 3)) nodes (segments to $(round(hseg, sigdigits = 3)) long): a root runs off (USHAPE_MAXNODES)")
+        nest, hseg = unarrow(gp, gm, sp, sm, hp, hm, n)
+        nest > USHAPE_MAXNODES[] && error(ushape_msg(Mo.start, t, nest, hseg))
     end
     lvp_ = F === FixT && FIXED_RULE[] != :heuristic ? levp : nothing
     lvm_ = F === FixT && FIXED_RULE[] != :heuristic && Mo.rm > 0 ? levm : nothing
@@ -3066,10 +3165,17 @@ outer contour CP, with the estimates of the rounding error and the warnings of `
 """
 function contour_eval_specs(CP::CPath, specs::Vector{Vector{XSpec}}; n = nothing, ntail = nothing, alpha::Float64 = 0.5,
                             tol::Float64 = 1e-17, warn::Bool = true, filon::Bool = true)
+    fixed = CP.Mo.start == :fixed
+    n = n === nothing ? (fixed ? 48 : 24) : Int(n); ntail = ntail === nothing ? (fixed ? 64 : 40) : Int(ntail)
+    # (the guard on the nodes of the U-shapes, with the c0 and the constant of the kernels of `tnode_specs!`)
+    c0s = Float64[]; ak = CP.Mo.a
+    for S in specs, sp in S
+        ak = max(ak, abs(sp.A))
+        (sp.c0 == 0 || sp.c0 in c0s) || push!(c0s, sp.c0)
+    end
+    ushape_guard(CP, c0s, ak, n, alpha, tol, max(0.0, maximum((sp.q for S in specs for sp in S); init = 0.0)))
     vr = filon && isnan(CP.h) ? filon_roots(CP, specs) : nothing
     if vr !== nothing
-        fixed = CP.Mo.start == :fixed
-        n = n === nothing ? (fixed ? 48 : 24) : Int(n); ntail = ntail === nothing ? (fixed ? 64 : 40) : Int(ntail)
         return contour_sum_filon(CP, length(specs), (gF, gf, aF, af, jF, jf, k) -> tnode_specs_m!(gF, gf, aF, af, CP, k, specs, n, ntail, alpha; vr, JFo = jF, Jfo = jf),
                                  tol, warn, vr .^ 2)
     end
@@ -3084,8 +3190,6 @@ function contour_eval_specs(CP::CPath, specs::Vector{Vector{XSpec}}; n = nothing
         end
         line_edge_warn(CP, b2, neg)
     end
-    fixed = CP.Mo.start == :fixed
-    n = n === nothing ? (fixed ? 48 : 24) : Int(n); ntail = ntail === nothing ? (fixed ? 64 : 40) : Int(ntail)
     contour_sum(CP, length(specs), (gF, gf, aF, af, k) -> tnode_specs_m!(gF, gf, aF, af, CP, k, specs, n, ntail, alpha), tol, warn, NaN)
 end
 
@@ -3114,6 +3218,7 @@ function contour_eval(CP::CPath, xs::Vector{Float64}; c0::Real = 0.0, n = nothin
     fixed = CP.Mo.start == :fixed
     n = n === nothing ? (fixed ? 48 : 24) : Int(n); ntail = ntail === nothing ? (fixed ? 64 : 40) : Int(ntail)
     c0 = Float64(c0)
+    ushape_guard(CP, (c0,), CP.Mo.a, n, alpha, tol, max(0.0, maximum(xs; init = 0.0)))
     vr = filon && isnan(CP.h) ? filon_roots_x(CP, xs, c0) : nothing
     if vr !== nothing
         return contour_sum_filon(CP, length(xs), (gF, gf, aF, af, jF, jf, k) -> tnode_values_m!(gF, gf, aF, af, CP, k, xs, c0, n, ntail, alpha, vpow; vr, JFo = jF, Jfo = jf),
