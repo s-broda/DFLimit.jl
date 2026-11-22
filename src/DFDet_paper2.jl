@@ -197,13 +197,27 @@ function lmprep(D::Determ)
     P
 end
 lmV(CP::CPath, v::Real) = 1 - vsum(CP, Float64(v), true)
-lmpath(P::Prep, c::Real) = cpath(model(P), Float64(c))
+"""
+the largest c of the LM statistic's functions.  Above it the inversion of V moves between contours (hyperbolas at 30 to
+75 degrees through 0.3 to 0.7 t_*) by more than 1e-8 with a linear trend: by 5e-9 at c = 10, 2e-7 at c = 12, 3e-5 at
+c = 15, 0.1 at c = 20, and a finer step does not remove it, whereas the V of least squares detrending, on the same
+contours and by the same sum (`vsum`), holds to 3e-15 at c = 15.  The loss lies in the transform of the LM statistic's
+V far above the unit root (not identified further); there the functions refuse.
+"""
+const LM_CMAX = 10.0
+"""the outer contour of the LM statistic's V: the path of the law of V alone (`v_own`), which above the unit root replaces
+the vertical line of the path of the t-ratio by a hyperbola (on the line P(V <= y) was off by 6e-3 at c = 5 with a linear
+trend, and F exceeded 1); c at most LM_CMAX"""
+function lmpath(P::Prep, c::Real)
+    Float64(c) <= LM_CMAX || throw(ArgumentError("the LM statistic: c must be at most $LM_CMAX (above, its distribution is not computed accurately: off by 2e-7 at c = 12 and by 3e-5 at c = 15)"))
+    v_own(cpath(model(P), Float64(c)); build = cpath)
+end
 """
     lm_cdf(D, xs, c = 0) -> F
 
 The limit of P(tau_LM <= x) for the LM statistic with the trend functions of D (a linear trend among them), under phi = 1
 + c/n: tau_LM => -1/(2 sqrt V) (`prep_lm`), so that F(x) = P(V <= 1/(4 x^2)) for x < 0 and 1 for x >= 0, one inversion of
-the transform of V.
+the transform of V on the path of V alone (`lmpath`).  c at most LM_CMAX = 10 (as for `lm_quantile` and `lm_power`).
 """
 function lm_cdf(D::Determ, xs::AbstractVector, c::Real = 0.0)
     CP = lmpath(lmprep(D), c)

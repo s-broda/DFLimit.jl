@@ -48,4 +48,17 @@ const GE = DFLimit.DFDet
         Ft = lm_cdf(trend(1), xs, c)
         @test maximum(abs, lm_cdf(perron(:A, 0.3), xs, c) - Ft) < 1e-10 && maximum(abs, lm_cdf(perron(:A, 0.5), xs, c) - Ft) < 1e-10
     end
+    # above the unit root the LM statistic takes the path of V alone (lmpath): the vertical line of the t-ratio's path was
+    # off by 6e-3 at c = 5 with a linear trend (F above 1); now a hyperbola, within 1e-13 of hyperbolas at other angles and
+    # positions at c = 5 (1e-11 at c = 7) and within Monte Carlo error of the simulated limit (1.7 standard errors, 1e6
+    # replications); beyond c = 10 an error
+    P = GE.lmprep(trend(1)); Mo = GE.model(P)
+    ys = 10 .^ range(-2, 4; length = 25); xs = -1 ./ (2 .* sqrt.(ys))
+    for c in (5.0, 7.0)
+        F = lm_cdf(trend(1), xs, c); CP = GE.lmpath(P, c)
+        Fv = [GE.lmV(GE.cpath(Mo, c; phi = pi / 3, tau = 0.3 * CP.tstar), y) for y in ys]
+        @test !isnan(CP.h) && maximum(abs, F - Fv) < 1e-10 && all(-1e-10 .<= F .<= 1) && all(diff(F) .>= -1e-14)
+    end
+    @test_throws ArgumentError lm_cdf(trend(1), [-0.1], 12.0)
+    @test_throws ArgumentError lm_power(trend(1), [-5.0, 12.0])
 end

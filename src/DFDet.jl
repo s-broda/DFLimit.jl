@@ -3875,11 +3875,22 @@ e^{-t y} decays.  An angle given by phi is kept (and so is the line, if that is 
 """
 function v_path(D::Determ, c::Real, start::Symbol, gamma0::Real, gls, phi, hfac)
     CP = user_path(D, c, start, gamma0, gls, phi, hfac)
-    (phi === nothing && isnan(CP.h)) || return CP
-    Mo = CP.Mo; cf = Float64(c)
+    phi === nothing ? v_own(CP; hfac) : CP
+end
+"""
+    v_own(CP; hfac = 1, build = cpath_cached) -> CPath
+
+The path of `v_path` from the path CP of the design: CP itself, or where CP is the vertical line the hyperbola of the
+law of V alone (pi/4, or `fixed_phi` with a fixed start and below c = -100), built by build(Mo, c; phi, hfac).  The LM
+statistic (`lmpath`) takes it with build = `cpath`: its prepared design is not that of `prep_cached`, under whose key
+`cpath_cached` would keep its paths.
+"""
+function v_own(CP::CPath; hfac = 1.0, build = cpath_cached)
+    isnan(CP.h) || return CP
+    Mo = CP.Mo; cf = CP.c
     ph = (Mo.start == :fixed || cf < -100) ?
          blas1f(() -> fixed_phi(Mo, cf, CP.tstar, CP.tau, Float64(hfac), default_rmax(cf)), dense_la(Mo)) : pi / 4
-    cpath_cached(Mo, cf; phi = ph, hfac)
+    build(Mo, cf; phi = ph, hfac)
 end
 """(1/pi) sum' Im{M_V(t_k) e^{-t_k y} t'(u_k)/t_k} (cdf = true; P(V > y)) or without the 1/t_k (the density) on the path
 CP.  log M_V(t) = log P(t) - (1/2) sum_k log(+-s_k(t)) at s = 0 (`logMtilde`), each logarithm continued from node to node
