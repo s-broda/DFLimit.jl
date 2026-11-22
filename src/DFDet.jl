@@ -1907,14 +1907,19 @@ b = 0.9 min(tau, t_* - tau)/sin(y), a = b cot(phi), step h = hfac * 2 pi y/(37 +
 tau = min(1, t_*/2) unless given.
 """
 cpath(P::Prep, c::Real; kw...) = cpath(model(P), c; kw...)
-"""the hyperbola at the angle phi: (tau, a, b, h, K) as in `cpath`"""
+"""the hyperbola at the angle phi: (tau, a, b, h, K) as in `cpath`; an error beyond PATH_MAXNODES nodes (a factor hfac of
+the step that is not positive or far below one)"""
 function hyperbola(ts_::Float64, phi::Float64, hfac::Float64, rmax::Float64, τ::Float64)
     y = min(0.5, 0.9 * (pi / 2 - phi))
     b = 0.9 * min(τ, ts_ - τ) / sin(y); a = b / tan(phi)
     h = hfac * 2pi * y / (37 + 37 * tan(phi) * y)
-    K = ceil(Int, asinh(rmax / hypot(a, b)) / h)
-    a, b, h, K
+    Kf = asinh(rmax / hypot(a, b)) / h
+    (h > 0 && Kf <= PATH_MAXNODES) || error("the outer contour would need $(round(Kf, sigdigits = 3)) nodes (hfac = $hfac, the angle $(round(phi * 180 / pi, sigdigits = 3)) degrees), more than PATH_MAXNODES = $PATH_MAXNODES: hfac must be a positive factor of order one")
+    a, b, h, ceil(Int, Kf)
 end
+"""the most nodes of an outer hyperbola (`hyperbola`): the default rules need at most some 5500 (the 88-degree hyperbola),
+11000 in the finer variant of `verify_eval`; the path stores its roots on 8 points per node"""
+const PATH_MAXNODES = 100_000
 const PHI_FIXED = (45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 78.0, 80.0, 82.0, 84.0, 85.0, 86.0, 87.0, 88.0)
 """
     fixed_phi(Mo, c, ts_, τ, hfac, rmax) -> phi
@@ -4159,6 +4164,8 @@ function dist_moments(D::Determ, c::Real = 0.0; p::Int = 4, c0::Real = 0.0, star
     D.detrend == :first && throw(ArgumentError(FIRST_MOM_MSG))
     Mo = startmodel(D, c, start, gamma0, gls); c = Float64(c); c0 = Float64(c0)
     tlo = min(-60.0, -2c - 40); thi = c < -20 ? max(8.0, log(80 * abs(c))) : 8.0
+    # (the grid grows with c above the unit root: 2c/h points, 4e5 at c = 1e4; beyond 1e6 an error)
+    (thi - tlo) / h <= 1e6 || error("dist_moments: the grid of the integral in s would have $(round((thi - tlo) / h, sigdigits = 3)) points at c = $c (more than 1e6): c is beyond the range of the moments")
     svals = exp.(collect(tlo:h:thi)); ns = length(svals)
     smax = tstar(Mo, c)[1]
     wk = [cis(2pi * k / Nu) for k in 0:Nu-1]

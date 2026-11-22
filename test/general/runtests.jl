@@ -389,6 +389,12 @@ end
         el = @elapsed e = try; with_logger(NullLogger()) do; dist_cdf(Dr, [-2.0], 0.0; start = :fixed, gamma0 = 1.0); end; nothing; catch err; err; end
         @test e isa ErrorException && occursin("the U-shapes of the fixed start", e.msg) && occursin("USHAPE_MAXNODES", e.msg)
         @test el < 0.5
+        # the caps of the outer hyperbola (a factor hfac of its step far below one) and of the grid of the moments (c far
+        # above the unit root)
+        e = try; dist_cdf(trend(0), [-2.0], -5.0; hfac = 1e-4); nothing; catch err; err; end
+        @test e isa ErrorException && occursin("PATH_MAXNODES", e.msg)
+        e = try; dist_moments(trend(0), 1e5); nothing; catch err; err; end
+        @test e isa ErrorException && occursin("beyond the range of the moments", e.msg)
     end
     @testset "verified: the fallback sees the errors raised in the threads of a node loop" begin
         # (verify_eval caught an ErrorException only, and the errors of the nodes arrive as a CompositeException of
