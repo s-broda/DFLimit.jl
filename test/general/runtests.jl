@@ -367,6 +367,18 @@ end
         F = with_logger(NullLogger()) do; dist_cdf(D, [-2.0, -1.0], 0.0); end
         @test abs(F[1] - 0.32301) < 1e-4 && abs(F[2] - 0.81626) < 1e-4
     end
+    @testset "the guard on the U-shapes with the zero start" begin
+        # (1 + r, 1{r <= 0.4}) on the vertical line: a positive root runs off (86030 - 764901i at t = 1 + 2749i), the
+        # U-shapes grow to 2e7 nodes, and the call took more than 2 GB within seconds; now the node that needs more than
+        # USHAPE_MAXNODES stops with an error, at about 0.6 GB (4 s)
+        footprint() = Sys.isapple() ? (buf = zeros(UInt8, 96); ccall(:proc_pid_rusage, Cint, (Cint, Cint, Ptr{UInt8}), getpid(), 0, buf) == 0 ?
+                                       Float64(reinterpret(UInt64, buf[73:80])[1]) : Float64(Sys.maxrss())) : Float64(Sys.maxrss())
+        D = Determ([0.0, 0.4, 1.0], [[1.0 1.0; 1.0 0.0], [1.0 0.0; 1.0 0.0]], "1 + r, 1{r <= 0.4}")
+        f0 = footprint()
+        e = try; with_logger(NullLogger()) do; dist_cdf(D, [-2.0], 1.0); end; nothing; catch err; err; end
+        @test e !== nothing && occursin("the U-shapes of the zero start", sprint(showerror, e)) && occursin("USHAPE_MAXNODES", sprint(showerror, e))
+        @test footprint() - f0 < 1.5 * 2^30
+    end
     @testset "verified: the fallback sees the errors raised in the threads of a node loop" begin
         # (verify_eval caught an ErrorException only, and the errors of the nodes arrive as a CompositeException of
         # TaskFailedExceptions; an interrupt or an exhausted memory still reaches the caller)

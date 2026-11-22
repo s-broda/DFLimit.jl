@@ -2508,7 +2508,8 @@ t_* far out, the segment at a fixed abscissa leaves the strip where the proof bo
 const FIXED_RULE = Ref(:heuristic)
 """the largest height 1 + B of the bound rule (a U-shape beyond it would carry millions of nodes)"""
 const FIXED_HCAP = Ref(1e5)
-"""the largest number of nodes of a U-shape of the fixed start (`ushapes` stops with an error beyond it)"""
+"""the largest number of nodes of the U-shapes of a node of the outer contour (`ushapes` stops with an error beyond it:
+with a fixed start by the wide heights, with the zero and the stationary start by the segments of the narrow ones)"""
 const USHAPE_MAXNODES = Ref(1_000_000)
 
 """the wide U-shapes of the fixed start (true, the default; false: the narrow ones, kept only so that
@@ -2785,6 +2786,18 @@ function ushapes(CP::CPath, k::Int, logMt::LogMt{F}, c0s, rsp::Float64, rsm::Flo
         for g in (gp, gm), z in g; hmx = max(hmx, abs(imag(z)) + abs(real(z) - (real(z) > 0 ? sp : sm))); end
         nest = 2 * hmx / min(hp, hm) * n
         nest > USHAPE_MAXNODES[] && error("the U-shapes of the fixed start at t = $t would need some $(round(Int, nest)) nodes (heights to $(round(hmx, sigdigits = 3))): the roots run off (USHAPE_MAXNODES)")
+    else
+        # (the zero and the stationary start: the segments of the narrow U-shapes, at most hp or hm per panel with n nodes,
+        # a lower bound of their nodes (within 1% of the count beyond 1e5).  The design (1 + r, 1{r <= 0.4}) on the vertical
+        # line has the positive root 86030 - 764901i at t = 1 + 2749i and U-shapes of 2e7 nodes further out, at every c
+        # from -1 to 2, and at c = 1 took more than 2 GB within seconds; such a node stops with the same error)
+        nest = 0.0; hseg = 0.0
+        for (g, σ, side, hh) in ((gp, sp, 1, hp), (gm, sm, -1, hm))
+            isempty(g) && continue
+            ylo, yhi = ulevels(g, σ, side, false)
+            nest += (yhi - ylo) / hh * n; hseg = max(hseg, yhi - ylo)
+        end
+        nest > USHAPE_MAXNODES[] && error("the U-shapes of the $(Mo.start) start at t = $t would need some $(round(nest, sigdigits = 3)) nodes (segments to $(round(hseg, sigdigits = 3)) long): a root runs off (USHAPE_MAXNODES)")
     end
     lvp_ = F === FixT && FIXED_RULE[] != :heuristic ? levp : nothing
     lvm_ = F === FixT && FIXED_RULE[] != :heuristic && Mo.rm > 0 ? levm : nothing
