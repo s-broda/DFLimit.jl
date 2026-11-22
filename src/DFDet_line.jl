@@ -24,6 +24,17 @@
 # trend), designs with a jump or a numerator of another rank, the statistic that detrends first with d(0) = 0 (rank one,
 # for which the papers do not state the line integral), c below the classical engine's CMIN, and a stationary start for
 # c > DFExact.CSTAT.
+#
+# Guards.  Shared with the classical engine, because the integrator is: its bounds on the paths of the inner integrals
+# (PathTooLarge, raised before anything is evaluated: method = :auto then takes the inversion on paths, :line refuses), the
+# breakpoints and partitions at the edges of the support of X(v) and the infinite density at the tangency of a numerator of
+# rank one with c0 > 0, and its finer rules below c = -20.  Of its own: the roots labelled by the sign of their real part
+# (one root in each group, which stay apart on the line), the continuation of log P with a predicted increment and steps
+# walked through where the prediction fails (`line_continue`), the end of the line by |P| (`line_end`), the caps on the
+# first panels of the K_0 layouts by the root scale (k0first) and the line moved off tau = 1 where the fixed layouts'
+# bound on s_2 fails (`line_tau`).  Above the unit root the classical engine's Girsanov forms (case codes only) are not
+# needed: the general determinant is formed without the cancellation (`m011`, Sigma in closed form), within 1e-14 of the
+# Girsanov forms in case DU at c = 5.
 
 import ..DFExact
 const LX = DFExact
@@ -196,15 +207,15 @@ LX.wmaxc(lm::LineModel, c::Float64) = lm.wend
 The end of the outer integrals on the line Re t = tau.  The classical engine ends at w = DFExact.wmaxc(c), set by the decay
 of the kernel's exponential factor alone; the transform also carries a power of t that grows with the number of trend
 functions, and at c = -20 |P(tau + iW)| is 9.5e-9 in case DU, 2.2e-8 in case DT, 7e-7 for a trend of order four (whose
-density was off by 6e-10 there) and 7e-6 for one of order six.  The line is therefore extended, by doubling from wmaxc(c),
-until |P(tau + iW)| <= LINE_PEND, the largest value the classical engine leaves at its end in its six cases (case DT at
-c = -20), so that the three classical designs keep the classical end; at most LINE_WMAXFAC times wmaxc(c).
+density was off by 6e-10 there) and 7e-6 for one of order six.  The line is therefore extended, in steps of 25% from
+wmaxc(c), until |P(tau + iW)| <= LINE_PEND, the largest value the classical engine leaves at its end in its six cases
+(case DT at c = -20), so that the three classical designs keep the classical end; at most LINE_WMAXFAC times wmaxc(c).
 """
 function line_end(lm::LineModel, tau::Float64)
     W0 = LX.wmaxc(lm.c); W = W0
     absP(w) = (v = line_raw(lm, [complex(tau, w)])[1]; exp(-real(lineLr(lm.r, v)) / 2))
     while absP(W) > LINE_PEND && W < LINE_WMAXFAC * W0
-        W *= 2
+        W *= 1.25
     end
     W
 end
