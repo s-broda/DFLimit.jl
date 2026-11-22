@@ -89,6 +89,16 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         # and the bulk at c >= 7 (2.7 to 34 times faster) through the default below
         stat && c0 != 0 && c <= -3e-3 && return :general                   # 2.4 to 140 times faster; nearer zero the general engine
                                                                            # is off by 1e-10 to 7e-8 in cases SU, ST (tails below 1e-3: see merged_dist)
+        # x = 0, the points of the coefficient statistic (coef_cdf, coef_icdf: F at x = 0 with the null value c0 + y), one
+        # point per call (scratch timing of November 2026: cases DK, DU, DT, c from 1 to -80, y at the 1 to 99% quantiles of
+        # the statistic and c0 = -3, 2): with c0 > 0 the classical line integral, 2 to 12 times faster there (X(v) = c0 v^2 +
+        # 1/2 has no root), where the rule below takes the general engine for the t-ratio; with c0 < 0 in case DK for c > -5
+        # the general engine, 1.4 to 2.7 times faster (the classical line integral with its general kernel); otherwise the
+        # rule of the t-ratio (with c0 < 0 the classical engine, equal to 1.8 times faster in cases DU, DT)
+        if x == 0 && !fixed && !stat && c0 != 0 && -100 < c <= 1 && cas in ("DK", "DU", "DT")
+            c0 > 0 && return :classical
+            (cas == "DK" && c > -5) && return :general
+        end
         if !fixed && !stat && c0 > 0 && -100 < c <= 1
             # 1.6 to 4.8 times faster.  In case DK the density is infinite at the tangency x* = -sqrt(2 c0); just above it
             # (within 1e-3 of x*) the classical line integral is the more accurate (the general engine's density off by up

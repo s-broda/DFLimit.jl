@@ -29,6 +29,11 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:dist, spec("DK"; g0 = 1.0), 2, 0, -1) == :classical
         @test ae(:dist, spec("DU"; g0 = 1.0), -10, 0, -1) == :classical     # fixed start, cases DU, DT
         @test ae(:dist, spec("DG"), -10, 0, -2) == :classical
+        # x = 0, the points of the coefficient statistic: c0 > 0 the classical engine, c0 < 0 in case DK for c > -5 the general
+        @test ae(:dist, spec("DU"), -5, 2, 0) == :classical && ae(:dist, spec("DK"), 0, 2, 0) == :classical && ae(:dist, spec("DT"), -80, 2, 0) == :classical
+        @test ae(:dist, spec("DK"), 0, -3, 0) == :general && ae(:dist, spec("DK"), -5, -3, 0) == :classical && ae(:dist, spec("DU"), -2, -3, 0) == :classical
+        @test ae(:dist, spec("DU"), -300, 2, 0) == :general && ae(:dist, spec("DU"), 2, 1, 0) == :classical      # (beyond: the rule of the t-ratio)
+        @test coef_cdf([-5.0, 1.0], "DK", 0) == [ltratio_cdf(0.0, "DK", 0; c0 = -5.0, engine = :general), ltratio_cdf(0.0, "DK", 0; c0 = 1.0, engine = :classical)]
         # the other functions
         @test ae(:icdf, spec("DT"), -5, 0, 0) == :general && ae(:icdf, spec("ST"), -10, 0, 0) == :general && ae(:icdf, spec("ST"), -0.1, 0, 0) == :classical
         @test ae(:mom, spec("SU"), -0.1, 0, 0) == :classical && ae(:mom, spec("SK"), -0.01, -0.01, 0) == :general && ae(:mom, spec("ST"), -2, 0, 0) == :general
