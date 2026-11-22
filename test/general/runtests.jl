@@ -55,9 +55,10 @@ end
     end
     @testset "distribution function, cases DK DU DT" begin
         xs = [-3.5, -2.0, -0.7, 0.4]
-        for (cas, p) in (("DK", -1), ("DU", 0), ("DT", 1))
-            @test maximum(abs, dist_cdf(trend(p), xs, -5.0) - ltratio_cdf(xs, cas, -5.0; engine = :classical)) < 1e-10
-            @test maximum(abs, dist_pdf(trend(p), xs, -5.0) - ltratio_pdf(xs, cas, -5.0; engine = :classical)) < 1e-10
+        # (method = :auto takes the line integral with the explicit kernel at c0 = 0; :paths the inversion on paths)
+        for (cas, p) in (("DK", -1), ("DU", 0), ("DT", 1)), m in (:auto, :paths)
+            @test maximum(abs, dist_cdf(trend(p), xs, -5.0; method = m) - ltratio_cdf(xs, cas, -5.0; engine = :classical)) < 1e-10
+            @test maximum(abs, dist_pdf(trend(p), xs, -5.0; method = m) - ltratio_pdf(xs, cas, -5.0; engine = :classical)) < 1e-10
         end
     end
     @testset "fixed start: Qf against DFLimit's qstart" begin
@@ -109,8 +110,10 @@ end
         xs = [-3.5, -2.0, -0.7, 0.4]
         @test maximum(abs, dist_cdf(trend(1), xs, -5.0; start = :fixed, gamma0 = 2.0) - ltratio_cdf(xs, "DT", -5.0; g0 = 2.0)) < 1e-10
         @test maximum(abs, dist_cdf(trend(-1), xs, -5.0; start = :fixed, gamma0 = 1.5) - ltratio_cdf(xs, "DK", -5.0; g0 = 1.5, engine = :classical)) < 1e-10
-        @test maximum(abs, dist_cdf(trend(0), xs, -5.0; start = :stationary) - ltratio_cdf(xs, "SU", -5.0)) < 1e-10
-        @test maximum(abs, dist_pdf(trend(1), xs, -10.0; start = :stationary) - ltratio_pdf(xs, "ST", -10.0)) < 1e-10
+        for m in (:auto, :paths)
+            @test maximum(abs, dist_cdf(trend(0), xs, -5.0; start = :stationary, method = m) - ltratio_cdf(xs, "SU", -5.0)) < 1e-10
+            @test maximum(abs, dist_pdf(trend(1), xs, -10.0; start = :stationary, method = m) - ltratio_pdf(xs, "ST", -10.0)) < 1e-10
+        end
     end
     @testset "fixed start far from the unit root" begin
         # (the cases that failed with the earlier placement grid, by 11 and 2.4; now without a warning)
@@ -159,7 +162,7 @@ end
         @test maximum(abs, dist_cdf(perron(:A, 0.4), xs, -5.0; gls = -13.5) - dist_cdf(trend(1), xs, -5.0; gls = -13.5)) < 1e-12
         @test maximum(abs, dist_cdf(trend(0), xs, -5.0; gls = -13.5) - dist_cdf(trend(-1), xs, -5.0)) < 1e-12
         xs = [-1.0, 1.0, 3.0]
-        @test maximum(abs, dist_cdf(trend(0), xs, 4.0) - ltratio_cdf(xs, "DU", 4.0)) < 1e-10
+        for m in (:auto, :paths); @test maximum(abs, dist_cdf(trend(0), xs, 4.0; method = m) - ltratio_cdf(xs, "DU", 4.0)) < 1e-10; end
     end
     @testset "GLS detrending with c0, the coefficient statistic, moments; no start" begin
         xs = [-3.0, -2.0, -1.0, 0.5]
@@ -265,12 +268,16 @@ end
         # far from the unit root (the hyperbola chosen by the largest term, ending at 20 c^2)
         for (D, cas, st) in ((trend(0), "DU", :zero), (trend(1), "ST", :stationary))
             m = ltratio_mom(2, cas, -300.0); xs = m[1] .+ sqrt(m[2] - m[1]^2) .* [-2.0, 0.0, 2.0]
-            @test maximum(abs, dist_cdf(D, xs, -300.0; start = st) - ltratio_cdf(xs, cas, -300.0; verified = true)) < 1e-10
-            @test maximum(abs, dist_pdf(D, xs, -300.0; start = st) - ltratio_pdf(xs, cas, -300.0; verified = true)) < 1e-10
+            for m in (:auto, :paths)
+                @test maximum(abs, dist_cdf(D, xs, -300.0; start = st, method = m) - ltratio_cdf(xs, cas, -300.0; verified = true)) < 1e-10
+                @test maximum(abs, dist_pdf(D, xs, -300.0; start = st, method = m) - ltratio_pdf(xs, cas, -300.0; verified = true)) < 1e-10
+            end
         end
         # the explosive side: the upper tail on the refined vertical line (c = 5, mean + 3 sd)
-        @test abs(dist_cdf(trend(1), [78.23], 5.0)[1] - ltratio_cdf(78.23, "DT", 5.0; verified = true)) < 1e-10
-        @test abs(dist_cdf(trend(-1), [193.8], 5.0)[1] - ltratio_cdf(193.8, "DK", 5.0; verified = true)) < 1e-10
+        for m in (:auto, :paths)
+            @test abs(dist_cdf(trend(1), [78.23], 5.0; method = m)[1] - ltratio_cdf(78.23, "DT", 5.0; verified = true)) < 1e-10
+            @test abs(dist_cdf(trend(-1), [193.8], 5.0; method = m)[1] - ltratio_cdf(193.8, "DK", 5.0; verified = true)) < 1e-10
+        end
         xs = [-3.5, -2.0, -0.7]
         F = @test_logs min_level = Logging.Warn dist_cdf(perron(:B, 0.5), xs, -5.0; verified = true)
         @test maximum(abs, F - dist_cdf(perron(:B, 0.5), xs, -5.0)) < 1e-9
@@ -294,7 +301,7 @@ end
     @testset "bounded caches, no second refinement of a line" begin
         old = DFDet.CACHE_MAX[]; DFDet.CACHE_MAX[] = 3
         try
-            for c in (-1.0, -2.0, -3.0, -4.0, -5.0); dist_cdf(trend(0), [-2.0], c); end
+            for c in (-1.0, -2.0, -3.0, -4.0, -5.0); dist_cdf(trend(0), [-2.0], c; method = :paths); end   # (the paths: the line integral keeps no outer contour)
             @test length(DFDet.CPCACHE) <= 3 && length(DFDet.CPORDER) == length(DFDet.CPCACHE)
         finally
             DFDet.CACHE_MAX[] = old
@@ -401,7 +408,8 @@ end
         # fixed_phi and the caps of the segments from c = -60 on give 5e-13, case DK 3e-11)
         for (cas, p, st) in (("DK", -1, :zero), ("DU", 0, :zero), ("DT", 1, :zero), ("SU", 0, :stationary)), c in (-70.0, -85.0, -100.0)
             xs = ltratio_icdf([0.01, 0.5, 0.99], cas, c; engine = :classical)
-            F = with_logger(NullLogger()) do; dist_cdf(trend(p), xs, c; start = st); end
+            # (the paths: method = :auto takes the line integral with the explicit kernel at c0 = 0)
+            F = with_logger(NullLogger()) do; dist_cdf(trend(p), xs, c; start = st, method = :paths); end
             @test maximum(abs, F .- ltratio_cdf(xs, cas, c; engine = :classical, method = :single)) < 1e-10
         end
     end

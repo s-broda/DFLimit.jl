@@ -44,6 +44,7 @@ export Determ, trend, perron, fdesign, ltrend, design_from_matrix, detrend_first
 Base.include(DFDet, joinpath(@__DIR__, "DFDet_paper2.jl"))
 using .DFDet: pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_quantile, lm_power, mza_cdf, mza_quantile, msb_cdf, msb_quantile
 export pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_quantile, lm_power, mza_cdf, mza_quantile, msb_cdf, msb_quantile
+Base.include(DFDet, joinpath(@__DIR__, "DFDet_line.jl"))   # the line integral for the designs of rank one or two
 
 # one interface over the two engines, and the choice between them (autoengine)
 using SpecialFunctions: erfinv

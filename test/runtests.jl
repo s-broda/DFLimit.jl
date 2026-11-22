@@ -439,6 +439,7 @@ end
 @testset "merged package: $f" for f in ("merged.jl", joinpath("general", "runtests.jl"), joinpath("general", "paper2.jl"))
     @test (Base.include(Module(), joinpath(@__DIR__, f)); true)
 end
+Base.include(Module(), joinpath(@__DIR__, "general", "line.jl"))   # the line integral of the general designs of rank one or two
 
 end # @testset "DFLimit"
 
