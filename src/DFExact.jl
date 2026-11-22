@@ -1372,6 +1372,7 @@ function wmaxc(c::Float64)
     d = -(c + 20); a = d + sqrt(WMAX)
     max(WMAX, a * sqrt(a * a - d * d))
 end
+wmaxc(model, c::Float64) = wmaxc(c)       # (the end for a model; the general designs' line integral extends it, DFDet_line.jl)
 # The step in u of the trapezoidal rule of the smooth part.  For c < -20 the phase of the kernel, about w/(2|c|) on the
 # line, outruns its decay and the rule at 0.075 loses 5e-10 in F at c = -50 (the constant part): the step (hu, 0.075) is
 # multiplied by 20/|c|.
@@ -1486,7 +1487,7 @@ phase of the saddle factor (q > 0, see saddle_phase) changes too fast for it, Ga
 [0, 1/2], [1/2, 1], [1, 2], ..., [WEDGE/2, WEDGE] with N Gauss–Legendre nodes each, and the
 oscillation is integrated exactly (Filon).
 """
-function outer(model::Int, c::Float64, q::Float64, tau::Float64, inner::Function, weight::Function;
+function outer(model, c::Float64, q::Float64, tau::Float64, inner::Function, weight::Function;
                hu::Float64 = 0.075, N::Int = 20, cde::Float64 = tau, parts::Bool = false, edge_hw = nothing, pfac::Int = 1, stat::Bool = false,
                batch = nothing)
     kern = kernel(model, stat)
@@ -1494,7 +1495,7 @@ function outer(model::Int, c::Float64, q::Float64, tau::Float64, inner::Function
 
     # the smooth part
     t0 = time_ns()
-    Wm = wmaxc(c); hu *= hufac(c)
+    Wm = wmaxc(model, c); hu *= hufac(c)
     umax = asinh(Wm / cde)
     us = collect(0.0:hu:umax)
     ts = [tau + im * cde * sinh(u) for u in us]
@@ -1654,7 +1655,7 @@ function k0batch(q::Float64, dens::Bool, tau::Float64, e1r1::Tuple{Float64,Float
         end
     end
 end
-function density(qin::Float64, model::Int; c::Float64 = 0.0, tau = nothing, start::Symbol = :zero, c0::Float64 = 0.0, g0::Float64 = 0.0, gen::Bool = false, kw...)
+function density(qin::Float64, model; c::Float64 = 0.0, tau = nothing, start::Symbol = :zero, c0::Float64 = 0.0, g0::Float64 = 0.0, gen::Bool = false, kw...)
     q = (qin == 0 && c0 == 0 && (g0 != 0 || gen)) ? 1e-12 : qin           # x = 0 is taken exactly (inner_density, inner_cdf; the c0 != 0 kernel has no root at v = 0), except by the general kernel forced at c0 = 0
     stat = startflag(start, c)
     tau === nothing && (tau = default_tau(model, c, g0; stat))
@@ -1666,7 +1667,7 @@ function density(qin::Float64, model::Int; c::Float64 = 0.0, tau = nothing, star
     outer(model, c, q, tau, (t, s1, s2, M0, part) -> inner_density(V, t, q, s1, s2, M0; part = part, e1 = e1r1[1]), t -> one(t); stat, batch, kw...)
 end
 
-function cdf(qin::Float64, model::Int; c::Float64 = 0.0, tau = nothing, start::Symbol = :zero, c0::Float64 = 0.0, g0::Float64 = 0.0, gen::Bool = false, kw...)
+function cdf(qin::Float64, model; c::Float64 = 0.0, tau = nothing, start::Symbol = :zero, c0::Float64 = 0.0, g0::Float64 = 0.0, gen::Bool = false, kw...)
     q = (qin == 0 && c0 == 0 && (g0 != 0 || gen)) ? 1e-12 : qin           # x = 0 is taken exactly (inner_density, inner_cdf; the c0 != 0 kernel has no root at v = 0), except by the general kernel forced at c0 = 0
     stat = startflag(start, c)
     tau === nothing && (tau = default_tau(model, c, g0; stat))
@@ -3221,7 +3222,7 @@ end
 at the reference point t = tau + i (it moves little with t while the saddle matters); NaN when there is no segment or
 the saddle is irrelevant (it must lie inside the first segment and close to the real axis; with c0 > 0 it can have a
 positive real part but sits far below the axis)."""
-function saddle_loc(model::Int, c::Float64, q::Float64, c0::Float64, tau::Float64, stat::Bool, kern::Int, R::Breaks)
+function saddle_loc(model, c::Float64, q::Float64, c0::Float64, tau::Float64, stat::Bool, kern::Int, R::Breaks)
     R.ne == 0 && return NaN
     _, s1, s2, _ = tparts(model, c, [complex(tau), complex(tau, 1.0)]; stat)
     sd = (kern == 1 || R.sgn[1] < 0) ? s1[2] : s2[2]
@@ -3256,11 +3257,11 @@ end
 """the outer integral for the general kernel: the smooth part as in `outer` (the trapezoidal rule in u, w = tau sinh u, or
 Gauss-Legendre panels following the phase of the saddle factor), and one Filon part per breakpoint, with its frequency
 y_k = b_k^2."""
-function outer_gen(model::Int, c::Float64, q::Float64, c0::Float64, R::Breaks, tau::Float64, inner::Function, weight::Function;
+function outer_gen(model, c::Float64, q::Float64, c0::Float64, R::Breaks, tau::Float64, inner::Function, weight::Function;
                    hu::Float64 = 0.075, N::Int = 20, pfac::Int = 1, edge_hw = nothing, stat::Bool = false, parts::Bool = false)
     cde = tau
     kern = kernel(model, stat)
-    Wm = wmaxc(c); hu *= hufac(c)
+    Wm = wmaxc(model, c); hu *= hufac(c)
     umax = asinh(Wm / cde)
     us = collect(0.0:hu:umax)
     ts = [tau + im * cde * sinh(u) for u in us]
@@ -3352,7 +3353,7 @@ end
 """The value of the density (kind 1) or the distribution function (kind 2) at q through the general kernel (c0 != 0, a fixed
 start g0 != 0, or gen = true for checking at c0 = 0).  In case DK with c0 > 0 the density is infinite at
 x = -sqrt(2 c0 (1 + g0^2)).  With a fixed start the kernel is the noncentral one (nckernel) at each point of the line."""
-function value_gen(kind::Int, q::Float64, model::Int, c::Float64, c0::Float64, tau::Float64, stat::Bool; g0::Float64 = 0.0, hw::Float64 = 0.0, kw...)
+function value_gen(kind::Int, q::Float64, model, c::Float64, c0::Float64, tau::Float64, stat::Bool; g0::Float64 = 0.0, hw::Float64 = 0.0, kw...)
     kern = kernel(model, stat); V = Val(kern)
     stat && g0 != 0 && error("a fixed start g0 applies to the zero-start cases only")
     x0 = (g0 != 0 && model == 1) ? (1 + g0 * g0) / 2 : 0.5
