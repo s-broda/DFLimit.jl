@@ -440,6 +440,7 @@ end
     @test (Base.include(Module(), joinpath(@__DIR__, f)); true)
 end
 Base.include(Module(), joinpath(@__DIR__, "general", "line.jl"))   # the line integral of the general designs of rank one or two
+Base.include(Module(), joinpath(@__DIR__, "kan.jl"))               # the prototypes of the devices of Bao and Kan (src/DFKan*.jl)
 
 end # @testset "DFLimit"
 
