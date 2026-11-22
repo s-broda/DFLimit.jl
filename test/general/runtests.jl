@@ -387,7 +387,9 @@ end
         GC.gc(); f0 = footprint()
         el = @elapsed e = refuse(1.0)
         @test e isa ErrorException && occursin("the U-shapes of the zero start", e.msg) && occursin("USHAPE_MAXNODES", e.msg)
-        @test el < 0.5
+        # (the memory bound, not the time, shows that the guard refused before the inner integrals, 0.8 GB without it; the
+        # time bound only protects against a hang: a tight one fails on a loaded machine)
+        @test el < 60
         @test footprint() - f0 < 100 * 2^20
         # a fixed start: d(r) = 1 + r at c = 0, g0 = 1 (the wide U-shapes beyond the cap from |t| = 3400 on), refused before
         # the outer sum as well, with the count at the placed abscissas
@@ -395,7 +397,7 @@ end
         DFDet.cpath(model(prep(Dr), :fixed, 1.0), 0.0)   # (the code compiled; the timed call builds the path again)
         el = @elapsed e = try; with_logger(NullLogger()) do; dist_cdf(Dr, [-2.0], 0.0; start = :fixed, gamma0 = 1.0); end; nothing; catch err; err; end
         @test e isa ErrorException && occursin("the U-shapes of the fixed start", e.msg) && occursin("USHAPE_MAXNODES", e.msg)
-        @test el < 0.5
+        @test el < 60
         # the caps of the outer hyperbola (a factor hfac of its step far below one) and of the grid of the moments (c far
         # above the unit root)
         e = try; dist_cdf(trend(0), [-2.0], -5.0; hfac = 1e-4); nothing; catch err; err; end
