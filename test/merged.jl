@@ -132,7 +132,7 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test round(power_envelope(-10.0, perron(:C, 0.5)), digits = 4) == 0.1789                # paper/envelope.txt of df-deterministics
         # the argument errors of the interface
         @test occursin("the classical engine has the cases", errm(() -> ltratio_cdf(-2.0, D, 0; engine = :classical)))
-        @test occursin("does not apply with engine = :general", errm(() -> ltratio_cdf(-2.0, "DU", 0; method = :single, engine = :general)))
+        @test occursin("does not apply with engine = :general", errm(() -> ltratio_cdf(-2.0, "DU", 0; method = :double, engine = :general)))
         @test occursin("engine must be", errm(() -> ltratio_cdf(-2.0, "DU", 0; engine = :fast)))
         @test occursin("exclude each other", errm(() -> ltratio_cdf(-2.0, D, -5; g0 = 1.0, start = :stationary)))
     end
