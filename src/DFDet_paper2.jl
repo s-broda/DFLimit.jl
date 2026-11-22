@@ -185,7 +185,9 @@ function prep_lm(D::Determ)
     B = -(S' * T' * W .+ W' * T * S) .+ W' * (T * T') * W; B = (B .+ B') ./ 2
     a1 = zeros(N); a1[1] = 1; a1 .-= Bb' * ev(Cd, np, 1.0)     # J_0(1) = a1' ell
     A = zeros(N, N); A[1, 1] = 0.5                             # placeholder
-    P = Prep(D, k, p, nj, N, size(F[1], 1) - 1, br, g, jl, A, B, reshape([1.0; zeros(N - 1)], N, 1), [0.5], 1, 1, 0, Pd * Pd', zeros(N), offs, NaN)
+    # (the last field :lm: V is not the norm of an orthogonal projection of J, and `tstar` takes the estimate of the edge
+    # t_* from the quadratic form itself, `eigtop_q`)
+    P = Prep(D, k, p, nj, N, size(F[1], 1) - 1, br, g, jl, A, B, reshape([1.0; zeros(N - 1)], N, 1), [0.5], 1, 1, 0, Pd * Pd', zeros(N), offs, NaN, :lm)
     P, a1
 end
 """the LM statistic's prepared design, with the check that J_0(1) vanishes (a linear trend among the trend functions)"""

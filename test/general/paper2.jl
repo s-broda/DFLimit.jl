@@ -33,4 +33,19 @@ const GE = DFLimit.DFDet
     @test lm_cdf(trend(1), [q5])[1] ≈ 0.05 atol = 1e-9
     @test lm_cdf(trend(1), [0.5, -Inf]) == [1.0, 0.0]
     @test_throws ArgumentError lm_quantile(trend(0), 0.05)              # no linear trend: J_0(1) does not vanish
+    # the edge t_* of the LM statistic's transform: the first zero of D_V (the estimate took the orthogonal projection on the
+    # design, whose largest eigenvalue is not that of the LM statistic's V: 231 for 139 with the linear trend at c = -20, and
+    # above the unit root up to 2.3 times the edge, where the path at t_*/2 lay beyond it and failed)
+    for D in (trend(1), trend(2), perron(:A, 0.3), perron(:B, 0.3), perron(:C, 0.5)), c in (-20.0, 2.0, 5.0)
+        Mo = GE.model(GE.lmprep(D)); ts = GE.tstar(Mo, c)[1]
+        W = GE.MWork(Mo); dv(t) = real(exp(GE.mgfparts(Mo, c, complex(t), W)[2]))
+        @test all(t -> dv(t) > 0, range(0.01ts, 0.99ts; length = 200)) && dv(1.01ts) < 0
+    end
+    # with a level break (Perron's model A) the LM statistic has the law of the linear trend's (J_0 and Sbar are the same
+    # functionals of J); at c = 3 and 4 the break at 0.3 failed (the path beyond t_*)
+    xs = [-0.5, -0.2, -0.1, -0.05]
+    for c in (3.0, 4.0)
+        Ft = lm_cdf(trend(1), xs, c)
+        @test maximum(abs, lm_cdf(perron(:A, 0.3), xs, c) - Ft) < 1e-10 && maximum(abs, lm_cdf(perron(:A, 0.5), xs, c) - Ft) < 1e-10
+    end
 end

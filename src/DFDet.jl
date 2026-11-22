@@ -429,7 +429,8 @@ struct Prep
     b::Vector{Float64}          # the coefficient of J(0) in U + 1/2 = ell' A ell - J(0)^2/2 + J(0) b' ell (z block: Pm d(0))
     off::Vector{Float64}        # the origins of the coefficients of the pieces (0, or br[j] for local coefficients)
     cbar::Float64               # GLS detrending at abar = 1 + cbar/n (`prep_gls`); NaN: least squares
-    detrend::Symbol             # :onestep or :first (the statistic that detrends first: A is A_d, see `detrend_first`)
+    detrend::Symbol             # :onestep or :first (the statistic that detrends first: A is A_d, see `detrend_first`);
+                                # :lm the denominator of the LM statistic (`prep_lm`, A a placeholder)
 end
 # (the constructor without the last field: the one-step regression)
 Prep(D::Determ, K::Int, p::Int, nj::Int, N::Int, deg::Int, br, g, jl, A, B, L, Dv, r::Int, rp::Int, rm::Int, G, b, off, cbar::Float64) =
@@ -1584,8 +1585,9 @@ dense_la(Mo::Model) = !(USE_STATIC[] && Mo.N <= STATIC_MAX)
 """the Gauss-Legendre nodes per eighth of a piece of the Nystrom estimate of t_* in `tstar` (48 before the speed stage, 8
 pieces of 48 = 384 points per piece and an eigenvalue problem of that size, 7 ms for the linear trend and 22 ms for model C;
 the estimate only has to lie within 2% of t_*, which bisection on D_V then finds to 1e-13; far from the unit root, where
-it does not, the scan from the branch point finds t_*).  GLS detrending (`eigtop_q`) keeps 48: its t_* lies below the
-branch point far from the unit root (4818 at c = -100 in case DT, cbar = -13.5), where the scan does not apply."""
+it does not, the scan from the branch point finds t_*).  GLS detrending and the LM statistic (`eigtop_q`) keep 48: their
+t_* lies below the branch point far from the unit root (4818 at c = -100 in case DT, cbar = -13.5; 139 for the LM
+statistic with a linear trend at c = -20), where the scan does not apply."""
 const NYSTROM_M = Ref(16)
 """
     tstar(P, c) -> (tstar, multiplicity)
@@ -1604,7 +1606,10 @@ function tstar_(Mo::Model, c::Real)
     Mo.start == :stationary && c >= 0 && throw(ArgumentError("the stationary start needs c < 0"))
     W = MWork(Mo)
     f(t) = real(exp(mgfparts(Mo, c, complex(t), W)[2]))
-    l1, l2 = isnan(Mo.P.cbar) ? eigtop(Mo.P, c; m = NYSTROM_M[], stat = Mo.start == :stationary) : eigtop_q(Mo.P, c)
+    # (eigtop projects J orthogonally off the span of the design; the V of GLS detrending and of the LM statistic is no such
+    # norm, and eigtop_q takes its quadratic form: with eigtop the LM statistic's t_* came out up to 2.3 times too large,
+    # above the unit root beyond twice the edge, where the path then failed)
+    l1, l2 = isnan(Mo.P.cbar) && Mo.P.detrend != :lm ? eigtop(Mo.P, c; m = NYSTROM_M[], stat = Mo.start == :stationary) : eigtop_q(Mo.P, c)
     te = 1 / (2l1)
     grid = range(0.98te, 1.02te; length = 81)
     vals = f.(grid)
