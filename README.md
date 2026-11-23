@@ -197,6 +197,17 @@ parabola on the vertical line, which now go to Filon's rule (the linear form was
 and by 1e-4 with GLS detrending at small |cbar|, the t-ratio with c0 < 0 by 8.5e-5 and its density by 1e-2). On the
 line ADFmax and parabolas with two roots (c0 > 0 with x < 0) keep the Gauss-Legendre rule and its warning.
 
+Above the unit root the t-ratio with c0 != c has its upper tail at x of the order (c - c0) e^c/(2c). There the line
+integral's inner rule exceeds the bounds of the engine (from x ~ 700), and in case DK the classical engine takes the
+conditional integral with its checks whatever its flag (its one evaluation is off by up to 14 there, and before
+November 23, 2026 the default route returned it where the checked value was flagged: values outside [0, 1]); for c > 4 it
+does so at x > 300 too, where the line integral's cost grows like x^4, and with c0 > c at x < -20, where the line integral
+is off by up to 1.5e-3. Against an independent computation (the law of V given J(1), `scratch/fut/bridge_ref.jl`) these
+values are within 1.3e-8 up to c = 14; above c = 14 case DK refuses such points with an `ArgumentError` (the conditional
+integral is off by 7.7e-5 at c = 16 and the general engine's line exceeds its bounds). The general engine cuts its line to
+the oscillation with c0 (it was off by 1.1e-3 at c = 10, c0 = 9). Every distribution function (`ltratio_cdf`, `coef_cdf`,
+`dist_cdf`, `DFDet.coef_cdf`) ends with a check of its values: below -1e-8 or above 1 + 1e-8 an error that names the call.
+
 ## Example
 
 ```julia
