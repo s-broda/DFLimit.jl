@@ -31,24 +31,37 @@ end
 # where they do not clash with the classical engine's; the four that do (coef_cdf, adfmax_cdf, adfmax_pdf,
 # power_envelope) are the classical functions, which take a design of the general engine as well (src/merged.jl), and
 # the general engine's own are DFLimit.DFDet.coef_cdf and so on.
+# The devices of Bao and Kan ("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order
+# Autoregressions: O(1) Algorithms"): the closed-form characteristic function with the branch fixed at each point, jets,
+# the single inversion with tail completion; the module DFLimit.DFKan, which the interface below calls for the
+# half-plane statistics and the moments of the classical cases (nothing of it is exported), and whose generic inversion
+# the general engine's file src/DFKan_det.jl uses
+include("DFKan.jl")
+
 include("DFDet.jl")
 using .DFDet: Determ, trend, perron, fdesign, ltrend, design_from_matrix, detrend_first, dist_cdf, dist_pdf, dist_quantile,
-              dist_moments, coef_pdf, coef_quantile, coef_cdf_gp, local_power, lin_cdf, lin_pdf, lin_quantile, v_cdf, v_pdf,
+              dist_moments, coef_pdf, coef_quantile, local_power, lin_cdf, lin_pdf, lin_quantile, v_cdf, v_pdf,
               adfmax_quantile, region_prob, simulate_tratio, simulate_gls, simulate_first, empty_caches!
 export Determ, trend, perron, fdesign, ltrend, design_from_matrix, detrend_first, dist_cdf, dist_pdf, dist_quantile,
-       dist_moments, coef_pdf, coef_quantile, coef_cdf_gp, local_power, lin_cdf, lin_pdf, lin_quantile, v_cdf, v_pdf,
+       dist_moments, coef_pdf, coef_quantile, local_power, lin_cdf, lin_pdf, lin_quantile, v_cdf, v_pdf,
        adfmax_quantile, region_prob, simulate_tratio, simulate_gls, simulate_first, empty_caches!
 
 # the statistics of the paper on general deterministic terms: the point-optimal statistic and the envelope for any design,
 # the LM statistic, MZ_alpha and MSB (in the module DFDet, whose file stays that of df-deterministics)
+# the general engine's determinant with the branch from the pivots and the single inversion (Bao and Kan), for the
+# point-optimal statistic and coef_cdf_gp
+Base.include(DFDet, joinpath(@__DIR__, "DFKan_det.jl"))
+using .DFDet: coef_cdf_gp
+export coef_cdf_gp
 Base.include(DFDet, joinpath(@__DIR__, "DFDet_paper2.jl"))
 using .DFDet: pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_quantile, lm_power, mza_cdf, mza_quantile, msb_cdf, msb_quantile
 export pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_quantile, lm_power, mza_cdf, mza_quantile, msb_cdf, msb_quantile
 Base.include(DFDet, joinpath(@__DIR__, "DFDet_line.jl"))   # the line integral for the designs of rank one or two
 
-# one interface over the two engines, and the choice between them (autoengine)
+# one interface over the two engines and the single inversion, and the choice between the engines (autoengine)
 using SpecialFunctions: erfinv
 include("merged.jl")
+export coef_mom
 DFExact.ROUTE[] = router
 __init__() = (DFExact.ROUTE[] = router; nothing)
 

@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- **The branches fixed at each point.** The classical engine's P(t), M_0(t) and the labels of the roots of the line and
+  contour integrals (`DFExact.tparts`) and the argument of log P(t) in the provider of the general engine's line integral
+  are fixed at each point, after Bao and Kan (the factors whose arguments are known; the pivots of the precision matrix,
+  one small elimination per point in the general engine), in place of their continuation along the grids, which is
+  removed with the switches of the prototypes. On the engines' grids the values are those of before to 5.7e-14 relative
+  (whole calls of `ltratio_cdf`, `ltratio_pdf`, `ltratio_icdf`, `dist_cdf`, `dist_pdf`, `dist_quantile` to 1.7e-14); on
+  the hyperbolas of case DK at c = -480 the continuation gave non-finite values far out, the branch at the point does not.
+  Warm whole calls on one thread take 0.94 to 1.01 times as long as before (the quantiles of cases DT, SK, ST 0.29 to 0.46
+  times: a real point no longer builds the series of D; case DU at c = 2 1.25 times); the contour integral's stored
+  value at the corner (c g0)^2/2 = 7200 of case DT moved by 5.9e-12 (to within 2e-12 of the general engine's checked
+  value).
+- **The point-optimal statistic and `coef_cdf_gp` by the single inversion.** `pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`,
+  `pt_envelope` (and `power_envelope` of designs beyond the classical cases) up to c = 4, and `coef_cdf_gp` (zero or
+  stationary start) up to c = 5, take the single inversion of Bao and Kan with the branch of the square root of the
+  determinant from the pivots of the precision matrix at each point (`DFDet.DetCF`, `src/DFKan_det.jl`) in place of the
+  fixed grid of 60,000 points: 5 to 60 times faster (pt_cdf 1.2 to 65 ms against 77 to 640, quantiles and envelopes 13 to
+  86 ms against 63 to 880), within 3.3e-12 of the contour integral on the statistic's quadratic form, and without the
+  grid's refusals at c = 4 (an intercept, a linear trend) and for |q| > 1000. `method = :grid`, or N, umax, gives the grid
+  of before (`coef_cdf_gp` with a fixed start keeps it); the grid's function of before is `DFDet.coef_cdf_grid`. The
+  quantile searches keep the transform values along the ray across the search (`DFDet.MemoCF`). The values move by at
+  most 1.8e-11 (the 5% point of the point-optimal statistic with an intercept, where the grid's Newton search stops)
+  below the unit root and by up to 5e-10 above it (c = 3), where the grid is the less accurate one.
+- **The moments of the t-ratio from jets.** `ltratio_mom` takes the derivatives of the moment generating function from
+  one Taylor-mode jet per node of an adaptive quadrature (after Bao and Kan) by default in the six classical cases, for any
+  c0 and fixed start up to c = 20: 16 to 290 times faster (0.3 to 1.3 ms for four moments), within 1.4e-11 relative of
+  before near the unit root. Far from the unit root with c0 = c the values move by 1e-8 to 2e-7 relative, where the circles
+  of before were not converged; with a fixed start above the unit root (by up to 0.65 relative) and at c = 10, 20 with c0 = c
+  the one evaluation of before was wrong. New keywords `method` (`:auto`, `:jets`, `:engine`, the circles of before),
+  `tol`, `err`, `verified`.
+- **The single inversion of Bao and Kan for the half-plane statistics.** The coefficient statistic (`coef_cdf`,
+  `coef_icdf`), the linear form (`ltratio_lincdf`) and the power envelope (`power_envelope`) of the six classical cases are
+  computed by default by one inversion of the closed-form joint characteristic function along the ray of the half-plane,
+  with the tail completed by integration by parts from jets, the method of Bao and Kan ("Exact Finite-Sample Distribution
+  and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms"; the module `DFLimit.DFKan`),
+  10 to 1600 times faster than before (see the README, "The devices of Bao and Kan"). New: `coef_pdf(y, cas, c)` (the density, also for designs) and `coef_mom(p, cas, c)` (the
+  moments) of the coefficient statistic; the keywords `method` (`:auto`, `:inversion`, `:engine`), `tol` and `err` (the
+  error estimates) of these functions. `method = :engine` reproduces the values of before. The values move by at most
+  2.4e-11 to 1.8e-9 (the coefficient statistic; 4e-9 at c = 20, the rounding of y), 5.5e-11 (the linear form) and 2.7e-12
+  against the general engine's envelope, except
+  where the engines' one evaluation was wrong: the coefficient statistic of case DU with a fixed start far from the unit
+  root (off by 1.5e-6 at c = -60, g0 = 1.5) and the linear form with a fixed start above the unit root (by up to 6e-2,
+  through a design); the classical envelope's bisection to 1e-9 is replaced by a critical value to 1e-12. The linear form
+  of the classical cases other than DK (through their designs) takes the single inversion too.
 - **Two engines in one package.** The general engine of the paper on general deterministic terms (any regressors that
   are piecewise polynomial or smooth functions of r = t/n with known break dates; the inversion formula on paths around
   the singularities of the joint moment generating function) is now part of the package, as the submodule

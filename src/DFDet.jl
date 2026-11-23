@@ -3938,10 +3938,11 @@ rule.
 """
 const GP_EDGE = 3.3
 """
-    coef_cdf_gp(D, ys, c = 0; c0 = 0, start = :zero, gamma0 = 0, N = 60000, umax = 4000) -> P (vector)
+    coef_cdf_grid(D, ys, c = 0; c0 = 0, start = :zero, gamma0 = 0, N = 60000, umax = 4000) -> P (vector)
 
-The distribution function of the limit (U - c0 V)/V of n(phi^ - phi0), phi0 = 1 + c0/n, by the inversion formula of
-Gil-Pelaez: P(U - aV <= 0) = 1/2 - (1/pi) int_0^inf Im phi(u)/u du, a = c0 + y, phi(u) = M(iu, -i a u), with the branch of
+`coef_cdf_gp` with method = :grid (in DFLimit the default of `coef_cdf_gp` is the single inversion of Bao and Kan,
+src/DFKan_det.jl).  The distribution function of the limit (U - c0 V)/V of n(phi^ - phi0), phi0 = 1 + c0/n, by the
+inversion formula of Gil-Pelaez: P(U - aV <= 0) = 1/2 - (1/pi) int_0^inf Im phi(u)/u du, a = c0 + y, phi(u) = M(iu, -i a u), with the branch of
 the inverse square root of the determinant continued along u (the phase of log det unwrapped from u = 0, where the
 determinant is positive), the trapezoidal rule in u = sinh(v) with N steps up to umax (as DFExact.tr_gilpelaez).  An
 independent check of `coef_cdf`, which uses the contour integral.  Where a = 0 (y = -c0) the transform decays only like
@@ -3949,8 +3950,8 @@ u^{-r/2} and the truncation at umax shows.  Where the grid does not resolve the 
 (`GP_EDGE`: above the unit root, from about c = 5 in the lower tail and c = 10 in the bulk with the default N), it
 refuses with an ArgumentError that names the N it would need.
 """
-function coef_cdf_gp(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
-                     N::Int = 60000, umax::Real = 4000.0)
+function coef_cdf_grid(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
+                       N::Int = 60000, umax::Real = 4000.0)
     check_cmax(D, c, start, gamma0, "the coefficient statistic (coef_cdf_gp)")
     Mo = startmodel(D, c, start, gamma0, gls); c = Float64(c)
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))

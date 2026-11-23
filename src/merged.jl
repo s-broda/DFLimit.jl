@@ -183,7 +183,154 @@ function router(f::Symbol, engine::Symbol, args...; kw...)
     f === :envelope && return route_envelope(engine, args...; kw...)
     f === :adfmax && return route_adfmax(engine, args...; kw...)
     f === :region && return route_region(engine, args...; kw...)
+    f === :coef_cdf && return inv_coef_cdf(engine, args...; kw...)
+    f === :coef_icdf && return inv_coef_icdf(engine, args...; kw...)
+    f === :lincdf_inv && return inv_lincdf(engine, args...; kw...)
+    f === :envelope_inv && return inv_envelope(engine, args...; kw...)
+    f === :mom_inv && return inv_mom(engine, args...; kw...)
     throw(ArgumentError("router: unknown function $f"))
+end
+
+# ---------- the single inversion of Bao and Kan (DFKan) for the half-plane statistics of the six classical cases ----------
+# The method of Yong Bao and Raymond Kan, "Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in
+# First-Order Autoregressions: O(1) Algorithms": one inversion of the closed-form joint characteristic function along the
+# ray of the half-plane, adaptive quadrature over decades and the tail completed by integration by parts (src/DFKan*.jl).
+"""the cases of the closed-form transform of the single inversion (case DG has none)"""
+inv_case(cas::AbstractString) = uppercase(String(cas)) in ("DK", "DU", "DT", "SK", "SU", "ST")
+"""
+    inv_take(fn, method, engine, cas, c, kw) -> Bool
+
+Whether the single inversion computes: with method = :inversion always (an ArgumentError with engine = :general, for a
+case it does not have or with engine keywords), with method = :auto under engine = :auto in its cases, without engine
+keywords, for c up to DFKan.INV_CMAX; otherwise the engines compute (method = :engine or a representation of the
+engines, engine = :classical or :general).
+"""
+function inv_take(fn::String, method::Symbol, engine::Symbol, cas::AbstractString, c::Real, kw)
+    if method === :inversion || method === :jets
+        engine === :general && throw(ArgumentError("$fn: method = :$method (the devices of Bao and Kan) does not apply with engine = :general"))
+        inv_case(cas) || throw(ArgumentError("$fn: method = :$method applies to the cases DK, DU, DT, SK, SU, ST"))
+        isempty(kw) || throw(ArgumentError("$fn: method = :$method takes no further options ($(join(keys(kw), ", ")))"))
+        return true
+    end
+    method === :auto && engine === :auto && isempty(kw) && inv_case(cas) && c <= DFKan.INV_CMAX
+end
+"""the warning of the single inversion where error estimates exceed the tolerance (one per call)"""
+function inv_warn(fn::String, E::AbstractVector{Float64}, tol::Float64)
+    bad = count(e -> !(e <= tol), E)
+    bad == 0 && return nothing
+    @warn "$fn: the error estimate of the single inversion exceeds the tolerance $tol at $bad of $(length(E)) points (largest $(maximum(E))); verified = true recomputes them by the engines' checked computation"
+    nothing
+end
+"""f(k) for k = 1..n on the engine's tasks where n > 1 (the single inversion is thread-safe: its transform is immutable)"""
+function inv_map(f, n::Int)
+    out = Vector{Tuple{Float64,Float64}}(undef, n)
+    n == 1 ? (out[1] = f(1)) : DX.tmap!(f, out, n)
+    first.(out), last.(out)
+end
+function inv_coef_cdf(engine::Symbol, y, cas::AbstractString, c::Real; c0::Real, g0::Real, method::Symbol, verified::Bool, tol::Float64, err::Bool, kw...)
+    DX.ltratio_args(cas, c; c0, g0)                                    # (the classical engine's checks of the arguments)
+    inv_take("coef_cdf", method, engine, cas, c, kw) || return nothing
+    F = DFKan.limcf(cas, c, g0); ys = xvec(y)
+    P, E = inv_map(k -> DFKan.coef_cdf1(F, ys[k], Float64(c0), tol), length(ys))
+    if verified
+        bad = findall(e -> !(e <= tol), E)
+        isempty(bad) || (P[bad] = DX.coef_cdf(ys[bad], cas, c; c0, g0, method = :engine, verified = true))
+    else
+        inv_warn("coef_cdf", E, tol)
+    end
+    err ? (outshape(P, y), outshape(E, y)) : outshape(P, y)
+end
+function inv_coef_icdf(engine::Symbol, p, cas::AbstractString, c::Real; tol::Float64, c0::Real, g0::Real, method::Symbol, verified::Bool, err::Bool, kw...)
+    DX.ltratio_args(cas, c; c0, g0)
+    inv_take("coef_icdf", method, engine, cas, c, kw) || return nothing
+    (isfinite(tol) && tol > 0) || throw(ArgumentError("coef_icdf: tol must be a positive finite number"))
+    F = DFKan.limcf(cas, c, g0); ps = xvec(p)
+    for pk in ps; 0 < pk < 1 || throw(ArgumentError("coef_icdf: p must lie in (0, 1)")); end
+    Y, E = inv_map(k -> DFKan.coef_icdf1(F, ps[k], Float64(c0), tol, DFKan.TOL), length(ps))
+    if verified
+        bad = findall(e -> !(e <= DFKan.TOL), E)
+        isempty(bad) || (Y[bad] = DX.coef_icdf(ps[bad], cas, c; tol, c0, g0, method = :engine, verified = true))
+    else
+        inv_warn("coef_icdf", E, DFKan.TOL)
+    end
+    if err                                                             # (in y: the estimate of F divided by the density)
+        for k in eachindex(Y); E[k] /= DFKan.coef_pdf1(F, Y[k], Float64(c0), DFKan.TOL)[1]; end
+        return outshape(Y, p), outshape(E, p)
+    end
+    outshape(Y, p)
+end
+function inv_lincdf(engine::Symbol, b, a::Real, cas::AbstractString, c::Real; method::Symbol, verified::Bool, tol::Float64, err::Bool, kw...)
+    cs = uppercase(String(cas))
+    if method === :inversion
+        isnan(a) && throw(ArgumentError("ltratio_lincdf: method = :inversion needs a finite a (a = NaN, the law of V, is the general engine's)"))
+        cs == "DG" && throw(ArgumentError("ltratio_lincdf: method = :inversion applies to case DK (the designs of the six classical cases), not to case DG"))
+    end
+    (isnan(a) || cs != "DK") && method !== :inversion && return nothing
+    isinf(a) && throw(ArgumentError("ltratio_lincdf: a must be a finite real scalar (NaN: the law of V)"))
+    inv_lin(engine, b, Float64(a), "DK", c, 0.0; method, verified, tol, err, kw...)
+end
+function inv_mom(engine::Symbol, p::Int, cas::AbstractString, c::Real; c0::Float64, g0::Float64, method::Symbol, verified::Bool, tol::Float64, err::Bool, kw...)
+    inv_take("ltratio_mom", method === :jets ? :jets : method, engine, cas, c, kw) || return nothing
+    method === :auto && !DFKan.mom_ok(String(cas), Float64(c), c0, g0) && return nothing
+    m, e = DFKan.tratio_mom1(DFKan.limcf(cas, c, g0), max(p, 2), c0, tol)
+    # (the tolerance relative to max(|m_j|, m_2^{j/2}): a mean near zero, as with c0 = c far above the unit root, has no
+    # relative accuracy to speak of)
+    sc = [max(abs(m[j]), abs(m[2])^(j / 2)) for j in eachindex(m)]
+    m = m[1:p]; e = e[1:p]
+    bad = findall(j -> !(e[j] <= tol * sc[j]), 1:p)
+    if !isempty(bad)
+        if verified
+            m = DX.ltratio_mom(p, cas, c; c0, g0, method = :engine)
+        else
+            @warn "ltratio_mom: the error estimate of the moments from jets exceeds the tolerance $tol (relative) for the moments $(join(bad, ", ")); verified = true recomputes them by the engines"
+        end
+    end
+    err ? (m, e) : m
+end
+"""the linear form of a classical case (cas, g0) by the single inversion where `inv_take` and `DFKan.lin_ok` take it, or nothing"""
+function inv_lin(engine::Symbol, b, a::Float64, cas::String, c::Real, g0::Float64; method::Symbol, verified::Bool, tol::Float64, err::Bool, kw...)
+    inv_take("ltratio_lincdf", method, engine, cas, c, kw) || return nothing
+    bs = xvec(b)
+    # (method = :auto: the points outside the region of `DFKan.lin_ok` by the engines)
+    ok = method === :inversion ? trues(length(bs)) : [DFKan.lin_ok(cas, Float64(c), g0, a, bk) for bk in bs]
+    any(ok) || return nothing
+    F = DFKan.limcf(cas, c, g0); ik = findall(ok)
+    P = fill(NaN, length(bs)); E = fill(NaN, length(bs))
+    P[ik], E[ik] = inv_map(k -> DFKan.lin_cdf1(F, bs[ik[k]], a, tol), length(ik))
+    all(ok) || (P[.!ok] = lin_engine(bs[.!ok], a, cas, c, g0))
+    if verified
+        bad = findall(k -> ok[k] && !(E[k] <= tol), eachindex(E))
+        isempty(bad) || (P[bad] = lin_engine(bs[bad], a, cas, c, g0))
+    else
+        inv_warn("ltratio_lincdf", E[ik], tol)
+    end
+    err ? (outshape(P, b), outshape(E, b)) : outshape(P, b)
+end
+"""the linear form by the engines (method = :engine): case DK with a zero start by the classical function, the other
+classical cases by the general engine (as before the single inversion)"""
+lin_engine(bs::Vector{Float64}, a::Float64, cas::String, c::Real, g0::Float64) =
+    (cas == "DK" && g0 == 0) ? DX.ltratio_lincdf(bs, a, "DK", c; method = :engine) :
+    DFDet.lin_cdf(case_spec(cas, g0).D, bs, a, Float64(c); gkw(case_spec(cas, g0))...)
+function inv_envelope(engine::Symbol, c, cas::AbstractString; alpha::Real, method::Symbol, verified::Bool, tol::Float64, err::Bool, kw...)
+    cs = uppercase(String(cas))
+    method === :inversion && cs == "DG" && throw(ArgumentError("power_envelope: method = :inversion applies to case DK (DU), not to case DG"))
+    cs == "DK" || return nothing
+    0 < alpha < 1 || throw(ArgumentError("power_envelope: the level must lie in (0, 1)"))
+    cv = xvec(c)
+    inv_take("power_envelope", method, engine, "DK", 0.0, kw) || return nothing
+    # (method = :auto: the points outside the region of `DFKan.envelope_ok` by the engines)
+    ok = method === :inversion ? trues(length(cv)) : [DFKan.envelope_ok(ck) for ck in cv]
+    any(ok) || return nothing
+    ik = findall(ok); P = fill(NaN, length(cv)); E = fill(NaN, length(cv))
+    P[ik], E[ik] = inv_map(k -> DFKan.envelope1(cv[ik[k]], Float64(alpha), tol), length(ik))
+    all(ok) || (P[.!ok] = DX.power_envelope(cv[.!ok], "DK"; alpha, method = :engine))
+    if verified
+        bad = findall(k -> ok[k] && !(E[k] <= tol), eachindex(E))
+        isempty(bad) || (P[bad] = DX.power_envelope(cv[bad], "DK"; alpha, method = :engine))
+    else
+        inv_warn("power_envelope", E[ik], tol)
+    end
+    err ? (outshape(P, c), outshape(E, c)) : outshape(P, c)
 end
 """
     genmethod(method) -> :auto, :line or :paths
@@ -397,6 +544,87 @@ function coef_cdf(y, D::DFDet.Determ, c::Real = 0; c0::Real = 0.0, g0::Real = 0.
     ys = xvec(y)
     outshape(DFDet.coef_cdf(S.D, ys, Float64(c); c0 = Float64(c0), gkw(S)..., kw...), y)
 end
+"""
+    coef_pdf(y, cas, c = 0; c0 = 0, g0 = 0, method = :auto, engine = :auto, verified = false, tol = 1e-12, err = false) -> f
+    coef_pdf(y, D::Determ, c = 0; c0, g0, start, gls, ...)
+
+The limiting density of n(phi^ - phi0), the coefficient statistic (U - c0 V)/V of `coef_cdf` (y a number or an array).
+In the cases DK, DU, DT (zero or fixed start g0) and SK, SU, ST up to c = 20 it is the single inversion of Bao and Kan
+("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1)
+Algorithms"; `DFLimit.DFKan.ratio_pdf`): the density of a ratio by the formula of Geary, one integral of the derivative
+of the joint characteristic function along the ray, from jets, its tail completed by integration by parts, 0.05 to 1 ms
+a value.  `tol` is its tolerance relative to the scale max(1, E[V]/sd(U)) of the density, `err = true` returns `(f,
+errors)`, and a warning names the points at which the estimate exceeds the tolerance.  `method = :inversion` forces it;
+`method = :engine` (and engine = :general, case DG, a design beyond the classical cases, further options) is the
+general engine's density, the kernel 2 v^3 of its contour integral (`DFDet.coef_pdf`).  verified = true recomputes the
+values whose estimate exceeds the tolerance by the general engine's checked computation.  The classical engine has no
+density of the coefficient statistic: with engine = :classical the single inversion computes.
+
+    coef_pdf(-8.039, "DK")                          # the density at the 5% critical value of rho^
+"""
+function DFDet.coef_pdf(y, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, engine::Symbol = :auto,
+                        verified::Bool = false, tol::Real = 1e-12, err::Bool = false, kw...)
+    method = DX.inv_method("coef_pdf", method, false)
+    engine in (:auto, :classical, :general) || throw(ArgumentError("engine must be :auto, :classical or :general"))
+    S = case_spec(cas, g0)
+    engine === :general || DX.ltratio_args(cas, c; c0, g0)
+    if inv_take("coef_pdf", method, engine === :classical ? :auto : engine, cas, c, kw)
+        F = DFKan.limcf(cas, c, g0); ys = xvec(y); tl = Float64(tol)
+        R = Vector{NTuple{3,Float64}}(undef, length(ys))
+        length(ys) == 1 ? (R[1] = DFKan.coef_pdf1(F, ys[1], Float64(c0), tl)) : DX.tmap!(k -> DFKan.coef_pdf1(F, ys[k], Float64(c0), tl), R, length(ys))
+        P = [r[1] for r in R]; E = [r[2] for r in R]; T = [r[3] for r in R]
+        bad = findall(k -> !(E[k] <= T[k]), eachindex(E))
+        if verified
+            isempty(bad) || (P[bad] = DFDet.coef_pdf(S.D, ys[bad], Float64(c); c0 = Float64(c0), gkw(S)..., verified = true))
+        elseif !isempty(bad)
+            @warn "coef_pdf: the error estimate of the single inversion exceeds its tolerance at $(length(bad)) of $(length(E)) points (largest $(maximum(E[bad]))); verified = true recomputes them by the general engine's checked computation"
+        end
+        return err ? (outshape(P, y), outshape(E, y)) : outshape(P, y)
+    end
+    v = DFDet.coef_pdf(S.D, xvec(y), Float64(c); c0 = Float64(c0), gkw(S)..., verified, kw...)
+    v[v .< 0] .= 0.0
+    DX.noerr(outshape(v, y), err)
+end
+function DFDet.coef_pdf(y, D::DFDet.Determ, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing, engine::Symbol = :auto,
+                        method::Symbol = :auto, err::Bool = false, kw...)
+    S = design_spec(D; g0, start, gls)
+    classical_or_nothing(S, engine, c, c0, :auto) && return DFDet.coef_pdf(y, S.case, c; c0, g0 = S.g0, engine, method, err, kw...)
+    DX.inv_method("coef_pdf", method, false) === :inversion && throw(ArgumentError("coef_pdf: method = :inversion applies to the cases DK, DU, DT, SK, SU, ST"))
+    v = DFDet.coef_pdf(S.D, xvec(y), Float64(c); c0 = Float64(c0), gkw(S)..., kw...)
+    v[v .< 0] .= 0.0
+    DX.noerr(outshape(v, y), err)
+end
+"""
+    coef_mom(p, cas, c = 0; c0 = 0, g0 = 0, tol = 1e-10, err = false) -> m
+    coef_mom(p, D::Determ, c = 0; c0, g0, start, ...)
+
+m[j] = E[{(U - c0 V)/V}^j], j = 1..p, the moments of the limit of n(phi^ - phi0) (the coefficient statistic of
+`coef_cdf`), in the cases DK, DU, DT (zero or fixed start g0) and SK, SU, ST (a design that is one of them): Sawa's
+representation m_j = int_0^inf [d^j M(s1, -s2)/ds1^j at s1 = 0] s2^{j-1}/Gamma(j) ds2 with the derivative from one jet of
+order j per node, the method of Bao and Kan ("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator
+in First-Order Autoregressions: O(1) Algorithms"; `DFLimit.DFKan.ratio_mom`), adaptive quadrature in log s2 to the
+relative tolerance `tol`.  `err = true` returns `(m, errors)`.  Up to c = 20; the engines have no moments of the
+coefficient statistic (an ArgumentError for case DG, other designs and engine = :general).
+
+    coef_mom(1, "DK")[1]                            # -1.7814: the mean of n(phi^ - 1) at the unit root
+"""
+function coef_mom(p::Int, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, tol::Real = 1e-10, err::Bool = false, engine::Symbol = :auto,
+                  method::Symbol = :auto)
+    p >= 1 || throw(ArgumentError("p must be a positive integer"))
+    method in (:auto, :inversion, :jets) || throw(ArgumentError("coef_mom: method must be :auto (the jets of Bao and Kan)"))
+    engine === :general && throw(ArgumentError("coef_mom: the general engine has no moments of the coefficient statistic"))
+    engine in (:auto, :classical) || throw(ArgumentError("engine must be :auto, :classical or :general"))
+    DX.ltratio_args(cas, c; c0, g0)
+    inv_case(cas) || throw(ArgumentError("coef_mom: the moments of the coefficient statistic are available for the cases DK, DU, DT, SK, SU, ST"))
+    c <= DFKan.INV_CMAX || method !== :auto || throw(ArgumentError("coef_mom: c must be at most $(DFKan.INV_CMAX) (method = :jets beyond)"))
+    m, e = DFKan.coef_mom1(DFKan.limcf(cas, c, g0), p, Float64(c0), Float64(tol))
+    err ? (m, e) : m
+end
+function coef_mom(p::Int, D::DFDet.Determ, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing, kw...)
+    S = design_spec(D; g0, start, gls)
+    (S.case !== nothing && inv_case(S.case)) || throw(ArgumentError("coef_mom: the moments of the coefficient statistic are available for the cases DK, DU, DT, SK, SU, ST (trend(-1), trend(0), trend(1) with a zero, fixed or stationary start)"))
+    coef_mom(p, S.case, c; c0, g0 = S.g0, kw...)
+end
 function coef_icdf(p, D::DFDet.Determ, c::Real = 0; tol::Real = 1e-9, c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing,
                    engine::Symbol = :auto, kw...)
     S = design_spec(D; g0, start, gls)
@@ -423,16 +651,26 @@ function adfmax_icdf(p, D::DFDet.Determ, c::Real = 0; tol::Float64 = 1e-10, x0::
     one(pk) = DFDet.adfmax_quantile(S.D, Float64(pk), Float64(c); x0, tol, start = S.start, kw...)
     p isa Number ? one(p) : map(one, p)
 end
-function ltratio_lincdf(b, a::Real, D::DFDet.Determ, c::Real = 0; start = nothing, g0::Real = 0.0, gls = nothing, engine::Symbol = :auto, kw...)
+function ltratio_lincdf(b, a::Real, D::DFDet.Determ, c::Real = 0; start = nothing, g0::Real = 0.0, gls = nothing, engine::Symbol = :auto,
+                        method::Symbol = :auto, verified::Bool = false, tol::Real = 1e-12, err::Bool = false, kw...)
     S = design_spec(D; g0, start, gls)
+    method = DX.inv_method("ltratio_lincdf", method, false)
+    # the single inversion of Bao and Kan for the six classical cases with any start, within the classical checks of the
+    # arguments (`inv_lin`); method = :inversion forces it
+    inv = engine !== :general && S.case !== nothing && inv_case(S.case) && isfinite(a) && classical_valid(S, c, 0.0, :auto)
+    method === :inversion && !inv && throw(ArgumentError("ltratio_lincdf: method = :inversion applies to the cases DK, DU, DT, SK, SU, ST (trend(-1), trend(0), trend(1)) within the classical engine's checks, a finite a and engine = :auto or :classical"))
+    if inv
+        isinf(a) && throw(ArgumentError("ltratio_lincdf: a must be a finite real scalar (NaN: the law of V)"))
+        r = inv_lin(engine, b, Float64(a), S.case, c, S.g0; method, verified, tol = Float64(tol), err, kw...); r === nothing || return r
+    end
     # (the classical linear form has the zero start only: no deterministic terms with a fixed start, case string "DK",
     # take the general engine)
     cas = S.start != :zero ? nothing : S.case == "DK" ? "DK" : (S.case == "DG") ? "DG" : nothing
     if engine !== :general && cas !== nothing
-        return ltratio_lincdf(b, a, cas, c; engine, kw...)
+        return ltratio_lincdf(b, a, cas, c; engine, method = :engine, err, kw...)
     end
     engine === :classical && throw(ArgumentError("engine = :classical: the linear form of the classical engine has the cases DK and DG only"))
-    gen_lincdf(b, a, S, c)
+    DX.noerr(gen_lincdf(b, a, S, c), err)
 end
 function ltratio_region(bnd, D::DFDet.Determ, c::Real = 0; start = nothing, g0::Real = 0.0, engine::Symbol = :auto, kw...)
     S = design_spec(D; g0, start)

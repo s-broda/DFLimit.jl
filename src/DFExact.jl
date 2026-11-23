@@ -179,124 +179,183 @@ function unwrap!(ph::Vector{T}) where {T}
     ph
 end
 
-"""P(t), s1(t), s2(t) (s2 unused for M1) and M0(t) = (-s1 s2)^{-1/2}, the total mass of phi_t for M2 and
-M3 (unused for M1), on the grid t = tau + i w, w increasing from 0, with the branches of the square
-roots and the labelling of the roots fixed by continuity along the grid.  For c > CGIRS with a zero start
-the roots and P(t) come from the Girsanov forms (girsanov), which are free of the cancellation of D."""
-function tparts(model::Int, c::T, t::Vector{Complex{T}}; stat::Bool = false) where {T}
-    nt = length(t)
-    P = Vector{Complex{T}}(undef, nt); s1 = similar(P); s2 = similar(P); M0 = similar(P)
+# ---------- P(t), the roots and M0 at each point: the branch after Bao and Kan ----------
+# The branch of P(t) = (-a_2(t))^{-1/2}, of M_0(t) = (-s_1 s_2)^{-1/2} and the labels of the roots s_1(t), s_2(t) of D(., t)
+# were fixed by continuity along a grid from the real point until November 2026 (an unwrapping of the phases).  They are
+# determined at each point, after Yong Bao and Raymond Kan ("Exact Finite-Sample Distribution and Moments of the Least
+# Squares Estimator in First-Order Autoregressions: O(1) Algorithms"), who write each argument under a root as a product
+# of factors whose arguments are known.  For Im t > 0 (the conjugate for Im t < 0), with mu = (c^2 - 2t)^{1/2} the principal root:
+#
+#  (a) The roots.  The reciprocal roots are the eigenvalues nu of K Sigma_t, K the real symmetric matrix of the numerator
+#      and Sigma_t the covariance of its Gaussian functionals under the tilt e^{tV}; an eigenvector y gives nu = y*Ky /
+#      y*Sigma_t^{-1}y, a real number over a number that has a positive real part for Re t < t_* (Sigma_t^{-1} has a
+#      positive definite Hermitian part, the lemma on accretive matrices of Bao and Kan) and a negative imaginary part for
+#      Im t > 0.  Hence s_1 (negative type) lies in the open left half-plane on the line and in the open upper half-plane
+#      for every Im t > 0, s_2 (positive type) in the right and the lower one: the labels are read off the signs, and the
+#      roots never meet off the real axis.
+#  (b) M_0 = (-s_1)^{-1/2} s_2^{-1/2} with principal roots on the line, where -s_1 and s_2 lie in the right half-plane.
+#  (c) D(0, t) = M_V(t)^{-2} = a_0 = (-a_2)(-s_1) s_2 is a canonical product over the positive zeros t_j of the moment
+#      generating function of V, with the continuous argument sum_j Arg(1 - t/t_j).  For no deterministic terms it is
+#      e^c cosh(mu) G, G = 1 - c tanh(mu)/mu, with the continuous argument Im mu + Arg(1 + e^{-2 mu}) of cosh(mu) (Bao and
+#      Kan) and G in the upper (c < 0) or lower (c > 0) half-plane: tanh(mu)/mu is a sum of 2/(mu^2 + a_k), a_k > 0.  A
+#      regressor projected out, or a start integrated out, changes V by a quadratic form of rank one of one sign: the
+#      zeros interlace, the ratio of the two determinants maps the upper half-plane into a half-plane, and its principal
+#      argument, in (0, pi) for a projection and in (-pi, 0) for the stationary start, is the continuous one.  Two
+#      projections (intercept and trend) give an argument in (0, 2 pi), which the ratio determines; GLS detrending, one
+#      update of each sign, an argument in (-pi, pi), the principal one.
+#  Then arg(-a_2) = arg D(0, t) - Arg(-s_1) - Arg(s_2), all at the point.
+"""the series of D(., t)/e^c at s = 0, -1, 1 of the cases with an intercept or a trend, computed once per (model, c)"""
+struct TPoint
+    model::Int
+    c::Float64
+    stat::Bool
+    coef::NTuple{3,Vector{Float64}}
+end
+function TPoint(model::Int, c::Float64, stat::Bool, need::Bool = true)
+    (need && model in (2, 3)) || return TPoint(model, c, stat, (Float64[], Float64[], Float64[]))
+    SER = model == 2 ? D1_SERIES : D2_SERIES
+    n = length(SER); a0 = Vector{Float64}(undef, n); ap = similar(a0); am = similar(a0)
+    for j in 1:n
+        f = SER[j]; a0[j] = f(0.0, c, Float64); ap[j] = f(1.0, c, Float64); am[j] = f(-1.0, c, Float64)
+    end
+    TPoint(model, c, stat, (a0, ap, am))
+end
+
+"""an argument known to lie in (0, pi) (one projection) or (0, 2 pi) (two) from its principal value"""
+@inline argpos(a::Float64, two::Bool) = two ? (a < -1e-6 ? a + 2pi : a) : (a < -pi / 2 ? a + 2pi : a)
+"""an argument known to lie in (-pi, 0) from its principal value"""
+@inline argneg(a::Float64) = a > pi / 2 ? a - 2pi : a
+
+"""
+    argK(c, t) -> (arg, mu, e2, G)
+
+The continuous argument (zero at real t below t_*) of cosh(mu) - c sinh(mu)/mu = cosh(mu) G at Im t > 0: Im mu + Arg(1 +
+e^{-2 mu}) + Arg G, with mu = (c^2 - 2t)^{1/2}, e2 = e^{-2 mu} and G = 1 - c tanh(mu)/mu formed without cancellation.
+"""
+@inline function argK(c::Float64, t::ComplexF64)
+    z = c * c - 2t; mu = sqrt(z); e2 = exp(-2mu)
+    if abs(mu) < 1e-3
+        G = 1 - c * (1 - z / 3 + 2 * z * z / 15)
+    else
+        del = c > 0 ? -2t / (mu + c) : mu - c
+        G = (del + (mu + c) * e2) / (mu * (1 + e2))
+    end
+    imag(mu) + angle(1 + e2) + angle(G), mu, e2, G
+end
+
+"""
+    tparts_point(tp, t) -> (P, s1, s2, M0)
+
+P(t), s_1(t), s_2(t) and M_0(t) of the classical line integral (DFExact.tparts) at the single point t, Re t < t_*, with
+no reference to neighbouring points.
+"""
+function tparts_point(tp::TPoint, t::ComplexF64)
+    if imag(t) < 0
+        P, s1, s2, M0 = tparts_point(tp, conj(t))::NTuple{4,ComplexF64}     # (the annotation: inference of the recursion)
+        return conj(P), conj(s1), conj(s2), conj(M0)
+    end
+    model = tp.model; c = tp.c; stat = tp.stat
+    re = imag(t) == 0                                         # the real point: every argument is zero
+    zc = zero(ComplexF64)
     if model == 1 && !stat
-        S = Vector{Complex{T}}(undef, nt)
-        for j in 1:nt
-            C, Q, Sj = pieces(c * c - 2t[j])
-            S[j] = Sj
-            # s1 = mu coth mu - c; for c > 0 without the cancellation of C - c S at large c: mu - c = -2t/(mu + c),
-            # mu coth mu - mu = 2 mu e^{-2mu}/(1 - e^{-2mu})
-            s1[j] = c > 0 ? eta1(c, t[j]) : (C - c * Sj) / Sj
+        z = c * c - 2t
+        if abs(z) < 1e-3                                      # (the series of `pieces`; S near 1, its principal argument)
+            C, _, S = pieces(z)
+            s1 = c > 0 ? eta1(c, t) : (C - c * S) / S
+            return exp(-c / 2) * abs(S)^(-0.5) * cis(-angle(S) / 2), s1, zc, zc
         end
-        ph = unwrap!(angle.(S))
-        for j in 1:nt
-            P[j] = exp(-c / 2) * abs(S[j])^(-T(1) / 2) * exp(-im * ph[j] / 2)
-        end
-        return P, s1, s2, M0
+        # sinh(mu)/mu = e^mu (1 - e^{-2 mu})/(2 mu): its modulus and its continuous argument Im mu + Arg(1 - e^{-2 mu}) -
+        # Arg mu, and s1 = mu coth mu - c, from e^{-2 mu} alone
+        mu = sqrt(z); e2 = exp(-2mu); om = 1 - e2
+        s1 = c > 0 ? eta1(c, t) : mu * (1 + e2) / om - c
+        lS = real(mu) + log(abs(om)) - log(2 * abs(mu))
+        ph = re ? 0.0 : imag(mu) + angle(om) - angle(mu)
+        return exp(-c / 2 - lS / 2) * cis(-ph / 2), s1, zc, zc
     end
     if model == 4 && !stat
-        # the GLS-detrended trend case: M(s,t) = e^{-s/2} P(t) (s_1 - s)^{-1/2} as in case DK, with M_{V_g}(t) = e^{-c/2}
-        # (cosh th |I - Q Sig|)^{-1/2} and s_1 = 1/(2 kap_1), 2 kap_1 = (1 - lam)^2 v' Sig (I - Q Sig)^{-1} v the variance of the
-        # detrended end point under the tilt; branches continuous along the nodes (t[1] real)
-        lam = lam_gls(CBAR_GLS); v = Complex{T}.(VGLS)
-        lD = Vector{Complex{T}}(undef, nt); lch = similar(lD)
-        for j in 1:nt
-            G = girsanov(4, c, t[j])
-            lD[j] = log(G.D); lch[j] = G.lch
-            s1[j] = 1 / ((1 - lam)^2 * (transpose(v) * (G.Sg * (G.N \ v))))
-            s2[j] = zero(t[j]); M0[j] = zero(t[j])
+        lam = lam_gls(CBAR_GLS); v = VGLS_C
+        G = girsanov(4, c, t)
+        s1 = 1 / ((1 - lam)^2 * (transpose(v) * (G.Sg * (G.N \ v))))
+        ph = 0.0
+        if !re
+            th = G.th                                         # GK = 1 - c tanh(th)/th, as girs_g forms it
+            GK = abs(th) < 1 ? 1 - c * polyq(GT, 1, th * th) : (e2 = exp(-2th); (G.del + c * (2 * e2 / (1 + e2))) / th)
+            ph = angle(GK) + angle(G.D / GK)                  # one update of each sign: the principal argument
         end
-        ph = unwrap!(imag.(lD)); ps = unwrap!(angle.(s1))
-        for j in 1:nt
-            P[j] = exp(-c / 2 - (lch[j] + real(lD[j]) + im * ph[j]) / 2 + (log(abs(s1[j])) + im * ps[j]) / 2)
-        end
-        return P, s1, s2, M0
+        return exp(-c / 2 - (G.lch + log(abs(G.D)) + im * ph) / 2 + (log(abs(s1)) + im * angle(s1)) / 2), s1, zc, zc
     end
-    sa = similar(P); sb = similar(P)
     if !stat && c > CGIRS
-        # cases DU, DT at large c: D(s,t)/e^c cancels catastrophically (terms of size e^{2c} against a value near
-        # one); the roots s_k = 1/nu_k of A2 nu^2 - A1 nu + A0 = 0 and M_V(t) = e^{-c/2} (cosh th det(I - Q Sig))^{-1/2}
-        # come from the Girsanov forms, and P = M_V (-s1 s2)^{1/2}
-        lD = Vector{Complex{T}}(undef, nt); lch = similar(lD)
-        for j in 1:nt
-            G = girsanov(model, c, t[j])
-            disc = sqrt(G.A1 * G.A1 - 4 * G.A0 * G.A2)
-            sw = sign(real(conj(G.A1) * disc)); sw == 0 && (sw = one(sw))
-            rb = (G.A1 + sw * disc) / (2 * G.A0); rs = G.A2 / (G.A0 * rb)   # the larger root from the formula, the smaller from the product
-            sa[j] = rb; sb[j] = rs
-            lD[j] = log(G.D); lch[j] = G.lch
-        end
-        if real(sa[1]) < real(sb[1]); s1[1], s2[1] = sa[1], sb[1] else s1[1], s2[1] = sb[1], sa[1] end
-        for j in 2:nt
-            if abs(sa[j] - s1[j-1]) + abs(sb[j] - s2[j-1]) <= abs(sb[j] - s1[j-1]) + abs(sa[j] - s2[j-1])
-                s1[j], s2[j] = sa[j], sb[j]
-            else
-                s1[j], s2[j] = sb[j], sa[j]
-            end
-        end
-        ph = unwrap!(imag.(lD))
-        m = [-s1[j] * s2[j] for j in 1:nt]
-        phm = unwrap!(angle.(m))
-        for j in 1:nt
-            lm = log(abs(m[j])) + im * phm[j]
-            M0[j] = exp(-lm / 2)
-            P[j] = exp(-c / 2 - (lch[j] + real(lD[j]) + im * ph[j]) / 2 + lm / 2)
-        end
-        return P, s1, s2, M0
+        G = girsanov(model, c, t)
+        disc = sqrt(G.A1 * G.A1 - 4 * G.A0 * G.A2)
+        sw = sign(real(conj(G.A1) * disc)); sw == 0 && (sw = one(sw))
+        rb = (G.A1 + sw * disc) / (2 * G.A0); rs = G.A2 / (G.A0 * rb)
+        s1, s2 = label(rb, rs)
+        ph = re ? 0.0 : angle(G.N[1, 1]) + argpos(angle(G.D / G.N[1, 1]), model == 3)
+        lm = complex(log(abs(s1 * s2)), angle(-s1) + angle(s2))
+        return exp(-c / 2 - (G.lch + log(abs(G.D)) + im * ph) / 2 + lm / 2), s1, s2, exp(-lm / 2)
     end
-    ma2 = Vector{Complex{T}}(undef, nt); rts = Vector{NTuple{3,Complex{T}}}(undef, nt)
-    # the Taylor coefficients in z of D(., t)/e^c at s = 0, -1, 1 (lam = 0, 1, -1), computed once
-    SER = model == 2 ? D1_SERIES : D2_SERIES
-    coef = [[f(lam, c, T) for f in SER] for lam in (zero(T), one(T), -one(T))]
-    Dser(k, z) = (acc = zero(z); for j in length(coef[k]):-1:1; acc = acc * z + coef[k][j]; end; exp(c) * acc)
-    s0, sp, sm = complex(zero(T)), complex(-one(T)), complex(one(T))
-    tmap!(j -> begin
-        z = c * c - 2t[j]
-        if model == 1                                                  # (the stationary start: no series needed)
-            d0 = Dfun(1, c, s0, t[j]; stat = true); dp = Dfun(1, c, sp, t[j]; stat = true); dm = Dfun(1, c, sm, t[j]; stat = true)
-        elseif abs(z) < Z0
-            d0 = Dser(1, z); dp = Dser(2, z); dm = Dser(3, z)
-            if stat
-                d0 += Dstat_add(model, c, s0, t[j]); dp += Dstat_add(model, c, sp, t[j]); dm += Dstat_add(model, c, sm, t[j])
-            end
-        else
-            d0 = Dfun(model, c, s0, t[j]; stat); dp = Dfun(model, c, sp, t[j]; stat); dm = Dfun(model, c, sm, t[j]; stat)
+    # the quadratic D(s, t) = a2 lam^2 + a1 lam + a0, lam = -s, from its values at s = 0, -1, 1
+    z = c * c - 2t
+    s0, sp, sm = complex(0.0), complex(-1.0), complex(1.0)
+    d0z = zc
+    # (the annotations: Dfun's series branch is not inferred, and an untyped value would slow every operation below)
+    if model == 1
+        d0 = Dfun(1, c, s0, t; stat = true)::ComplexF64; dp = Dfun(1, c, sp, t; stat = true)::ComplexF64; dm = Dfun(1, c, sm, t; stat = true)::ComplexF64
+    elseif abs(z) < Z0
+        e = exp(c)
+        d0 = e * evalpoly(z, tp.coef[1]); dp = e * evalpoly(z, tp.coef[2]); dm = e * evalpoly(z, tp.coef[3])
+        d0z = d0
+        if stat
+            d0 += Dstat_add(model, c, s0, t)::ComplexF64; dp += Dstat_add(model, c, sp, t)::ComplexF64; dm += Dstat_add(model, c, sm, t)::ComplexF64
         end
-        a2 = (dp + dm) / 2 - d0; a1 = (dp - dm) / 2; a0 = d0          # D = a2 lam^2 + a1 lam + a0, lam = -s
-        disc = sqrt(a1 * a1 - 4 * a2 * a0)
-        # the root of larger magnitude from the formula, the other from the product a0/a2 (the formula loses the
-        # small root to cancellation when the roots differ by orders of magnitude, as at large c)
-        sw = sign(real(conj(a1) * disc)); sw == 0 && (sw = one(sw))
-        rb = (-a1 - sw * disc) / (2a2); rs = a0 / (a2 * rb)
-        (-rb, -rs, -a2)
-    end, rts, nt)
-    for j in 1:nt; sa[j], sb[j], ma2[j] = rts[j]; end
-    # at the real point s1 < 0 < s2; then continuity
-    if real(sa[1]) < real(sb[1]); s1[1], s2[1] = sa[1], sb[1] else s1[1], s2[1] = sb[1], sa[1] end
-    for j in 2:nt
-        if abs(sa[j] - s1[j-1]) + abs(sb[j] - s2[j-1]) <= abs(sb[j] - s1[j-1]) + abs(sa[j] - s2[j-1])
-            s1[j], s2[j] = sa[j], sb[j]
-        else
-            s1[j], s2[j] = sb[j], sa[j]
-        end
+    else
+        d0 = Dfun(model, c, s0, t; stat)::ComplexF64; dp = Dfun(model, c, sp, t; stat)::ComplexF64; dm = Dfun(model, c, sm, t; stat)::ComplexF64
+        d0z = stat ? d0 - Dstat_add(model, c, s0, t)::ComplexF64 : d0
     end
-    abs(angle(ma2[1])) < 1e-8 || error("prefactor not positive at the real point")
-    ph = unwrap!(angle.(ma2))
-    for j in 1:nt
-        P[j] = abs(ma2[j])^(-T(1) / 2) * exp(-im * ph[j] / 2)       # D = (-a2)(s - s1)(s2 - s), P = (-a2)^{-1/2}
+    a2 = (dp + dm) / 2 - d0; a1 = (dp - dm) / 2; a0 = d0
+    disc = sqrt(a1 * a1 - 4 * a2 * a0)
+    sw = sign(real(conj(a1) * disc)); sw == 0 && (sw = one(sw))
+    rb = (-a1 - sw * disc) / (2a2); rs = a0 / (a2 * rb)
+    s1, s2 = label(-rb, -rs)
+    M0 = 1 / (sqrt(-s1) * sqrt(s2))
+    ph0 = 0.0
+    if !re
+        aK, mu, e2, G = argK(c, t)
+        DK = exp(c + mu) * (1 + e2) / 2 * G                   # e^c (cosh mu - c sinh(mu)/mu)
+        ph0 = aK
+        model == 1 || (ph0 += argpos(angle(d0z / DK), model == 3))
+        stat && (ph0 += argneg(angle(d0 / (model == 1 ? DK : d0z))))
     end
-    m = [-s1[j] * s2[j] for j in 1:nt]                              # positive at the real point
-    ph = unwrap!(angle.(m))
-    for j in 1:nt
-        M0[j] = abs(m[j])^(-T(1) / 2) * exp(-im * ph[j] / 2)
+    P = abs(a2)^(-0.5) * cis(-(ph0 - angle(-s1) - angle(s2)) / 2)
+    P, s1, s2, M0
+end
+"""the two roots labelled by their signs: s_1 in the left half-plane and s_2 in the right one; where both real parts have the
+same sign (beyond t_*), s_1 the root in the upper half-plane"""
+@inline function label(ra::ComplexF64, rb::ComplexF64)
+    (real(ra) < 0) != (real(rb) < 0) && return real(ra) < real(rb) ? (ra, rb) : (rb, ra)
+    imag(ra) > imag(rb) ? (ra, rb) : (rb, ra)
+end
+
+"""P(t), s1(t), s2(t) (s2 unused for M1) and M0(t) = (-s1 s2)^{-1/2}, the total mass of phi_t for M2 and M3 (unused for
+M1), at the points t of a grid of the line or of the contour integral's hyperbola, in any order: each point by
+`tparts_point`, the branches of the square roots and the labels of the roots fixed at the point (after Bao and Kan) with
+no reference to its neighbours.  For c > CGIRS with a zero start the roots and P(t) come from the Girsanov forms
+(girsanov), which are free of the cancellation of D.  (Against the continuation along the grid that this replaced, within
+5.7e-14 relative on the engine's grids, November 2026; on the hyperbolas of case DK at c = -480 the continuation gave
+non-finite values far out, the branch at the point does not.)"""
+function tparts(model::Int, c::Float64, t::Vector{ComplexF64}; stat::Bool = false)
+    # (the series of D at s = 0, -1, 1 only where a point lies within |z| < Z0 of the cases that use them)
+    need = model in (2, 3) && (stat || c <= CGIRS) && any(tk -> abs(c * c - 2tk) < Z0, t)
+    tp = TPoint(model, c, stat, need)
+    n = length(t)
+    r = Vector{NTuple{4,ComplexF64}}(undef, n)
+    if n <= 16
+        for j in 1:n; r[j] = tparts_point(tp, t[j]); end
+    else
+        tmap!(j -> tparts_point(tp, t[j]), r, n)
     end
+    P = Vector{ComplexF64}(undef, n); s1 = similar(P); s2 = similar(P); M0 = similar(P)
+    @inbounds for j in 1:n; P[j], s1[j], s2[j], M0[j] = r[j]; end
     P, s1, s2, M0
 end
 
@@ -336,6 +395,7 @@ end
 const CBAR_GLS = -13.5
 lam_gls(cb) = (1 - cb) / (1 - cb + cb * cb / 3)
 const VGLS = [1.0, 0.0, -3.0]                                             # V_cbar(1) = (1 - lam) (W(1) - 3 int r W)
+const VGLS_C = ComplexF64.(VGLS)
 
 """the scalar parts of `girsanov` at t: q = c^2 - 2t, theta, delta, the entries g1..g5 of Sigma (Sg = [g1 g2 g3; g2 g3
 g4; g3 g4 g5], the first 2 x 2 block in case DU), log cosh theta, log(sinh theta/theta), eta - delta and N[1,1]"""
@@ -2192,6 +2252,33 @@ function route(f::Symbol, engine::Symbol, args...; kw...)
     (engine === :classical || ROUTE[] === nothing) && return nothing
     ROUTE[](f, engine, args...; kw...)
 end
+"""
+The single inversion of Bao and Kan ("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in
+First-Order Autoregressions: O(1) Algorithms"; the module DFLimit.DFKan) for the statistics that reject on a half-plane
+and for the moments: the router returns its values where `method` takes it (method = :auto with engine = :auto in the
+cases and the region where it is checked, method = :inversion or :jets always), or nothing, and this engine computes
+(method = :engine, the representations of the engines, engine = :classical or :general, case DG).  Without a router
+(this file included alone) nothing, except that method = :inversion and :jets raise an error.
+"""
+function route_inv(f::Symbol, engine::Symbol, args...; method::Symbol = :auto, kw...)
+    engine in (:auto, :classical, :general) || throw(ArgumentError("engine must be :auto, :classical or :general"))
+    if ROUTE[] === nothing
+        method in (:inversion, :jets) && throw(ArgumentError("method = :$method (the devices of Bao and Kan) needs the package DFLimit"))
+        return nothing
+    end
+    ROUTE[](f, engine, args...; method, kw...)
+end
+"""the methods of the functions with the single inversion: :auto, :inversion, :engine, and the representations of the
+t-ratio where `extra` (the coefficient statistic, through the t-ratio's distribution function at zero)"""
+function inv_method(fn::String, method::Symbol, extra::Bool)
+    method in (:auto, :inversion, :engine) && return method
+    extra && method in (:single, :line, :double, :conditional, :contour) && return method
+    throw(ArgumentError("$fn: method must be :auto, :inversion (the single inversion of Bao and Kan) or :engine (the engines' computation)" *
+                        (extra ? ", or a representation of the t-ratio (:single or :line, :double or :conditional, :contour)" : "")))
+end
+"""the values v without the error estimates (err = false), or with NaN for them (err = true: the engines' computation
+has no error estimate per value)"""
+noerr(v, err::Bool) = err ? (v, v isa Number ? NaN : fill(NaN, size(v))) : v
 
 """
 The final check of a distribution function (CDF_RANGE_TOL): a value below -1e-8 or above 1 + 1e-8 raises an error that names
@@ -2474,20 +2561,38 @@ function ltratio_icdf_(p, cas::AbstractString, c::Real, model::Int; tol::Real, c
 end
 
 """
-    ltratio_mom(p, cas, c = 0; c0 = 0, g0 = 0) -> m
+    ltratio_mom(p, cas, c = 0; c0 = 0, g0 = 0, method = :auto, engine = :auto, verified = false, tol = 1e-10, err = false) -> m
 
 m[j] = E[t^j], j = 1..p, for the limit (U - c0 V)/sqrt(V) of the t-ratio under phi = 1 + c/n (the moments of the
-limit in the Supplementary Material; `moments`).
+limit in the Supplementary Material): E t^j = Gamma(j/2)^{-1} int_0^inf s^{j/2-1} m_j(s) ds, m_j(s) the j-th derivative
+of the moment generating function along its affine path.
+
+By default (method = :auto with engine = :auto, where it is checked; see the README) the derivative comes from one
+Taylor-mode jet of order j at each node of an adaptive quadrature in log s, the method of Bao and Kan ("Exact
+Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms";
+`DFLimit.DFKan.tratio_mom1`), with the closed-form transform of the six cases (any c0 and fixed start), 0.3 to 1.3 ms
+for four moments; `tol` is the relative tolerance of its quadrature, `err = true` returns `(m, errors)`, and a
+warning names the moments whose error estimate exceeds `tol` times their size.  `method = :jets` forces it, `method =
+:engine` is the computation of before (the derivatives as Cauchy integrals on a circle, by the classical engine,
+`moments`, or the general engine, by the rule of `autoengine`), which reproduces those values; engine = :classical or
+:general and further options take that computation too.  verified = true recomputes the moments by the engines where an
+error estimate exceeds the tolerance.
 
     ltratio_mom(4, "DU")[2]                         # 3.0559953450 (Nabeya, 1999)
 """
-function ltratio_mom(p::Int, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, engine::Symbol = :auto, kw...)
+function ltratio_mom(p::Int, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, engine::Symbol = :auto,
+                     verified::Bool = false, tol::Real = 1e-10, err::Bool = false, kw...)
     p >= 1 || throw(ArgumentError("p must be a positive integer"))
-    engine === :general && return route(:mom, engine, p, cas, c; c0, g0, kw...)
+    method in (:auto, :jets, :engine) || throw(ArgumentError("ltratio_mom: method must be :auto, :jets (one jet per node, after Bao and Kan) or :engine (the engines' circles)"))
+    if engine === :general
+        method === :jets && throw(ArgumentError("ltratio_mom: method = :jets (the jets of Bao and Kan) does not apply with engine = :general"))
+        return noerr(route(:mom, engine, p, cas, c; c0, g0, kw...), err)
+    end
     model, stat, c0, g0, _ = ltratio_args(cas, c; c0, g0)
     model == 4 && throw(ArgumentError("the moments are not available for case DG"))
-    r = route(:mom, engine, p, cas, c; c0, g0, kw...); r === nothing || return r
-    moments(model; c = Float64(c), c0, g0, start = stat ? :stationary : :zero, pmax = p, kw...)
+    r = route_inv(:mom_inv, engine, p, cas, c; c0, g0, method, verified, tol = Float64(tol), err, kw...); r === nothing || return r
+    r = route(:mom, engine, p, cas, c; c0, g0, kw...); r === nothing || return noerr(r, err)
+    noerr(moments(model; c = Float64(c), c0, g0, start = stat ? :stationary : :zero, pmax = p, kw...), err)
 end
 
 # =====================================================================================
@@ -5662,22 +5767,38 @@ is the same) or "DG" (the GLS-detrended trend case of Elliott, Rothenberg and St
 point-optimal test of Elliott, Rothenberg and Stock against cbar < 0 rejects for U - aV < b: in case DK with a = cbar/2
 (its log likelihood ratio is cbar U - cbar^2 V/2), in case DG, with the data detrended at cbar, with
 a = cbar^2/(2 (cbar - 1)) (it rejects for small cbar^2 V + (1 - cbar) J(1)^2, J(1)^2 = 2U + 1); see `power_envelope`.
-a = NaN gives P(V <= b) (case DK).  By the inversion formula of Gil-Pelaez (`tr_gilpelaez`) where its transform has decayed
-by the end of its grid and c <= 0, to about 1e-10; otherwise (|a| below about 0.3 to 3, depending on c, which includes
-a = 0, the law of U alone, and c > 0) by a conditional integral: in case DK that of the region {U <= aV + b}
-(`ltratio_region`), in case DG the conditional integral given U (`lincond`), to about 1e-10 and in [0, 1].  c must be at
-least -550; in case DG at most about 3.5, and for a = NaN about 7 (an ArgumentError beyond).  As LTRATIO_LINCDF of the
-MATLAB programs.
+a = NaN gives P(V <= b) (case DK).
+
+In case DK the default (method = :auto with engine = :auto, a finite) is the single inversion of the joint
+characteristic function along the ray of the half-plane, the method of Bao and Kan ("Exact Finite-Sample Distribution
+and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms"; `DFLimit.DFKan`), with the
+tail beyond S = 400/|w| (w = 1/2 + b) completed by integration by parts, where it is checked (see the README); `tol` is
+its absolute tolerance, `err = true` returns `(P, errors)`, and a warning names the points at which the error estimate
+exceeds the tolerance.  `method = :inversion` forces it, `method = :engine` is the computation of before (it reproduces
+those values): by the inversion formula of Gil-Pelaez (`tr_gilpelaez`) where its transform has decayed by the end of its
+grid and c <= 0, to about 1e-10; otherwise (|a| below about 0.3 to 3, depending on c, which includes a = 0, the law of U
+alone, and c > 0) by a conditional integral: in case DK that of the region {U <= aV + b} (`ltratio_region`), in case DG
+the conditional integral given U (`lincond`), to about 1e-10 and in [0, 1]; or the general engine, by the rule of
+`autoengine`.  Case DG, a = NaN, the keywords cbar, N, umax and engine = :classical or :general take that computation.
+verified = true recomputes the values whose error estimate exceeds the tolerance by the engines' computation.  c must
+be at least -550; in case DG at most about 3.5, and for a = NaN about 7 (an ArgumentError beyond).  As LTRATIO_LINCDF of
+the MATLAB programs.
 
     ltratio_lincdf(-0.2639, -3.5, "DK", 0)          # 0.05: the size of the point-optimal test at cbar = -7
 """
-function ltratio_lincdf(b, a::Real, cas::AbstractString, c::Real = 0; engine::Symbol = :auto, kw...)
-    engine === :general && return route(:lincdf, engine, b, a, cas, c; kw...)
+function ltratio_lincdf(b, a::Real, cas::AbstractString, c::Real = 0; method::Symbol = :auto, engine::Symbol = :auto, verified::Bool = false,
+                        tol::Real = 1e-12, err::Bool = false, kw...)
+    method = inv_method("ltratio_lincdf", method, false)
+    if engine === :general
+        method === :inversion && throw(ArgumentError("ltratio_lincdf: method = :inversion (the single inversion of Bao and Kan) does not apply with engine = :general"))
+        return noerr(route(:lincdf, engine, b, a, cas, c; kw...), err)
+    end
     uppercase(String(cas)) in ("DK", "DG") || throw(ArgumentError("ltratio_lincdf: the case must be DK or DG"))
     (c isa Real && isfinite(c)) || throw(ArgumentError("ltratio_lincdf: c must be a finite real scalar"))
     c >= CMIN || throw(ArgumentError("ltratio_lincdf: " * CMIN_MSG))
-    r = route(:lincdf, engine, b, a, cas, c; kw...); r === nothing || return r
-    tr_gilpelaez(b, a, cas, c; kw...)[1]
+    r = route_inv(:lincdf_inv, engine, b, a, cas, c; method, verified, tol = Float64(tol), err, kw...); r === nothing || return r
+    r = route(:lincdf, engine, b, a, cas, c; kw...); r === nothing || return noerr(r, err)
+    noerr(tr_gilpelaez(b, a, cas, c; kw...)[1], err)
 end
 
 """
@@ -5689,15 +5810,32 @@ constant case, "DU", where the point-optimal test uses the GLS-demeaned data and
 "DG" (the trend case, the point-optimal test against c with the data GLS-detrended at c).  The test against cbar rejects
 for small U - aV (`ltratio_lincdf`), a = cbar/2 in case DK and a = cbar^2/(2 (cbar - 1)) in case DG (where the limit
 of the invariant statistic of Elliott, Rothenberg and Stock is cbar^2 V + (1 - cbar) J(1)^2, J(1)^2 = 2U + 1): its
-critical value is the alpha-quantile at c = 0 (`ltratio_bisect` on [-50, 50] to 1e-9) and the envelope its power at
-cbar = c; alpha for c >= 0.  To about 1e-10.  As POWER_ENVELOPE of the MATLAB programs.
+critical value is the alpha-quantile at c = 0 and the envelope its power at cbar = c; alpha for c >= 0.
+
+In case DK (and DU) the default (method = :auto with engine = :auto) computes both by the single inversion of the joint
+characteristic function along the ray of the half-plane, the method of Bao and Kan ("Exact Finite-Sample Distribution
+and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms"; `DFLimit.DFKan`), the
+critical value by regula falsi to 1e-12, where it is checked (see the README); `tol` is the tolerance of each
+inversion, `err = true` returns `(P, errors)` (the sum of the two inversions' error estimates), and a warning names the
+points at which that exceeds the tolerance.  `method = :inversion` forces it, `method = :engine` is the computation of
+before (the critical value by `ltratio_bisect` on [-50, 50] to 1e-9 on the inversion of Gil-Pelaez on a grid, or the
+general engine, by the rule of `autoengine`; to about 1e-10), which reproduces those values; case DG, the keywords N,
+umax and engine = :classical or :general take that computation.  verified = true recomputes the values whose error
+estimate exceeds the tolerance by the engines' computation.  As POWER_ENVELOPE of the MATLAB programs.
 
     power_envelope(-7, "DK")                        # 0.4994: at cbar = -7 the envelope has power one half
 """
-function power_envelope(c, cas::AbstractString = "DK"; alpha::Real = 0.05, engine::Symbol = :auto, kw...)
-    engine === :general && return route(:envelope, engine, c, cas; alpha, kw...)
+function power_envelope(c, cas::AbstractString = "DK"; alpha::Real = 0.05, method::Symbol = :auto, engine::Symbol = :auto, verified::Bool = false,
+                        tol::Real = 1e-12, err::Bool = false, kw...)
+    method = inv_method("power_envelope", method, false)
+    if engine === :general
+        method === :inversion && throw(ArgumentError("power_envelope: method = :inversion (the single inversion of Bao and Kan) does not apply with engine = :general"))
+        return noerr(route(:envelope, engine, c, cas; alpha, kw...), err)
+    end
     cas = uppercase(String(cas)); cas == "DU" && (cas = "DK")
     cas in ("DK", "DG") || throw(ArgumentError("power_envelope: the case must be DK (or DU) or DG"))
+    r = route_inv(:envelope_inv, engine, c, cas; alpha, method, verified, tol = Float64(tol), err, kw...); r === nothing || return r
+    err && return noerr(power_envelope(c, cas; alpha, method, engine, kw...), true)
     r = route(:envelope, engine, c, cas; alpha, kw...); r === nothing || return r
     one(ck) = begin
         ck = Float64(ck)
@@ -6245,33 +6383,68 @@ end
 # The coefficient statistic n(phi^ - phi0) => (U - c0 V)/V: P[(U - c0 V)/V <= y] = P[U - (c0 + y)V <= 0], the t-ratio's
 # distribution function at 0 with the local null value c0 + y (rho_cdf of julia/application/power.jl, Fr of ci.jl)
 """
-    coef_cdf(y, cas, c = 0; c0 = 0, opts...) -> F
+    coef_cdf(y, cas, c = 0; c0 = 0, g0 = 0, method = :auto, engine = :auto, verified = false, tol = 1e-12, err = false, opts...) -> F
 
 The limit as n -> inf of P[n(phi^ - phi0) <= y] (y a number or an array) for the least squares estimate phi^ of phi in
 the regression of `ltratio_cdf`, under phi = 1 + c/n, with phi0 = 1 + c0/n (c0 = 0: the coefficient test of Dickey and
-Fuller, rho^ = n(phi^ - 1)).  The limit is (U - c0 V)/V, so that P[(U - c0 V)/V <= y] = P[U - (c0 + y)V <= 0], the
-distribution function of the t-ratio at 0 with the local null value c0 + y: ltratio_cdf(0, cas, c; c0 = c0 + y, opts...),
-in every case and with every start and option of `ltratio_cdf` (method, g0).  As COEF_CDF of the MATLAB programs.
+Fuller, rho^ = n(phi^ - 1)).  The limit is (U - c0 V)/V, so that P[(U - c0 V)/V <= y] = P[U - (c0 + y)V <= 0].
+
+In the cases DK, DU, DT (zero or fixed start g0) and SK, SU, ST the default (method = :auto with engine = :auto) is the
+single inversion of the joint characteristic function along the ray of the half-plane, the method of Bao and Kan
+("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1)
+Algorithms"): adaptive quadrature over decades, the tail completed by integration by parts with the derivatives from
+jets, the closed-form transform with the branch fixed at each point (`DFLimit.DFKan`), one evaluation of 0.02 to 1.5 ms
+a value with an error estimate, up to c = 20 (`DFKan.INV_CMAX`); `tol` is its absolute tolerance, and a warning, once per
+call, names the points at which the estimate exceeds it.  `err = true` returns the error estimates as well, `(F,
+errors)` (NaN for values the single inversion did not compute).  `method = :inversion` forces the single inversion
+(also above c = 20).  `method = :engine` is the computation of before, the distribution function of the t-ratio at 0
+with the local null value c0 + y, ltratio_cdf(0, cas, c; c0 = c0 + y, g0, engine), with its choice of engine and
+representation (it reproduces the values of 0.5.0 and of the merged package before the single inversion); the
+t-ratio's representations (:single or :line, :double or :conditional, :contour), engine = :classical or :general, its
+further options and case DG take that computation too.  verified = true keeps each value of the single inversion whose
+error estimate meets `tol` and recomputes the others by the checked computation of the engines (`ltratio_cdf` with
+verified = true); with method = :engine it is that checked computation.  As COEF_CDF of the MATLAB programs.
 
     coef_cdf(-14.094, "DU", 0)                      # 0.05: the 5% critical value of rho^_mu
 """
-function coef_cdf(y, cas::AbstractString, c::Real = 0; c0::Real = 0.0, kw...)
+function coef_cdf(y, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, engine::Symbol = :auto,
+                  verified::Bool = false, tol::Real = 1e-12, err::Bool = false, kw...)
+    method = inv_method("coef_cdf", method, true)
+    r = route_inv(:coef_cdf, engine, y, cas, c; c0, g0, method, verified, tol = Float64(tol), err, kw...); r === nothing || return r
+    m = method === :engine ? :auto : method
     # (the t-ratio at x = 0 with the null value c0 + y, its final check (cdf_range_check) named as the call of coef_cdf at y)
     one(yk) = isnan(yk) ? NaN : yk == Inf ? 1.0 : yk == -Inf ? 0.0 :
-        cdf_range_check("coef_cdf", cdf_args(cas, c, c0, get(kw, :g0, 0.0)), yk, ltratio_dist_(2, 0.0, cas, c; c0 = c0 + yk, kw...); xname = "y")
-    brittle_once(() -> y isa Number ? one(y) : map(one, y))   # (the brittle regimes that c0 + y passes, each warned once)
+        cdf_range_check("coef_cdf", cdf_args(cas, c, c0, g0), yk,
+                        ltratio_dist_(2, 0.0, cas, c; c0 = c0 + yk, g0, method = m, engine, verified, kw...); xname = "y")
+    v = brittle_once(() -> y isa Number ? one(y) : map(one, y))   # (the brittle regimes that c0 + y passes, each warned once)
+    noerr(v, err)
 end
 """
-    coef_icdf(p, cas, c = 0; tol = 1e-9, c0 = 0, opts...) -> y
+    coef_icdf(p, cas, c = 0; tol = 1e-9, c0 = 0, g0 = 0, method = :auto, engine = :auto, verified = false, err = false, opts...) -> y
 
 The p-quantiles (p a number or an array in (0, 1)) of the limit of n(phi^ - phi0) (`coef_cdf`), by the Illinois variant
-of regula falsi on a bracket grown from [-40, 10] to the width `tol`, about ten evaluations of `coef_cdf`.  Options as in
-`coef_cdf`.  As COEF_ICDF of the MATLAB programs.
+of regula falsi to the width `tol`.  By default (in the cases and the range of the single inversion of `coef_cdf`, the
+method of Bao and Kan, "Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order
+Autoregressions: O(1) Algorithms") on the single inversion's distribution function (tolerance 1e-12), from the bracket
+E[U - cV]/E[V] -/+ twice the scale of the ratio, 0.3 to 5 ms a value; `err = true` returns (y, errors) with the error
+estimate of the distribution function at the quantile divided by the density there; a warning where the error
+estimate of the distribution function exceeds 1e-12.  `method = :engine` (and the t-ratio's representations, engine =
+:classical or :general, case DG, further options) is the search of before on `coef_cdf` with method = :engine, from a
+bracket grown from [-40, 10], about ten evaluations; `verified = true` that search on the checked computation where the
+single inversion's estimate exceeds its tolerance.  As COEF_ICDF of the MATLAB programs.
 
     coef_icdf(0.05, "DK")                           # -8.039, the 5% critical value of rho^
 """
-function coef_icdf(p, cas::AbstractString, c::Real = 0; tol::Real = 1e-9, kw...)
-    BRITTLE_SEEN[] === nothing && return brittle_once(() -> coef_icdf(p, cas, c; tol, kw...))
+function coef_icdf(p, cas::AbstractString, c::Real = 0; tol::Real = 1e-9, c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto,
+                   engine::Symbol = :auto, verified::Bool = false, err::Bool = false, kw...)
+    method = inv_method("coef_icdf", method, true)
+    r = route_inv(:coef_icdf, engine, p, cas, c; tol = Float64(tol), c0, g0, method, verified, err, kw...); r === nothing || return r
+    m = method === :auto ? :engine : method
+    noerr(coef_icdf_engine(p, cas, c; tol, c0, g0, method = m, engine, verified, kw...), err)
+end
+"""the search of `coef_icdf` on the engines' distribution function (coef_cdf with method = :engine or a representation)"""
+function coef_icdf_engine(p, cas::AbstractString, c::Real; tol::Real, kw...)
+    BRITTLE_SEEN[] === nothing && return brittle_once(() -> coef_icdf_engine(p, cas, c; tol, kw...))
     one(pk) = begin
         0 < pk < 1 || throw(ArgumentError("coef_icdf: p must lie in (0, 1)"))
         f(x) = coef_cdf(x, cas, c; kw...) - pk

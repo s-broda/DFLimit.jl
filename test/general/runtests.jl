@@ -170,11 +170,11 @@ end
             @test maximum(abs.(dist_moments(trend(p), c)[1] .- mc) ./ abs.(mc)) < 1e-11
         end
         mc = ltratio_mom(4, "DK", 20.0; engine = :classical)
-        @test maximum(abs.(ltratio_mom(4, "DK", 20.0) .- mc) ./ abs.(mc)) < 1e-11
+        @test maximum(abs.(ltratio_mom(4, "DK", 20.0; method = :engine) .- mc) ./ abs.(mc)) < 1e-11
         # the circle of the moments with c0 != 0 continues the logarithm of e^{c + theta} det(...): with that of the
         # determinant alone, case DT at c = 0, c0 = -2 refused (theta imaginary at the real point of every circle)
         mc = ltratio_mom(4, "DT", 0.0; c0 = -2.0, engine = :classical)
-        @test maximum(abs.(ltratio_mom(4, "DT", 0.0; c0 = -2.0) .- mc) ./ abs.(mc)) < 1e-9
+        @test maximum(abs.(ltratio_mom(4, "DT", 0.0; c0 = -2.0, method = :engine) .- mc) ./ abs.(mc)) < 1e-9
         # Gil-Pelaez: refused where its grid does not resolve the transform (the 30% point of case DK at c = 10 has d/h = 3.1
         # with the default N, and at c = 12 0.5, where it was off by 1.1e-2), right with the N it names
         y10 = 9.999331938731642
@@ -193,7 +193,7 @@ end
         @test occursin("the moments of the t-ratio (dist_moments)", msg(() -> dist_moments(trend(1), 17.0)))
         @test occursin("the linear form", msg(() -> lin_cdf(trend(0), [0.0], 1.0, 17.0)))
         @test occursin("the general engine", msg(() -> DFLimit.coef_cdf(17.0, "DU", 17.0; engine = :general)))
-        @test ltratio_mom(2, "DU", 18.0) == ltratio_mom(2, "DU", 18.0; engine = :classical)
+        @test ltratio_mom(2, "DU", 18.0; method = :engine) == ltratio_mom(2, "DU", 18.0; engine = :classical)
         @test DFLimit.autoengine(:mom, DFLimit.case_spec("DU"), 17.0, 0.0, 0.0) === :classical
         @test DFLimit.autoengine(:mom, DFLimit.case_spec("DK"), 20.0, 0.0, 0.0) === :general
     end

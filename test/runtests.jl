@@ -45,6 +45,7 @@ const T0 = time()
     ex = [:ltratio_cdf, :ltratio_pdf, :ltratio_icdf, :ltratio_mom, :adfmax_cdf, :adfmax_pdf, :adfmax_icdf, :coef_cdf,
           :coef_icdf, :ltratio_region, :ltratio_lincdf, :power_envelope, :ltratio_bisect]
     @test all(n -> Base.isexported(DFLimit, n), ex)
+    @test Base.isexported(DFLimit, :coef_mom) && Base.isexported(DFLimit, :coef_pdf)
     @test all(n -> getfield(DFLimit, n) === getfield(D, n), ex)
     @test Set(filter(!=(:DFExact), names(D))) ⊆ Set(names(DFLimit))
     @test D.cdf isa Function && D.tr_limdist isa Function && D.tr_adfmax isa Function
@@ -159,7 +160,7 @@ end
 @testset "moments" begin
     for p in readref("mom_ref.txt")
         m, c, c0, g0, st = num(p[1:5]); mr = num(p[6:9]); cas = casecode(m, st)
-        @test maximum(abs.(ltratio_mom(4, cas, c; c0, g0) ./ mr .- 1)) < 1e-10
+        @test maximum(abs.(ltratio_mom(4, cas, c; c0, g0, method = :engine) ./ mr .- 1)) < 1e-10   # (the engines' circles; the jets: test/kan.jl)
     end
     @test ltratio_mom(2, "DU")[2] ≈ 3.05599535 atol = 1e-8                  # Nabeya (1999); quickcheck.jl, section 8
 end
@@ -177,7 +178,7 @@ end
             @test ltratio_pdf(x, cas, c; c0) ≈ fr atol = 1e-10
         elseif p[1] == "mom"
             c, c0 = num(p[3:4]); mr = num(p[5:8])
-            @test maximum(abs.(ltratio_mom(4, cas, c; c0) ./ mr .- 1)) < 1e-10
+            @test maximum(abs.(ltratio_mom(4, cas, c; c0, method = :engine) ./ mr .- 1)) < 1e-10
         else
             c, c0, pr, qr = num(p[3:6])
             q = ltratio_icdf(pr, cas, c; c0)
@@ -249,7 +250,8 @@ end
     @test coef_icdf(0.05, "DU") ≈ -14.093590831267115 atol = 1e-7
     @test round(coef_icdf(0.05, "DK"), digits = 3) == -8.039                   # the paper: -8.039, -14.094, -21.711
     @test round(coef_icdf(0.05, "DT"), digits = 3) == -21.711
-    @test coef_cdf(-5, "DT", -2; c0 = 1) ≈ ltratio_cdf(0, "DT", -2; c0 = -4) rtol = 1e-13   # the definition
+    @test coef_cdf(-5, "DT", -2; c0 = 1, method = :engine) ≈ ltratio_cdf(0, "DT", -2; c0 = -4) rtol = 1e-13   # the definition
+    @test coef_cdf(-5, "DT", -2; c0 = 1) ≈ ltratio_cdf(0, "DT", -2; c0 = -4) rtol = 1e-12   # (the single inversion: 2.7e-14)
     @test coef_cdf([-Inf, NaN, Inf], "DK")[[1, 3]] == [0.0, 1.0] && isnan(coef_cdf(NaN, "DK"))
 end
 
@@ -508,6 +510,7 @@ end
     @test (Base.include(Module(), joinpath(@__DIR__, f)); true)
 end
 Base.include(Module(), joinpath(@__DIR__, "general", "line.jl"))   # the line integral of the general designs of rank one or two
+Base.include(Module(), joinpath(@__DIR__, "kan.jl"))               # the devices of Bao and Kan (src/DFKan*.jl) and the functions that take them
 
 # The vector library of the batched sums (DFExact.vecmath): Accelerate on macOS, IntelVectorMath on x86-64 Linux and
 # Windows when it is loaded (the extension DFLimitIntelVectorMathExt, which then defines the method of the hook
