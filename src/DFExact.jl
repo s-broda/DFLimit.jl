@@ -2117,42 +2117,53 @@ function route_double(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64
     F1[1], false
 end
 """
-Case DK far above the unit root (method = :auto, a zero start, c > DKFAR_C): at large x (x > DKFAR_X) and, with c0 > c, in
-the lower tail (x < -DKFAR_XNEG) the conditional integral with its checks (route_double), as at the points where the line
-integral exceeds the bounds of the engine.  At large x the cost of the line integral grows like x^4 with c0 != 0 (the
-phase of the saddle factor of its inner integrals grows like x^2, and the outer panels follow it) until its rule exceeds
-RULEMAX: at c = 10, c0 = -2 it took 0.9 s at x = 200, 3.2 s at 400, 10 s at 700, 35 s at 1300 and more than three minutes
-at 2350 (four threads, November 2026), where the conditional integral with its checks takes 0.1 to 0.4 s at every x and
-agrees with it to 1e-14; x = 300 is where the line integral's time passes the conditional integral's at c = 5 to 10.  With
-c0 > c the bulk lies at x < 0, where X(v) has two positive roots and the far one, |x|/c0, lies inside the range of sqrt(V):
-there the line integral is off by up to 9.8e-6 at c = 5 (c0 = 5.5, x = -30), 5.5e-5 at c = 7 (c0 = 9, x = -300; a
-negative value at x = -627), 1.5e-3 at c = 10 (c0 = 10.5, x = -400) and 2.9e-4 at c = 13, without a warning, and within
-5e-7 of the reference at x >= -20; the conditional integral with its checks within 3e-10 of it at x from -30 to -400
-(the reference: scratch/fut/bridge_ref.jl, see DKFAR_CMAX).  Below c = 5 the distribution has no mass beyond x = 300
-worth the change (F(300) = 1 - 1e-12 at c = 3), and with c0 > c the line integral is within 1.7e-12 at c = 3.
+Far above the unit root at large |x| (method = :auto, a zero start, c > FAR_C): at x > FAR_X in cases DK, DU, DT, and in case
+DK with c0 > c at x < -FAR_XNEG, the conditional integral as route_double gives it (in case DK the checked value, in cases
+DU, DT the checked value where its status is 0 and one path otherwise), as at the points where the line integral exceeds
+the bounds of the engine; these points are taken before the rule's representations (far_tail in ltratio_dist).  At large x
+the line integral's cost grows like x^4 (the phase of the saddle factor of its inner integrals grows like x^2, and the
+panels of the outer rule follow it): in case DK at c = 10, c0 = -2 it took 0.9 s at x = 200, 3.2 s at 400, 10 s at 700,
+35 s at 1300 and more than three minutes at 2350 (four threads, November 2026), and in cases DU, DT at c = 16, c0 = 0 10
+to 20 s and some 2 GB at x = 1.3e6 (the 31% point) and more than 8 GB at x = 4.4e6 (the median: the memory guard ended the
+process), where the conditional integral takes 0.1 to 0.4 s at every x; x = 300 is where the line integral's time passes
+the conditional integral's at c = 5 to 10.  With c0 > c the bulk of case DK lies at x < 0, where X(v) has two positive roots
+and the far one, |x|/c0, lies inside the range of sqrt(V): there the line integral is off by up to 9.8e-6 at c = 5
+(c0 = 5.5, x = -30), 5.5e-5 at c = 7 (c0 = 9, x = -300; a negative value at x = -627), 1.5e-3 at c = 10 (c0 = 10.5,
+x = -400) and 2.9e-4 at c = 13, without a warning, and within 5e-7 of the reference at x >= -20 (cases DU, DT take the
+conditional integral at x < 0 with c0 > 0 anyway).  The values: in case DK the checked conditional integral within 1.3e-8
+of an independent computation (scratch/fut/bridge_ref.jl) up to c = 14, within 3e-10 at x from -30 to -400; in cases DU,
+DT route_double's value within 1e-14 of the general engine up to c = 13 (x up to 3e4) and within 5e-7 of the large-c law
+(t ~ (c - c0) |J(1)| sqrt(k), k the limit of V/J(1)^2) at c = 13 and 14 (scratch/fut/check_asym.jl).  Below c = 5 the
+distribution has no mass beyond x = 300 worth the change (F(300) = 1 - 1e-12 at c = 3), and with c0 > c the line integral
+is within 1.7e-12 at c = 3.
 """
-const DKFAR_C = 4.0
-const DKFAR_X = 300.0
-const DKFAR_XNEG = 20.0
-dk_far(model::Int, stat::Bool, g0::Float64, c::Float64, c0::Float64, x::Float64) =
-    model == 1 && !stat && g0 == 0 && c > DKFAR_C && (x > DKFAR_X || (c0 > c && x < -DKFAR_XNEG))
+const FAR_C = 4.0
+const FAR_X = 300.0
+const FAR_XNEG = 20.0
+far_tail(model::Int, stat::Bool, g0::Float64, c::Float64, c0::Float64, x::Float64) =
+    1 <= model <= 3 && !stat && g0 == 0 && c > FAR_C && (x > FAR_X || (model == 1 && c0 > c && x < -FAR_XNEG))
 """
-The largest c at which case DK is computed at large x above the unit root (where the conditional integral with its checks
-serves: dk_far, or where the line integral exceeds its bounds): DKFAR_CMAX = 14.  Against an independent computation
-(the law of V given J(1) by Girsanov's theorem, inverted on a line through its saddle point and integrated over J(1);
-scratch/fut/bridge_ref.jl of the repository) at c0 in {-2, 2, c - 1, c + 2} and x at the 24% to 99.99994% points, the
-checked conditional integral is within 1.3e-8 at c = 13 and 14, and off by up to 7.7e-5 at c = 16 (from the 99.7% point
-on), 5.5e-3 at c = 18 and by orders of magnitude at c = 20; the general engine's line exceeds its bounds there (from
-x ~ 3e4 at c = 10).  Above, such a point raises an ArgumentError (dk_far_check).
+The largest c at which the classical engine computes far above the unit root at large |x| (far_tail, or where the line
+integral exceeds its bounds): FAR_CMAX = 14.  In case DK, against an independent computation (the law of V given J(1) by
+Girsanov's theorem, inverted on a line through its saddle point and integrated over J(1); scratch/fut/bridge_ref.jl) at c0
+in {-2, 2, c - 1, c + 2} and x at the 24% to 99.99994% points, the checked conditional integral is within 1.3e-8 at c = 13
+and 14, and off by up to 7.7e-5 at c = 16 (from the 99.7% point on), 5.5e-3 at c = 18 and by orders of magnitude at
+c = 20; in case DT at c = 16 one path of the conditional integral gives values of 1e44 and more at the 95% and 99.7% points
+(c0 in {-2, 0, 2}) and 0.30377 for 0.30440 at c0 = 0, x = 1.3e6; in case DU it is within 1e-8 of the large-c law at c = 16,
+but its line integral at c0 = 0 exhausts the memory there, and the bound serves the three cases.  The general engine's
+line exceeds its bounds there (from x ~ 3e4 at c = 10), and above c = 16 it refuses the cases DU, DT.  Above, such a point
+raises an ArgumentError (far_check), before anything is computed.
 """
-const DKFAR_CMAX = 14.0
-function dk_far_check(kind::Int, c::Float64, c0::Float64, x::Float64)
-    c > DKFAR_CMAX || return nothing
+const FAR_CMAX = 14.0
+function far_check(kind::Int, model::Int, c::Float64, c0::Float64, x::Float64)
+    c > FAR_CMAX || return nothing
     fn = kind == 2 ? "ltratio_cdf" : "ltratio_pdf"
-    throw(ArgumentError("$fn: case DK, c = $c" * (c0 != 0 ? ", c0 = $c0" : "") * ", x = $x: case DK far above the unit root " *
-        "at large |x| (for c > $(DKFAR_C) at x > $(DKFAR_X), with c0 > c at x < -$(DKFAR_XNEG), and where the line integral " *
-        "exceeds the bounds of the engine) is computed for c <= $(DKFAR_CMAX) only: beyond, the conditional integral that takes " *
-        "these points is off by up to 7.7e-5 at c = 16 and 5.5e-3 at c = 18, and the general engine's line exceeds its bounds"))
+    cas = ("DK", "DU", "DT")[model]
+    throw(ArgumentError("$fn: case $cas, c = $c" * (c0 != 0 ? ", c0 = $c0" : "") * ", x = $x: far above the unit root at large " *
+        "|x| (for c > $(FAR_C) at x > $(FAR_X), in case DK with c0 > c at x < -$(FAR_XNEG), and where the line integral " *
+        "exceeds the bounds of the engine) the classical engine computes for c <= $(FAR_CMAX) only: beyond, the conditional " *
+        "integral that takes these points is off by up to 7.7e-5 in case DK at c = 16 and gives values of 1e44 and more in " *
+        "case DT, the line integral exhausts the memory, and the general engine's line exceeds its bounds"))
 end
 
 """the warning of ltratio_dist where route_double returned flagged values (a far root, bound :path): once per call (or once
@@ -2217,30 +2228,27 @@ function ltratio_dist_(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.
     F = [isnan(xk) ? NaN : xk == Inf ? (kind == 2 ? 1.0 : 0.0) : xk == -Inf ? 0.0 : 0.0 for xk in xs]
     fin = findall(isfinite, xs)
     mth(k) = method == :auto ? (verified ? automethod_verified : automethod)(model, stat, Float64(c), c0, g0, xs[k]) : method
-    ctr = [k for k in fin if mth(k) == :contour]
-    dbl = [k for k in fin if mth(k) == :double]
-    sgl = setdiff(fin, dbl, ctr)
-    # (case DK far above the unit root above c = 14: refused before anything is computed, whichever representation the
-    # rule names, with verified = true too; dk_far_check)
-    method == :auto && Float64(c) > DKFAR_CMAX && foreach(k -> dk_far(model, stat, g0, Float64(c), c0, xs[k]) && dk_far_check(kind, Float64(c), c0, xs[k]), fin)
+    # far above the unit root at large |x| (far_tail): the conditional integral as route_double gives it, in place of the
+    # rule's representations; above FAR_CMAX refused before anything is computed (far_check), with verified = true too
+    far = method == :auto ? [k for k in fin if far_tail(model, stat, g0, Float64(c), c0, xs[k])] : Int[]
+    foreach(k -> far_check(kind, model, Float64(c), c0, xs[k]), far)
+    farval(k) = route_double(kind, xs[k], model, Float64(c), c0, g0, start, PathTooLarge(:rule, "the line integral far above the unit root", 0.0, RULEMAX))[1]
+    rest = setdiff(fin, far)
+    ctr = [k for k in rest if mth(k) == :contour]
+    dbl = [k for k in rest if mth(k) == :double]
+    sgl = setdiff(rest, dbl, ctr)
     single(k) = kind == 2 ? cdf(xs[k], model; c = Float64(c), c0, g0, start, kw...) : density(xs[k], model; c = Float64(c), c0, g0, start, kw...)
     # the line integral at a point of sgl; where its paths exceed the bounds of the engine (PathTooLarge, raised before its
     # inner integrals are evaluated), with method = :auto the conditional integral with its checks (route_double), with
     # method = :single an ArgumentError that names the arguments (path_error)
     nflag = Ref(0)                                                    # (flagged values of route_double: a warning, route_warn)
     function single_route(k)
-        # (case DK far above the unit root at large x: the conditional integral with its checks, as where the line
-        # integral exceeds its bounds; dk_far)
-        if method == :auto && dk_far(model, stat, g0, Float64(c), c0, xs[k])
-            dk_far_check(kind, Float64(c), c0, xs[k])
-            return route_double(kind, xs[k], model, Float64(c), c0, g0, start, PathTooLarge(:rule, "the line integral far above the unit root", 0.0, RULEMAX))[1]
-        end
         try
             return single(k)
         catch e
             p = pathtoolarge(e); p === nothing && rethrow()
             (method == :auto && model != 4) || throw(path_error(kind, cas, Float64(c), c0, g0, xs[k], p, model))
-            model == 1 && p.bound == :rule && dk_far_check(kind, Float64(c), c0, xs[k])
+            (p.bound == :rule && !stat && g0 == 0) && far_check(kind, model, Float64(c), c0, xs[k])
             v, fl = route_double(kind, xs[k], model, Float64(c), c0, g0, start, p)
             fl && (nflag[] += 1)
             return v
@@ -2271,6 +2279,7 @@ function ltratio_dist_(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.
             for (j, k) in enumerate(dbl); F[k] = Fd[j]; end
         end
         for k in sgl; F[k] = single_route(k); end
+        for k in far; F[k] = farval(k); end
         nflag[] > 0 && route_warn(cas, Float64(c), c0, g0)
         kind == 1 && (F[F .< 0] .= 0.0)                               # a density below the error of the method
         return x isa Number ? F[1] : reshape(F, size(x))
@@ -2300,12 +2309,12 @@ function ltratio_dist_(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.
         Fd, info = tr_limdist(xs[dbl], model, Float64(c); c0, g0, start, pdf = kind == 1, warn = method == :double, verified = true, kw...)
         for (j, k) in enumerate(dbl)
             # a point chosen by the rule at which the double integral reports that its error estimate is not met gets the
-            # single integral's value (with method = :double the flagged value is returned, with a warning); not case DK
-            # far above the unit root (dk_far), where the flag is a false alarm and the line integral is off
-            F[k] = (method == :auto && info.status[j] != 0 && !dk_far(model, stat, g0, Float64(c), c0, xs[k])) ? single_or(k, Fd[j]) : Fd[j]
+            # single integral's value (with method = :double the flagged value is returned, with a warning)
+            F[k] = (method == :auto && info.status[j] != 0) ? single_or(k, Fd[j]) : Fd[j]
         end
     end
     for k in sgl; F[k] = single_route(k); end
+    for k in far; F[k] = farval(k); end
     nflag[] > 0 && route_warn(cas, Float64(c), c0, g0)
     if nkeep[] > 0
         msg = "$(uppercase(String(cas))), c = $c, c0 = $c0" * (g0 != 0 ? ", g0 = $g0" : "") * ": at some points the value of " *

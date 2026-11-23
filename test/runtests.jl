@@ -469,10 +469,17 @@ end
     # above c = 14 refused, with the arguments and the region
     for e in (:auto, :classical)
         m = errmsg(() -> ltratio_cdf(1e7, "DK", 16; c0 = 2, engine = e))
-        @test occursin("c = 16.0, c0 = 2.0, x = 1.0e7", m) && occursin("is computed for c <= 14.0 only", m)
+        @test occursin("c = 16.0, c0 = 2.0, x = 1.0e7", m) && occursin("computes for c <= 14.0 only", m)
     end
-    @test occursin("is computed for c <= 14.0 only", errmsg(() -> ltratio_pdf(1e7, "DK", 16; c0 = 2)))
-    @test occursin("is computed for c <= 14.0 only", errmsg(() -> ltratio_cdf(1e7, "DK", 16; c0 = -2, verified = true)))   # (the rule's :double)
+    @test occursin("computes for c <= 14.0 only", errmsg(() -> ltratio_pdf(1e7, "DK", 16; c0 = 2)))
+    @test occursin("computes for c <= 14.0 only", errmsg(() -> ltratio_cdf(1e7, "DK", 16; c0 = -2, verified = true)))   # (the rule's :double)
+    # cases DU, DT far above the unit root: at x > 300 the conditional integral as route_double gives it (the line integral
+    # took some 2 GB at c = 16, c0 = 0, x = 1.3e6 and more than 8 GB at 4.4e6), against the large-c law t ~ c |J(1)|
+    # sqrt(k) (scratch/fut/check_asym.jl; within 8.9e-8 and 2.1e-8 here, the law itself good to about 1e-7)
+    @test ltratio_cdf(4.07e5, "DU", 13; c0 = 0) ≈ 0.9545202704 atol = 1e-6
+    @test ltratio_cdf(4.766e5, "DT", 13; c0 = 0) ≈ 0.9973023556 atol = 1e-6
+    @test occursin("computes for c <= 14.0 only", errmsg(() -> ltratio_cdf(4.4e6, "DT", 16)))
+    @test occursin("computes for c <= 14.0 only", errmsg(() -> ltratio_cdf(4.4e6, "DU", 16; c0 = -2)))
     @test ltratio_cdf(0.5, "DK", 16; c0 = 16) ≈ ltratio_cdf(0.5, "DK", 16; c0 = 16, method = :single)   # (c0 = c: the line integral)
     # cases DU, DT keep one evaluation where the checked conditional integral flags (the general engine agrees)
     @test ltratio_cdf(3304.0, "DU", 10; c0 = 0) ≈ ltratio_cdf(3304.0, "DU", 10; c0 = 0, engine = :general) atol = 1e-10
