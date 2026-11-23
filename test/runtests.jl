@@ -148,7 +148,9 @@ end
     @test_logs min_level = Logging.Warn ltratio_cdf(-3.0, "DU", -5; c0 = 2.0)
     @test_logs min_level = Logging.Warn ltratio_cdf(-3.0, "DU", -5; c0 = 2.0, method = :double, verified = true)
     @test_logs min_level = Logging.Warn ltratio_cdf(-2.0, "DU", -5; g0 = 1.5)
-    @test_logs (:warn, r"contour integral by one evaluation fails") ltratio_cdf(-8.4, "DU", 2; c0 = 5.0, g0 = 1.5, method = :contour)
+    # (the failing contour integral gives 1.2e44 here: the warning, then the error of the final check, cdf_range_check)
+    e = @test_logs (:warn, r"contour integral by one evaluation fails") (try; ltratio_cdf(-8.4, "DU", 2; c0 = 5.0, g0 = 1.5, method = :contour); catch err; err; end)
+    @test e isa ErrorException && occursin("ltratio_cdf: case DU, c = 2, c0 = 5.0, g0 = 1.5, x = -8.4: the computed distribution function is", e.msg)
     # case DU with a fixed start, c0 > 3 at c > 1.5: the contour integral fails there, :auto takes the conditional integral
     Fa = @test_logs min_level = Logging.Warn ltratio_cdf(-8.4075, "DU", 2; c0 = 5.0, g0 = 1.5)
     @test Fa ≈ ltratio_cdf(-8.4075, "DU", 2; c0 = 5.0, g0 = 1.5, method = :double, verified = true) atol = 1e-9
@@ -439,6 +441,47 @@ end
     @test ltratio_cdf(1.5, "DK", 2; c0 = -0.01, g0 = 1) ≈ 0.086764388544 atol = 1e-10     # (was off by 3e-3)
     @test ltratio_cdf(0.5, "DK", 0; c0 = -0.01, g0 = 2) ≈ 0.755768817096 atol = 1e-10
     @test ltratio_cdf(1.5, "DU", 2; c0 = -0.01, g0 = 1, method = :single) ≈ 0.207535597435 atol = 1e-10   # (was -5e29)
+end
+
+# The upper tail above the unit root (November 23, 2026).  Case DK with c0 != c: beyond the line integral's bound (large x
+# above the unit root), and for c > 4 at x > 300 and, with c0 > c, at x < -20, the conditional integral with its checks
+# (dk_far, route_double); before, its flagged points got one evaluation, off by up to 2.4, the default route returned values
+# outside [0, 1], and with c0 > c the line integral was off by up to 1.5e-3 in the lower tail.  The
+# general engine cuts its line to the rate of the stationary value of the exponent with c0 (line_refine; before, off by
+# 1.1e-3 at c = 10, c0 = 9).  Above c = 14 such points are refused.  The references are an independent computation, the
+# law of V given J(1) by Girsanov's theorem, inverted and integrated over J(1) (scratch/fut/bridge_ref.jl), within 1e-12
+# of both engines where they agree (at x = 700 the two engines, which agree to 8e-15); the engines are within 3e-13 of them
+# at these points, the tolerances 1e-10.
+@testset "the upper tail above the unit root" begin
+    for (c, c0, x, F) in ((10.0, 2.0, 1e4, 0.743623945123), (10.0, 2.0, 3e4, 0.999338346257), (7.0, 2.0, 2e3, 0.999999671714),
+                          (10.0, 9.0, 1e3, 0.636120922790), (10.0, 9.0, 3e3, 0.993550212928), (7.0, -2.0, 700.0, 0.679262505385),
+                          # (c0 > c, the lower tail: the line integral was off by 4.2e-4 and 5.5e-5)
+                          (10.0, 10.5, -200.0, 0.716459029660), (7.0, 9.0, -300.0, 0.055488840603))
+        @test ltratio_cdf(x, "DK", c; c0) ≈ F atol = 1e-10
+        @test ltratio_cdf(x, "DK", c; c0, engine = :classical) ≈ F atol = 1e-10
+    end
+    @test ltratio_cdf(1e3, "DK", 10; c0 = 9, engine = :general) ≈ 0.636120922790 atol = 1e-10
+    @test ltratio_cdf(3e3, "DK", 10; c0 = 9, engine = :general) ≈ 0.993550212928 atol = 1e-10
+    @test abs(ltratio_cdf(1e4, "DK", 10; c0 = 9, engine = :general) - 1) < 1e-12     # (was 1.0000000112)
+    @test ltratio_cdf([1e5, 1e6], "DK", 10; c0 = 2) ≈ [1.0, 1.0] atol = 1e-12        # (was 0.51, 0.47)
+    # the density beyond the bound: the conditional integral with its checks, within 4e-15 relative of the general engine
+    @test ltratio_pdf(1e4, "DK", 10; c0 = 2) ≈ ltratio_pdf(1e4, "DK", 10; c0 = 2, engine = :general) rtol = 1e-9
+    # above c = 14 refused, with the arguments and the region
+    for e in (:auto, :classical)
+        m = errmsg(() -> ltratio_cdf(1e7, "DK", 16; c0 = 2, engine = e))
+        @test occursin("c = 16.0, c0 = 2.0, x = 1.0e7", m) && occursin("is computed for c <= 14.0 only", m)
+    end
+    @test occursin("is computed for c <= 14.0 only", errmsg(() -> ltratio_pdf(1e7, "DK", 16; c0 = 2)))
+    @test ltratio_cdf(0.5, "DK", 16; c0 = 16) ≈ ltratio_cdf(0.5, "DK", 16; c0 = 16, method = :single)   # (c0 = c: the line integral)
+    # cases DU, DT keep one evaluation where the checked conditional integral flags (the general engine agrees)
+    @test ltratio_cdf(3304.0, "DU", 10; c0 = 0) ≈ ltratio_cdf(3304.0, "DU", 10; c0 = 0, engine = :general) atol = 1e-10
+    # the final check of a distribution function: outside [0, 1] by more than 1e-8 an error that names the call
+    @test D.cdf_range_check("ltratio_cdf", "case DK, c = 1", [0.5, 1.0], [0.3, 1 + 5e-9]) == [0.3, 1 + 5e-9]
+    m = try; D.cdf_range_check("ltratio_cdf", "case DK, c = 1", [0.5, 1.0], [0.3, 1 + 2e-8]); ""; catch e; sprint(showerror, e); end
+    @test occursin("ltratio_cdf: case DK, c = 1, x = 1.0: the computed distribution function is 1.00000002", m)
+    @test_throws ErrorException D.cdf_range_check("coef_cdf", "case DU, c = 1", -1.0, -2e-8; xname = "y")
+    m = try; DFLimit.DFDet.cdf_range_check("dist_cdf", DFLimit.trend(0), 5.0, :zero, 0.0, 2.0, "x", [3.0], [-1e-7]); ""; catch e; sprint(showerror, e); end
+    @test occursin("dist_cdf: the design intercept (DU), c = 5.0, c0 = 2.0, zero start, x = 3.0", m)
 end
 
 # the engine's own checks (test/engine/, from the directory julia/ of the paper's repository, where the engine was

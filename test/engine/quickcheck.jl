@@ -322,7 +322,11 @@ let t = time()
     fire = (nwarn(() -> ltratio_cdf(-3.0, "DU", -5; c0 = 2.0, method = :double)), nwarn(() -> ltratio_cdf([-3.0, 1.0], "DK", 2; c0 = -5.0, method = :double)),
             nwarn(() -> ltratio_cdf(-5.0, "DU", -20; c0 = 2.0, g0 = 0.5)), nwarn(() -> ltratio_icdf([0.05, 0.5], "DU", -20; c0 = 2.0, g0 = 0.5)),
             nwarn(() -> ltratio_cdf(-2.0, "SK", -0.1; c0 = 1.0, method = :double)), nwarn(() -> ltratio_cdf(-2.0, "DU", 2; c0 = -2.0, g0 = 1.0, method = :contour)),
-            nwarn(() -> ltratio_cdf(-8.4, "DU", 2; c0 = 5.0, g0 = 1.5, method = :contour)), nwarn(() -> ltratio_cdf(-6.0, "DK", -25; g0 = 1.0, method = :double)))
+            nwarn(() -> try; ltratio_cdf(-8.4, "DU", 2; c0 = 5.0, g0 = 1.5, method = :contour); catch; end), nwarn(() -> ltratio_cdf(-6.0, "DK", -25; g0 = 1.0, method = :double)))
+    # (the failing contour integral at c = 2, c0 = 5, g0 = 1.5 gives 1.2e44: since November 23, 2026 the final check of the
+    # distribution function, cdf_range_check, turns it into an error that names the call, after the warning)
+    e84 = try; ltratio_cdf(-8.4, "DU", 2; c0 = 5.0, g0 = 1.5, method = :contour); nothing; catch err; err; end
+    check(e84 isa ErrorException && occursin("outside [0, 1] by more than 1.0e-8", e84.msg), "DU c = 2 c0 = 5 g0 = 1.5, the contour integral at x = -8.4 (1.2e44): the error of the final check")
     quiet = (nwarn(() -> ltratio_cdf(-3.0, "DU", -5; c0 = 2.0)), nwarn(() -> ltratio_cdf(-2.0, "DU", -5)), nwarn(() -> ltratio_cdf(-2.0, "DU", -5; g0 = 1.5)),
              nwarn(() -> ltratio_cdf(-3.0, "DU", -5; c0 = 2.0, method = :double, verified = true)), nwarn(() -> ltratio_icdf(0.05, "DU", -5; c0 = -2.0)),
              nwarn(() -> coef_cdf([-10.0, -5.0], "DU", -5)))
