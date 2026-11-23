@@ -820,15 +820,22 @@ MWork(S, M, sw, Sx) = MWork(S, M, sw, Sx, nothing)
 MWork(P::Prep; nq::Int = 24) = (S = zeros(ComplexF64, P.N, P.N);
     MWork(S, zeros(ComplexF64, P.N, P.N), SigWork(P; nq), S, sdata(P.A, P.B, P.L, P.Dv, zeros(P.N))))
 
-"""the matrix I - 2 (s A + t B + gamma E11) Sigma into W.M (its (1,1) entry without cancellation); Sigma in W.S"""
+"""the matrix I - 2 (s A + t B + gamma E11) Sigma into W.M (its (1,1) entry without cancellation); Sigma in W.S.
+The (1,1) entry is m011 - 2 ((s A + t B) Sigma)_11, formed from these two terms alone: above the unit root it is of the
+order e^{-2c} where the transform matters (the moments, the inversion of Gil-Pelaez), and the earlier form 1 - 2 ((s A +
+t B) Sigma)_11 - 2 gamma Sigma_11 + (m011 - (1 - 2 gamma Sigma_11)) carried an absolute rounding error of 1e-16, which
+put the moments off by 6e-4 relative at c = 15 and by 0.95 at c = 20.  (At s = 0 the product term is -2 t (B Sigma)_11,
+zero where the first row of B vanishes, as for the polynomial trends and Perron's models: there m011 came through before
+as well, and the roots and log D_V of the contour integral change by rounding only.)"""
 function buildM!(W::MWork, P::Prep, c::Float64, s::ComplexF64, t::ComplexF64, θ::ComplexF64)
     S = W.S; M = W.M; N = P.N
     γ = (c + θ) / 2
     Q = s .* P.A .+ t .* P.B
     mul!(M, Q, S, -2, false)
+    q11 = M[1, 1]
     for i in 1:N; M[i, i] += 1; end
     for j in 1:N; M[1, j] -= 2γ * S[1, j]; end
-    M[1, 1] += m011(c, t, θ) - (1 - 2γ * S[1, 1])
+    M[1, 1] = m011(c, t, θ) + q11
     M
 end
 
@@ -1298,9 +1305,10 @@ end
 @inline function buildM_s(sd::SData{N}, S::SMatrix{N,N,ComplexF64}, c::Float64, s::ComplexF64, t::ComplexF64, θ::ComplexF64) where {N}
     γ = (c + θ) / 2
     M = MMatrix{N,N,ComplexF64}(-2 * ((s * sd.A + t * sd.B) * S))
+    @inbounds q11 = M[1, 1]
     @inbounds for i in 1:N; M[i, i] += 1; end
     @inbounds for j in 1:N; M[1, j] -= 2γ * S[1, j]; end
-    @inbounds M[1, 1] += m011(c, t, θ) - (1 - 2γ * S[1, 1])
+    @inbounds M[1, 1] = m011(c, t, θ) + q11
     SMatrix(M)
 end
 """the stationary start: I - 2 (s A + t B + gamma (E11 - ENN)) Sx (`buildMx!`)"""
@@ -1975,6 +1983,34 @@ the line integral, case DU at c0 = 2) and the linear form of the envelope by up 
 within 5e-13 (case DK 3e-11, as below c = -100), and at 0.2 to 1.5 times the cost on that range (faster in cases DU, DT,
 1.3 to 1.5 times slower in cases DK and SU, from 25 and 37 ms to 32-38 and 47-57 ms for nine points)."""
 const FAR_CMIN = -60.0
+"""
+the largest c at which the general engine computes (`gen_cmax`; above, every function refuses with `cmax_msg`):
+GEN_CMAX0 = 20 for the designs without deterministic terms, with any start; with deterministic terms GEN_CMAX = 16 with a
+zero start and GEN_CMAX_FIXED = 10 with a fixed start.  Above the unit root the transform has one root s_+ of the order
+2c e^{-2c}, and the reciprocal roots, the eigenvalues of a small matrix, span e^{2c}: with deterministic terms the others
+are lost in double precision (the second reciprocal root of case DU is -0.0051 at c = 14, -0.0040 at c = 16, -0.0023 at
+c = 17 and zero at c = 19), and the paths fail with "rootpath: ... roots at the start" from c = 17 in case DU and c = 18 in
+case DT; with a fixed start the coefficient statistic was off by 3e-5 in case DU and 1e-4 in case DT at c = 12 and 14
+without a warning, and NaN or 1e16 with one beyond.  Measured in November 2026 against the classical engine and the
+single inversion of DFKan (the coefficient statistic at seven levels from 0.1% to 99.9% and with a fixed start g0 in
+{0.5, 1, 3} at three, the moments, the quantiles): without deterministic terms the distribution function within 4e-9 up
+to c = 20 (the conditioning of the statistic itself, whose spread is of the order e^{-c}: the engines differ by up to
+4e-9 there; with a fixed start 5.4e-8); with an intercept, a linear or a quadratic trend or Perron's models A and C within
+1.5e-8 up to c = 16, and with a fixed start (cases DU, DT) within 3.2e-6 up to c = 10.  The classical cases have the
+classical engine beyond.
+"""
+const GEN_CMAX0 = 20.0
+const GEN_CMAX = 16.0
+const GEN_CMAX_FIXED = 10.0
+gen_cmax(D::Determ, fixed::Bool = false) = nreg(D) == 0 ? GEN_CMAX0 : fixed ? GEN_CMAX_FIXED : GEN_CMAX
+cmax_msg(what::AbstractString, c::Real, b::Real) =
+    "$what at c = $c: the general engine computes up to c = $b for this design and start ($(GEN_CMAX0) without deterministic terms; with them $(GEN_CMAX), and $(GEN_CMAX_FIXED) with a fixed start; above, the roots of its transform are no longer resolved in double precision); the classical cases DK, DU, DT are available with engine = :classical or the default engine = :auto"
+"""refuse c above `gen_cmax` of the design D with its start (an ArgumentError that names the statistic what)"""
+function check_cmax(D::Determ, c::Real, start::Symbol, gamma0::Real, what::AbstractString)
+    b = gen_cmax(D, start == :fixed && gamma0 != 0)
+    (isfinite(c) && c > b) && throw(ArgumentError(cmax_msg(what, c, b)))
+    nothing
+end
 
 """
     cpath(Mo, c; phi = nothing, hfac = 1, sub = 8, rmax = default_rmax(c), tau = nothing)
@@ -2380,7 +2416,11 @@ function seg_panels!(out::Vector{Tuple{Float64,Float64}}, st::Float64, en::Float
 end
 """panels of [A, B] graded toward the focus points (position, scale): a focus point whose position lies within its own
 scale of one with a smaller scale is dropped; between two kept points the interval is split at the midpoint (as in
-DFExact.ctr_upath)"""
+DFExact.ctr_upath).  Points within 1e-12 (B - A) of each other or of an end are merged with it: a tolerance relative to
+the length of the interval, because far above the unit root the segments of the U-shapes are tiny (the positive root
+lies within about 2c e^{-2c} of the branch point -t/c0 of the coefficient statistic, 1e-16 at c = 20); with the
+tolerance 1e-12 max(B - A, 1) used before, every point of a segment shorter than 1e-12 merged with its lower end, the
+segment got no panel at all, and from c = 16 on the coefficient statistic was off by up to 0.2."""
 function graded_panels(A::Float64, B::Float64, foc::Vector{Tuple{Float64,Float64}}; ratio::Float64 = 2.0)
     kl = Float64[]; kh = Float64[]
     for k in sortperm([f[2] for f in foc])
@@ -2388,7 +2428,7 @@ function graded_panels(A::Float64, B::Float64, foc::Vector{Tuple{Float64,Float64
         any(abs(pos - y) <= h for y in kl) && continue
         push!(kl, pos); push!(kh, h)
     end
-    tol = 1e-12 * max(B - A, 1.0)
+    tol = 1e-12 * (B - A)
     pts = [(A, Inf)]
     for k in sortperm(kl)
         if abs(kl[k] - pts[end][1]) <= tol
@@ -2608,6 +2648,13 @@ function place(logMt::L, grp::AbstractVector{ComplexF64}, oth::AbstractVector{Co
     edge = side == 1 ? minimum(real, grp) : maximum(real, grp)
     foc = [0.0]
     isempty(oth) || push!(foc, side == 1 ? maximum(real, oth) : minimum(real, oth))
+    # (above the unit root with c0 > 0 the branch point -Re(t)/c0 of the v-kernels, the left end of the admissible interval of
+    # G+, is a focus of the grading cost too: the kernel of the density of the coefficient statistic has a double pole there,
+    # int 2 v^3 e^{-(t + c0 s) v^2} dv = (t + c0 s)^{-2}, which the objective did not see, and with a fixed start at c from 1
+    # to 5 the density was off by up to 0.12 (case DU, c = 5, g0 = 0.5, at the 90% point), the distribution function by up to
+    # 1e-5, without a warning; with the cost within 1.3e-8 of DFKan's single inversion on a map of c from 1 to 5, g0 in {0.5,
+    # 1, 3}, cases DK, DU, DT)
+    side == 1 && c0p > 0 && push!(foc, -tr / c0p)
     # (xq > 0: the growth of the v-kernels of the upper tail to the left of the origin, max_v e^{-Re(t + c0 s) v^2 - Re(s) xq v}
     # = e^{Re(s)^2 xq^2/(4 Re(t + c0 s))}, c0p the largest positive c0, which makes it grow without bound toward the branch
     # point -Re(t)/c0)
@@ -3625,6 +3672,7 @@ function startmodel(D::Determ, c::Real, start::Symbol, gamma0::Real, gls = nothi
     isfinite(c) || throw(ArgumentError("c must be a finite real scalar"))
     isfinite(gamma0) || throw(ArgumentError("gamma0 must be a finite real scalar"))
     start == :stationary && c >= 0 && throw(ArgumentError("the stationary start needs c < 0"))
+    check_cmax(D, c, start, gamma0, "the general engine")
     model(prep_cached(D, gls), start, gamma0)
 end
 
@@ -3654,6 +3702,7 @@ dist_pdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, ga
 evaluation of the contour integral or, with verified = true, by `verify_eval`; the infinite density at a tangency"""
 function dist_eval(D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
                    method::Symbol = :auto, kw...)
+    check_cmax(D, c, start, gamma0, which == 1 ? "the t-ratio (dist_cdf)" : "the t-ratio (dist_pdf)")
     lv = line_dist(method, D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; kw...); lv === nothing || return lv
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     c0 = Float64(get(kw, :c0, 0.0))
@@ -3738,6 +3787,7 @@ function dist_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol::
                        phi = nothing, hfac = 1.0, method::Symbol = :auto, kw...)
     0 < p < 1 || throw(ArgumentError("dist_quantile: p must lie in (0, 1)"))
     search_args("dist_quantile", "x0", x0, tol)
+    check_cmax(D, c, start, gamma0, "the quantiles of the t-ratio (dist_quantile)")
     lq = line_quantile(method, D, p, c; x0, tol, start, gamma0, gls, phi, hfac, kw...); lq === nothing || return lq
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     x = Float64(x0)
@@ -3799,6 +3849,45 @@ function gpgrid(N::Int, umax::Float64)
 end
 
 """
+    gp_edge(Mo, a, c) -> d
+
+The distance from the origin of the nearest singularity of phi(u) = E exp(iu (U - aV)) in the complex plane (U - aV is a
+quadratic form, whose transform M(s, -a s) is singular on the real line only, at the first zeros s_+ > 0 and s_- < 0 of
+the entire function e^{c + theta} det(...) along s, scanned by factors of 1.1 from 1e-10 to 1e4 and bisected): the
+smaller of s_+ and |s_-|.  (The phase of the determinant alone is -Im theta on the real line where -a s > c^2/2, so that
+the sign change is read off the entire function.)
+"""
+function gp_edge(Mo::Model, a::Float64, c::Float64)
+    W = MWork(Mo); Bf = fixbuf(Mo.r)
+    function bad(s)
+        t = complex(-a * s)
+        θ, fx = logmgf_tpart!(Mo, c, t, W)
+        _, ld = logmgf_spart(Mo, c, complex(s), t, θ, fx, W, Bf)
+        L = ld + c + θ
+        !(isfinite(real(L)) && abs(imag(L)) < 1.0)
+    end
+    e = Inf
+    for sg in (1.0, -1.0)
+        s = 1e-10
+        while s < 1e4 && !bad(sg * 1.1 * s); s *= 1.1; end
+        s < 1e4 || continue
+        lo = s; hi = 1.1 * s
+        for _ in 1:40; m = sqrt(lo * hi); bad(sg * m) ? (hi = m) : (lo = m); end
+        e = min(e, lo)
+    end
+    e
+end
+"""
+the smallest ratio of the distance d of the singularity of phi(u) (`gp_edge`) to the step h = asinh(umax)/N of the grid of
+`coef_cdf_gp` near the origin, below which it refuses.  The error of the trapezoidal rule there is about 0.16
+exp(-2 pi d/h) (case DK, against the classical engine, November 2026: 4.5e-4 at d/h = 0.98, 6.8e-5 at 1.25, 8.4e-6 at
+1.57, 7.7e-7 at 1.94, below 6e-8 from 3.06 on); the law of U - aV widens like e^{2c} above the unit root and d shrinks
+like 2c e^{-c}, so that with the default grid the 30% point of case DK has d/h = 3.1 at c = 10 and 0.5 at c = 12 (off by
+1.1e-2), and the 1% point already d/h = 1.9 at c = 5.  The bound of the point-optimal statistic (`PT_EDGE`), for the same
+rule.
+"""
+const GP_EDGE = 3.3
+"""
     coef_cdf_gp(D, ys, c = 0; c0 = 0, start = :zero, gamma0 = 0, N = 60000, umax = 4000) -> P (vector)
 
 The distribution function of the limit (U - c0 V)/V of n(phi^ - phi0), phi0 = 1 + c0/n, by the inversion formula of
@@ -3806,19 +3895,25 @@ Gil-Pelaez: P(U - aV <= 0) = 1/2 - (1/pi) int_0^inf Im phi(u)/u du, a = c0 + y, 
 the inverse square root of the determinant continued along u (the phase of log det unwrapped from u = 0, where the
 determinant is positive), the trapezoidal rule in u = sinh(v) with N steps up to umax (as DFExact.tr_gilpelaez).  An
 independent check of `coef_cdf`, which uses the contour integral.  Where a = 0 (y = -c0) the transform decays only like
-u^{-r/2} and the truncation at umax shows.
+u^{-r/2} and the truncation at umax shows.  Where the grid does not resolve the singularity of phi nearest the real line
+(`GP_EDGE`: above the unit root, from about c = 5 in the lower tail and c = 10 in the bulk with the default N), it
+refuses with an ArgumentError that names the N it would need.
 """
 function coef_cdf_gp(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
                      N::Int = 60000, umax::Real = 4000.0)
+    check_cmax(D, c, start, gamma0, "the coefficient statistic (coef_cdf_gp)")
     Mo = startmodel(D, c, start, gamma0, gls); c = Float64(c)
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
     (umax > 0 && isfinite(umax)) || throw(ArgumentError("coef_cdf_gp: umax must be a positive finite number"))
     u, w = gpgrid(N, Float64(umax))
+    hgp = asinh(Float64(umax)) / N
     out = Float64[]
     for y in ys
         # (1, 0, NaN at Inf, -Inf, NaN, without the sum: at Inf the transform at t = -i Inf u did not return)
         isfinite(y) || (push!(out, isnan(y) ? NaN : y > 0 ? 1.0 : 0.0); continue)
         a = Float64(c0) + Float64(y)
+        d = blas1f(() -> gp_edge(Mo, a, c), dense_la(Mo))
+        d / hgp >= GP_EDGE || throw(ArgumentError("coef_cdf_gp at c = $c, y = $y: the transform of U - (c0 + y) V has a singularity at $(round(d, sigdigits = 3)) from the real line, which the grid of the inversion (step $(round(hgp, sigdigits = 3)) near the origin) does not resolve (above the unit root the law widens like e^{2c}); it needs N >= $(ceil(Int, GP_EDGE * asinh(Float64(umax)) / d)), or coef_cdf (the contour integral)"))
         L0 = Vector{ComplexF64}(undef, N + 1); LD = Vector{ComplexF64}(undef, N + 1)
         # (one BLAS thread, see `blas1`)
         blas1f(dense_la(Mo)) do
@@ -3851,6 +3946,7 @@ V)/V <= y] = P[U - (c0 + y) V <= 0], the distribution function of the t-ratio at
 """
 function coef_cdf(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
                   phi = nothing, hfac = 1.0, verified::Bool = false, vtol::Real = 1e-9, kw...)
+    check_cmax(D, c, start, gamma0, "the coefficient statistic (coef_cdf)")
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     nonfinite(ys, true) do y
         verified && return verify_eval((CPv, o) -> [contour_eval(CPv, [0.0]; c0 = Float64(c0) + yk, o..., kw...)[1][1] for yk in y], CP, Float64(vtol))
@@ -3860,6 +3956,7 @@ end
 """coef_pdf(D, ys, c = 0; c0, start, gamma0, kw...) -> f (vector): its density, by the kernel 2 v^3 (d/dc0 of F at x = 0)"""
 function coef_pdf(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
                   phi = nothing, hfac = 1.0, verified::Bool = false, vtol::Real = 1e-9, kw...)
+    check_cmax(D, c, start, gamma0, "the coefficient statistic (coef_pdf)")
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     nonfinite(ys, false) do y
         verified && return verify_eval((CPv, o) -> [contour_eval(CPv, [0.0]; c0 = Float64(c0) + yk, vpow = 3, o..., kw...)[2][1] for yk in y], CP, Float64(vtol))
@@ -3876,6 +3973,7 @@ function coef_quantile(D::Determ, p::Real, c::Real = 0.0; y0::Real = -10.0, tol:
                        gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = 1.0, kw...)
     0 < p < 1 || throw(ArgumentError("coef_quantile: p must lie in (0, 1)"))
     search_args("coef_quantile", "y0", y0, tol)
+    check_cmax(D, c, start, gamma0, "the coefficient statistic (coef_quantile)")
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     y = Float64(y0)
     for it in 1:40
@@ -3943,7 +4041,8 @@ function newton_safe(FF, p::Real, x0::Real, step::Real; tol::Real = 1e-10, maxit
 end
 
 """the cached outer contour of D with its start at c (as `dist_cdf`)"""
-user_path(D::Determ, c::Real, start::Symbol, gamma0::Real, gls, phi, hfac) = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
+user_path(D::Determ, c::Real, start::Symbol, gamma0::Real, gls, phi, hfac; what::AbstractString = "the general engine") =
+    (check_cmax(D, c, start, gamma0, what); cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac))
 
 """
     lin_cdf(D, bs, a, c = 0; start = :zero, gamma0 = 0, gls = nothing, kw...) -> P (vector)
@@ -3958,7 +4057,7 @@ function lin_cdf(D::Determ, bs::AbstractVector, a::Real, c::Real = 0.0; start::S
                  hfac = 1.0, verified::Bool = false, vtol::Real = 1e-9, kw...)
     isnan(a) && return v_cdf(D, bs, c; start, gamma0, gls, phi, hfac)
     isfinite(a) || throw(ArgumentError("lin_cdf: a must be a finite real scalar (NaN: the law of V)"))
-    CP = user_path(D, c, start, gamma0, gls, phi, hfac)
+    CP = user_path(D, c, start, gamma0, gls, phi, hfac; what = "the linear form U - aV (lin_cdf)")
     nonfinite(bs, true) do b
         specs = [[XSpec(Float64(a), 0.0, CP.Mo.a + bk; dA = 1.0)] for bk in b]
         spec_eval(CP, specs, 1, verified, Float64(vtol); kw...)
@@ -3977,7 +4076,7 @@ function lin_pdf(D::Determ, bs::AbstractVector, a::Real, c::Real = 0.0; start::S
                  hfac = 1.0, verified::Bool = false, vtol::Real = 1e-9, kw...)
     isnan(a) && return v_pdf(D, bs, c; start, gamma0, gls, phi, hfac)
     isfinite(a) || throw(ArgumentError("lin_pdf: a must be a finite real scalar (NaN: the law of V)"))
-    CP = user_path(D, c, start, gamma0, gls, phi, hfac)
+    CP = user_path(D, c, start, gamma0, gls, phi, hfac; what = "the linear form U - aV (lin_pdf)")
     nonfinite(bs, false) do b
         specs = [[XSpec(Float64(a), 0.0, CP.Mo.a + bk; dA = 1.0)] for bk in b]
         spec_eval(CP, specs, 2, verified, Float64(vtol); kw...)
@@ -3989,7 +4088,7 @@ function lin_quantile(D::Determ, p::Real, a::Real, c::Real = 0.0; b0::Real = 0.0
     0 < p < 1 || throw(ArgumentError("lin_quantile: p must lie in (0, 1)"))
     isfinite(a) || throw(ArgumentError("lin_quantile: a must be a finite real scalar"))
     search_args("lin_quantile", "b0", b0, tol)
-    CP = user_path(D, c, start, gamma0, gls, phi, hfac)
+    CP = user_path(D, c, start, gamma0, gls, phi, hfac; what = "the quantiles of the linear form U - aV (lin_quantile)")
     FF(b) = (r = contour_eval_specs(line_refined(CP, Float64[]; amax = [abs(CP.Mo.a + b)]), [[XSpec(Float64(a), 0.0, CP.Mo.a + b; dA = 1.0)]]; kw...); (r[1][1], r[2][1]))
     newton_safe(FF, p, b0, 1.0; tol)
 end
@@ -4024,7 +4123,7 @@ would have without the steepening for the roots (pi/4, or `fixed_phi` with a fix
 e^{-t y} decays.  An angle given by phi is kept (and so is the line, if that is what it gives).
 """
 function v_path(D::Determ, c::Real, start::Symbol, gamma0::Real, gls, phi, hfac)
-    CP = user_path(D, c, start, gamma0, gls, phi, hfac)
+    CP = user_path(D, c, start, gamma0, gls, phi, hfac; what = "the law of V (v_cdf, v_pdf)")
     phi === nothing ? v_own(CP; hfac) : CP
 end
 """
@@ -4134,14 +4233,14 @@ trend (cases DU, DT, SU, ST); for other designs and starts this is the same func
 adfmax_cdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, phi = nothing, hfac = 1.0,
            verified::Bool = false, vtol::Real = 1e-9, kw...) =
     nonfinite(xs, true) do x
-        CP = user_path(D, c, start, gamma0, nothing, phi, hfac)
+        CP = user_path(D, c, start, gamma0, nothing, phi, hfac; what = "ADFmax (adfmax_cdf)")
         spec_eval(CP, [adfmax_specs(xk, CP.Mo.a) for xk in x], 1, verified, Float64(vtol); kw...)
     end
 """adfmax_pdf(D, xs, c = 0; kw...) -> f (vector): its density"""
 adfmax_pdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, phi = nothing, hfac = 1.0,
            verified::Bool = false, vtol::Real = 1e-9, kw...) =
     nonfinite(xs, false) do x
-        CP = user_path(D, c, start, gamma0, nothing, phi, hfac)
+        CP = user_path(D, c, start, gamma0, nothing, phi, hfac; what = "ADFmax (adfmax_pdf)")
         spec_eval(CP, [adfmax_specs(xk, CP.Mo.a) for xk in x], 2, verified, Float64(vtol); kw...)
     end
 """adfmax_quantile(D, p, c = 0; x0 = -2, tol = 1e-10, kw...) -> x (`newton_safe` on `adfmax_cdf`, `adfmax_pdf`)"""
@@ -4149,7 +4248,7 @@ function adfmax_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol
                          phi = nothing, hfac = 1.0, kw...)
     0 < p < 1 || throw(ArgumentError("adfmax_quantile: p must lie in (0, 1)"))
     search_args("adfmax_quantile", "x0", x0, tol)
-    CP = user_path(D, c, start, gamma0, nothing, phi, hfac)
+    CP = user_path(D, c, start, gamma0, nothing, phi, hfac; what = "the quantiles of ADFmax (adfmax_quantile)")
     FF(x) = (r = contour_eval_specs(line_refined(CP, [x]), [adfmax_specs(x, CP.Mo.a)]; kw...); (r[1][1], r[2][1]))
     newton_safe(FF, p, x0, 1.0; tol)
 end
@@ -4209,6 +4308,7 @@ function dist_moments(D::Determ, c::Real = 0.0; p::Int = 4, c0::Real = 0.0, star
                       Nu::Int = 64, h::Float64 = 0.05)
     D.detrend == :first && throw(ArgumentError(FIRST_MOM_MSG))
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
+    check_cmax(D, c, start, gamma0, "the moments of the t-ratio (dist_moments)")
     Mo = startmodel(D, c, start, gamma0, gls); c = Float64(c); c0 = Float64(c0)
     tlo = min(-60.0, -2c - 40); thi = c < -20 ? max(8.0, log(80 * abs(c))) : 8.0
     # (the grid grows with c above the unit root: 2c/h points, 4e5 at c = 1e4; beyond 1e6 an error)
@@ -4235,10 +4335,20 @@ function dist_moments(D::Determ, c::Real = 0.0; p::Int = 4, c0::Real = 0.0, star
                 # (with c0 = 0 every point of the circle has t = -s: Sigma(theta) and the data of the fixed start are computed
                 # once, not Nu times)
                 θk, fxk = logmgf_tpart!(Mo, c, complex(-s - c0 * U[1]), W)
+                # (whether the circle in t = -s - c0 u reaches the cut t >= c^2/2 of theta: then see below)
+                cut = c0 != 0 && -s + abs(c0) * r > c * c / 2
                 for k in 1:Nu
                     tk = complex(-s - c0 * U[k])
                     (c0 != 0 && k > 1) && ((θk, fxk) = logmgf_tpart!(Mo, c, tk, W))
                     L0[k], LD[k] = logmgf_spart(Mo, c, U[k], tk, θk, fxk, W, Bf)
+                    # (where the circle reaches the cut, the logarithm continued around it is that of the entire function
+                    # e^{c + theta} det(...), real and positive at the real point u = r, and not that of the determinant
+                    # alone, whose phase jumps with theta across the cut: where -s - c0 r > c^2/2, as at c = 0 with c0 < 0
+                    # for every s below |c0| r, theta is imaginary at the real point, the check of the real start failed on
+                    # every circle, and the moments refused (case DT at c = 0, c0 = -2).  Elsewhere the logarithm of the
+                    # determinant, as before, bit for bit: the moments far from the unit root with c0 = c are converged to
+                    # 1e-8 only, and the rounding of the other form moves them by 3e-9.  With c0 = 0 the circle is t = -s.)
+                    cut && (LD[k] += c + θk; L0[k] += (c + θk) / 2)
                 end
                 ld, ok = circlog(exp.(LD .- real(LD[1])))
                 L = L0 .- (ld .+ real(LD[1])) ./ 2
