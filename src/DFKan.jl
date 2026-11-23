@@ -14,9 +14,11 @@ package.  The method of every function here is theirs; the code is a port to the
     derivatives read off a jet (`half_cdf`, `ratio_cdf`, `ratio_pdf`, `ratio_icdf`, `ratio_mom`), each value with an
     error estimate; the package's `coef_cdf`, `coef_pdf`, `coef_icdf`, `coef_mom`, `ltratio_lincdf`, `power_envelope`
     and `ltratio_mom` take these for the six classical cases (src/merged.jl, the functions `coef_cdf1` and so on here);
-  * the branch of P(t), M_0(t) and the labels of the roots of the line integral at a single point t (`tparts_point`,
-    file DFKan_branch.jl), and of the general engine's determinant (`DFDet.DetCF`, the file DFKan_det.jl, evaluated in
-    the module DFDet: the point-optimal statistic and `coef_cdf_gp` by the single inversion);
+  * the branch of P(t), M_0(t) and the labels of the roots of the classical line integral and contour integral at a
+    single point t (`DFExact.tparts_point`, in the classical engine's file), and of the general engine's determinant from
+    the pivots of the precision matrix (`DFDet.DetCF`, the file DFKan_det.jl, evaluated in the module DFDet: the
+    point-optimal statistic and `coef_cdf_gp` by the single inversion, and the argument of log P(t) in the provider of
+    the general engine's line integral);
   * the moments of the t-ratio at a local null value from one jet per node (`tratio_mom1`), and the distribution
     function of the t-ratio at zero in closed form (`ray_cdf`).
 
@@ -388,7 +390,6 @@ end
 logmgf(F::LimCF, s, t) = logcf(F, -im * s, -im * (t + F.c * s))
 
 include("DFKan_ratio.jl")
-include("DFKan_branch.jl")
 # (the general engine's transform with the branch from the pivots, src/DFKan_det.jl, is evaluated in the module DFDet)
 
 end # module

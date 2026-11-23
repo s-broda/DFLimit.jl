@@ -39,28 +39,26 @@ errm(f) = try; f(); ""; catch e; sprint(showerror, e); end
             prev = L
         end
     end
-    @testset "P(t), M0 and the roots at a point against the tracked branches" begin
+    @testset "P(t), M0 and the roots at each point (the classical engine's tparts)" begin
+        # each point by itself, with nothing to track from, equals the same point on the grid (the continuation along the
+        # grid that this replaced agreed to 5.7e-14 relative on the engine's grids, scratch/int of kan-integration), and
+        # the conjugate point gives the conjugates
         for model in 1:4, stat in (false, true), c in (5.0, 0.0, -1.0, -20.0, -100.0)
             (stat && (c >= 0 || model == 4)) && continue
             tau = X.default_tau(model, c; stat)
             ts = [tau + im * tau * sinh(u) for u in 0.0:0.075*X.hufac(c):asinh(X.wmaxc(model, c) / tau)]
-            A = X.tparts(model, c, ts; stat); B = KAN.tparts_pointwise(model, c, ts; stat)
+            A = X.tparts(model, c, ts; stat)
             n = X.kernel(model, stat) == 1 ? 2 : 4
-            for i in 1:n
-                @test maximum(abs.(B[i] .- A[i]) ./ abs.(A[i])) < 1e-9
+            for k in (1, 2, length(ts) ÷ 3, length(ts))
+                B = X.tparts(model, c, [ts[k]]; stat); Bc = X.tparts(model, c, [conj(ts[k])]; stat)
+                for i in 1:n
+                    @test isapprox(B[i][1], A[i][k]; rtol = 1e-13)
+                    @test isapprox(Bc[i][1], conj(A[i][k]); rtol = 1e-13)
+                end
             end
-            # a single far point, with nothing to track from
-            t1 = ts[end]; tp = KAN.TPoint(model, c, stat)
-            @test isapprox(KAN.tparts_point(tp, t1)[1], A[1][end]; rtol = 1e-9)
-            @test isapprox(KAN.tparts_point(tp, conj(t1))[1], conj(A[1][end]); rtol = 1e-9)
-        end
-        v0 = ltratio_cdf(-2.0, "DU", -5); w0 = ltratio_pdf(-1.0, "ST", -3)
-        KAN.pointwise!(true)
-        try
-            @test isapprox(ltratio_cdf(-2.0, "DU", -5), v0; atol = 1e-13)
-            @test isapprox(ltratio_pdf(-1.0, "ST", -3), w0; atol = 1e-13)
-        finally
-            KAN.pointwise!(false)
+            # P at the real point is positive, and s1 < 0 < s2 there (rank two)
+            @test abs(imag(A[1][1])) < 1e-14 * abs(A[1][1]) && real(A[1][1]) > 0
+            n == 4 && @test real(A[2][1]) < 0 < real(A[3][1])
         end
     end
     @testset "the coefficient statistic by the single inversion" begin
@@ -205,13 +203,11 @@ errm(f) = try; f(); ""; catch e; sprint(showerror, e); end
         end
         @test coef_cdf_gp(trend(0), [-14.0], -5.0; method = :grid) == G.coef_cdf_grid(trend(0), [-14.0], -5.0)
         @test abs(G.zero_cdf(D, -5.0)[1] - dist_cdf(D, [0.0], -5.0)[1]) < 1e-9
-        # the line integral's provider: the branch at each point against the continuation
-        v0 = dist_cdf(trend(2), [-2.5], -5.0; method = :line)[1]
-        G.empty_caches!(); G.line_pointwise!(true)
-        try
-            @test isapprox(dist_cdf(trend(2), [-2.5], -5.0; method = :line)[1], v0; atol = 1e-13)
-        finally
-            G.line_pointwise!(false); G.empty_caches!()
+        # the line integral's provider with the argument of log P(t) at each point (the pivots) against the inversion on
+        # paths (and the continuation of before, within 1.7e-14 on the engine's grids)
+        for (Dl, st, c) in ((trend(2), :zero, -5.0), (trend(4), :zero, 0.0), (trend(0), :stationary, -20.0), (detrend_first(trend(2)), :zero, 2.0))
+            x = [-2.5, -1.0]
+            @test maximum(abs, dist_cdf(Dl, x, c; start = st, method = :line) - dist_cdf(Dl, x, c; start = st, method = :paths)) < 1e-10
         end
         # the outer contour: roots and log P at single nodes against the continuation along the path
         Mo = G.startmodel(D, -5.0, :zero, 0.0, nothing); CP = G.cpath(Mo, -5.0)

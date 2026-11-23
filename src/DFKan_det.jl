@@ -21,7 +21,7 @@
 # determinant is off the negative axis; pivots of order one extend this to any order.)  With a stationary start the
 # extended covariance Sigma_x has det Sigma_x = v det Sigma, v = -1/(2c) > 0, and the pivots of Sigma serve.
 
-import ..DFKan
+import ..DFKan, ..DFExact
 const BK = DFKan
 
 """the sum of the principal logarithms of the pivots of Gaussian elimination without pivoting (A is overwritten)"""
@@ -65,6 +65,7 @@ end
 (W holds Sigma and Sigma_x for t, `logmgf_tpart!`)"""
 function detlog(F::DetCF, s::ComplexF64, t::ComplexF64, θ::ComplexF64)
     Mo = F.Mo; W = F.W
+    W.sd === nothing || return detlog_s(F, W.sd, s, t, θ)::ComplexF64
     stat = Mo.start == :stationary
     M = stat ? buildMx!(W, Mo, F.c, s, t, θ) : buildM!(W, Mo.P, F.c, s, t, θ)
     Sx = stat ? W.Sx : W.S
@@ -77,6 +78,33 @@ function detlog(F::DetCF, s::ComplexF64, t::ComplexF64, θ::ComplexF64)
     copyto!(F.S, W.S)
     ld += pivlogs!(F.S)
     stat ? ld + log(-1 / (2 * F.c)) : ld
+end
+"""the sum of the principal logarithms of the pivots of a static matrix by elimination without pivoting"""
+function spivlogs(A::SMatrix{N,N,ComplexF64}) where {N}
+    M = MMatrix(A); s = zero(ComplexF64)
+    @inbounds for k in 1:N
+        p = M[k, k]; s += log(p); ip = inv(p)
+        for i in k+1:N
+            l = M[i, k] * ip
+            for j in k+1:N; M[i, j] = muladd(-l, M[k, j], M[i, j]); end
+        end
+    end
+    s
+end
+"""`detlog` with the static matrices of the design (N <= STATIC_MAX): K^T = Sigma_x^{-1} M^T by the static LU, then the
+pivots of K^T and of Sigma without pivoting; no allocation"""
+function detlog_s(F::DetCF, sd::SData{N}, s::ComplexF64, t::ComplexF64, θ::ComplexF64) where {N}
+    Mo = F.Mo; W = F.W; stat = Mo.start == :stationary
+    Sx = SMatrix{N,N,ComplexF64}(stat ? W.Sx : W.S)
+    M = stat ? buildMx_s(sd, Sx, F.c, s, t, θ) : buildM_s(sd, Sx, F.c, s, t, θ)
+    KT = ssolve(slu(Sx), transpose(M))
+    ld = spivlogs(KT)
+    if stat
+        ld += spivlogs(SMatrix{N - 1,N - 1,ComplexF64}(W.S)) + log(-1 / (2 * F.c))
+    else
+        ld += spivlogs(Sx)
+    end
+    ld
 end
 """log M(s, t) = log E exp(sU + tV) at one point (s, t), imaginary or with real parts in the domain of convergence"""
 function logmgf(F::DetCF, s::ComplexF64, t::ComplexF64)
@@ -275,7 +303,7 @@ beyond t_*): the roots of D(., t) in their groups (positive type: Im s < 0; nega
 detrending makes D_V(t)/D_K(t) the determinant of G^{-1} F'(I - 2tC)^{-1} F (G the Gram matrix of the regressors, C the
 covariance operator of the process), a matrix with a positive definite imaginary part for Im t > 0; its eigenvalues lie
 in the upper half-plane, and the continuous argument is the sum of their principal arguments (Bao and Kan's lemma in
-another form); D_K(t) is the case without deterministic terms, `DFKan.argK`.
+another form); D_K(t) is the case without deterministic terms, `DFExact.argK`.
 """
 function contour_parts(P::Prep, c::Float64, t::ComplexF64)
     imag(t) > 0 || throw(ArgumentError("contour_parts: Im t > 0"))
@@ -285,7 +313,7 @@ function contour_parts(P::Prep, c::Float64, t::ComplexF64)
     for j in 1:N; E[1, j] -= 2γ * tp.Sigma[1, j]; end
     E[1, 1] = m011(c, t, θ)
     ν = eigvals(tp.M0 / E)                                     # those of G^{-1} F'(I - 2tC)^{-1} F, and ones
-    aK = BK.argK(c, t)[1]
+    aK = DFExact.argK(c, t)[1]
     phD = aK + sum(angle, ν)
     rts = tp.roots
     pos = [s for s in rts if imag(s) < 0]; neg = [s for s in rts if imag(s) >= 0]

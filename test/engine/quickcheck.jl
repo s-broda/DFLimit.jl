@@ -286,7 +286,10 @@ let t = time(), msg(f) = (try; f(); ""; catch e; e isa ArgumentError ? e.msg : "
         F1, _ = D.tr_contour([x], model, c; c0, g0); f1, _ = D.tr_contour([x], model, c; c0, g0, pdf = true)    # (the default: one evaluation)
         w1 = max(w1, abs(F1[1] - F), abs(f1[1] - f))
     end
-    check(wv < 1e-12 && ws == 0, @sprintf("contour integral, verified: %d stored points (c/test/contour_ref.txt), worst |dF|, |df| %.1e, flagged %d", length(CR), wv, ws))
+    # (6e-11: with the branch at each point, November 2026, the corner (c g0)^2/2 = 7200 of case DT, c = -40, g0 = 3, x = -13,
+    # moved by 5.9e-12, to within 2e-12 of the general engine's checked value, the stored one within 3.9e-12 of it; the other
+    # 29 points within 5e-13)
+    check(wv < 6e-11 && ws == 0, @sprintf("contour integral, verified: %d stored points (c/test/contour_ref.txt), worst |dF|, |df| %.1e, flagged %d", length(CR), wv, ws))
     check(w1 < 5e-9, @sprintf("contour integral, one evaluation (the default): worst |dF|, |df| against the stored values %.1e (5e-9 at the corner (c g0)^2/2 = 7200)", w1))
     Fa = ltratio_cdf(-2.0, "DU", -5; g0 = 1.5); Fk = ltratio_cdf(-2.0, "DU", -5; g0 = 1.5, method = :contour)
     Fs = ltratio_cdf(-2.0, "DU", -5; g0 = 1.5, method = :single); Fd = ltratio_cdf(-2.0, "DU", -5; g0 = 1.5, method = :double)

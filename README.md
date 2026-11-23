@@ -245,6 +245,11 @@ trends, Perron's model C with one and two breaks and a stationary start (2.5e-11
 contour integral differ by 1.6e-10), in 3 to 58 ms a value against 120 to 160 for the grid; above c = 5 (7 s a value at c =
 10) and with a fixed start the grid stays.
 
+The same devices fix the branches inside the engines: the classical engine's P(t), M_0(t) and the labels of the roots of
+its line and contour integrals (`DFExact.tparts_point`) and the argument of log P(t) in the provider of the general
+engine's line integral are determined at each point instead of being continued along the grids, to rounding (5.7e-14) the
+values of before, at the same cost.
+
 At a = 0 (the law of U alone, whose transform decays like a power, with the edge of its support where the tail start runs
 away) the linear form stays with the engines' closed form; at c = 7 in case DK the classical code differs from the single
 inversion by 2e-8 at the 99.9% point with a = 2, which no third computation settled, so the default there is unchanged.

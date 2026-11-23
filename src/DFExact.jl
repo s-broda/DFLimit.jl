@@ -171,9 +171,6 @@ function Dfun(model::Int, c::T, s::Complex{T}, t::Complex{T}; stat::Bool = false
     end
 end
 
-"""nothing (the branches of `tparts` by continuity along the grid, the default), or a function (model, c, t; stat) -> (P, s1,
-s2, M0) that fixes them at each point (DFKan.tparts_pointwise, switched by DFKan.pointwise!)"""
-const POINTWISE = Ref{Any}(nothing)
 function unwrap!(ph::Vector{T}) where {T}
     for j in 2:length(ph)
         d = ph[j] - ph[j-1]
@@ -182,125 +179,183 @@ function unwrap!(ph::Vector{T}) where {T}
     ph
 end
 
-"""P(t), s1(t), s2(t) (s2 unused for M1) and M0(t) = (-s1 s2)^{-1/2}, the total mass of phi_t for M2 and
-M3 (unused for M1), on the grid t = tau + i w, w increasing from 0, with the branches of the square
-roots and the labelling of the roots fixed by continuity along the grid.  For c > CGIRS with a zero start
-the roots and P(t) come from the Girsanov forms (girsanov), which are free of the cancellation of D."""
-function tparts(model::Int, c::T, t::Vector{Complex{T}}; stat::Bool = false) where {T}
-    (POINTWISE[] === nothing || T !== Float64) || return POINTWISE[](model, c, t; stat)::NTuple{4,Vector{ComplexF64}}
-    nt = length(t)
-    P = Vector{Complex{T}}(undef, nt); s1 = similar(P); s2 = similar(P); M0 = similar(P)
+# ---------- P(t), the roots and M0 at each point: the branch after Bao and Kan ----------
+# The branch of P(t) = (-a_2(t))^{-1/2}, of M_0(t) = (-s_1 s_2)^{-1/2} and the labels of the roots s_1(t), s_2(t) of D(., t)
+# were fixed by continuity along a grid from the real point until November 2026 (an unwrapping of the phases).  They are
+# determined at each point, after Yong Bao and Raymond Kan ("Exact Finite-Sample Distribution and Moments of the Least
+# Squares Estimator in First-Order Autoregressions: O(1) Algorithms"), who write each argument under a root as a product
+# of factors whose arguments are known.  For Im t > 0 (the conjugate for Im t < 0), with mu = (c^2 - 2t)^{1/2} the principal root:
+#
+#  (a) The roots.  The reciprocal roots are the eigenvalues nu of K Sigma_t, K the real symmetric matrix of the numerator
+#      and Sigma_t the covariance of its Gaussian functionals under the tilt e^{tV}; an eigenvector y gives nu = y*Ky /
+#      y*Sigma_t^{-1}y, a real number over a number that has a positive real part for Re t < t_* (Sigma_t^{-1} has a
+#      positive definite Hermitian part, the lemma on accretive matrices of Bao and Kan) and a negative imaginary part for
+#      Im t > 0.  Hence s_1 (negative type) lies in the open left half-plane on the line and in the open upper half-plane
+#      for every Im t > 0, s_2 (positive type) in the right and the lower one: the labels are read off the signs, and the
+#      roots never meet off the real axis.
+#  (b) M_0 = (-s_1)^{-1/2} s_2^{-1/2} with principal roots on the line, where -s_1 and s_2 lie in the right half-plane.
+#  (c) D(0, t) = M_V(t)^{-2} = a_0 = (-a_2)(-s_1) s_2 is a canonical product over the positive zeros t_j of the moment
+#      generating function of V, with the continuous argument sum_j Arg(1 - t/t_j).  For no deterministic terms it is
+#      e^c cosh(mu) G, G = 1 - c tanh(mu)/mu, with the continuous argument Im mu + Arg(1 + e^{-2 mu}) of cosh(mu) (Bao and
+#      Kan) and G in the upper (c < 0) or lower (c > 0) half-plane: tanh(mu)/mu is a sum of 2/(mu^2 + a_k), a_k > 0.  A
+#      regressor projected out, or a start integrated out, changes V by a quadratic form of rank one of one sign: the
+#      zeros interlace, the ratio of the two determinants maps the upper half-plane into a half-plane, and its principal
+#      argument, in (0, pi) for a projection and in (-pi, 0) for the stationary start, is the continuous one.  Two
+#      projections (intercept and trend) give an argument in (0, 2 pi), which the ratio determines; GLS detrending, one
+#      update of each sign, an argument in (-pi, pi), the principal one.
+#  Then arg(-a_2) = arg D(0, t) - Arg(-s_1) - Arg(s_2), all at the point.
+"""the series of D(., t)/e^c at s = 0, -1, 1 of the cases with an intercept or a trend, computed once per (model, c)"""
+struct TPoint
+    model::Int
+    c::Float64
+    stat::Bool
+    coef::NTuple{3,Vector{Float64}}
+end
+function TPoint(model::Int, c::Float64, stat::Bool, need::Bool = true)
+    (need && model in (2, 3)) || return TPoint(model, c, stat, (Float64[], Float64[], Float64[]))
+    SER = model == 2 ? D1_SERIES : D2_SERIES
+    n = length(SER); a0 = Vector{Float64}(undef, n); ap = similar(a0); am = similar(a0)
+    for j in 1:n
+        f = SER[j]; a0[j] = f(0.0, c, Float64); ap[j] = f(1.0, c, Float64); am[j] = f(-1.0, c, Float64)
+    end
+    TPoint(model, c, stat, (a0, ap, am))
+end
+
+"""an argument known to lie in (0, pi) (one projection) or (0, 2 pi) (two) from its principal value"""
+@inline argpos(a::Float64, two::Bool) = two ? (a < -1e-6 ? a + 2pi : a) : (a < -pi / 2 ? a + 2pi : a)
+"""an argument known to lie in (-pi, 0) from its principal value"""
+@inline argneg(a::Float64) = a > pi / 2 ? a - 2pi : a
+
+"""
+    argK(c, t) -> (arg, mu, e2, G)
+
+The continuous argument (zero at real t below t_*) of cosh(mu) - c sinh(mu)/mu = cosh(mu) G at Im t > 0: Im mu + Arg(1 +
+e^{-2 mu}) + Arg G, with mu = (c^2 - 2t)^{1/2}, e2 = e^{-2 mu} and G = 1 - c tanh(mu)/mu formed without cancellation.
+"""
+@inline function argK(c::Float64, t::ComplexF64)
+    z = c * c - 2t; mu = sqrt(z); e2 = exp(-2mu)
+    if abs(mu) < 1e-3
+        G = 1 - c * (1 - z / 3 + 2 * z * z / 15)
+    else
+        del = c > 0 ? -2t / (mu + c) : mu - c
+        G = (del + (mu + c) * e2) / (mu * (1 + e2))
+    end
+    imag(mu) + angle(1 + e2) + angle(G), mu, e2, G
+end
+
+"""
+    tparts_point(tp, t) -> (P, s1, s2, M0)
+
+P(t), s_1(t), s_2(t) and M_0(t) of the classical line integral (DFExact.tparts) at the single point t, Re t < t_*, with
+no reference to neighbouring points.
+"""
+function tparts_point(tp::TPoint, t::ComplexF64)
+    if imag(t) < 0
+        P, s1, s2, M0 = tparts_point(tp, conj(t))::NTuple{4,ComplexF64}     # (the annotation: inference of the recursion)
+        return conj(P), conj(s1), conj(s2), conj(M0)
+    end
+    model = tp.model; c = tp.c; stat = tp.stat
+    re = imag(t) == 0                                         # the real point: every argument is zero
+    zc = zero(ComplexF64)
     if model == 1 && !stat
-        S = Vector{Complex{T}}(undef, nt)
-        for j in 1:nt
-            C, Q, Sj = pieces(c * c - 2t[j])
-            S[j] = Sj
-            # s1 = mu coth mu - c; for c > 0 without the cancellation of C - c S at large c: mu - c = -2t/(mu + c),
-            # mu coth mu - mu = 2 mu e^{-2mu}/(1 - e^{-2mu})
-            s1[j] = c > 0 ? eta1(c, t[j]) : (C - c * Sj) / Sj
+        z = c * c - 2t
+        if abs(z) < 1e-3                                      # (the series of `pieces`; S near 1, its principal argument)
+            C, _, S = pieces(z)
+            s1 = c > 0 ? eta1(c, t) : (C - c * S) / S
+            return exp(-c / 2) * abs(S)^(-0.5) * cis(-angle(S) / 2), s1, zc, zc
         end
-        ph = unwrap!(angle.(S))
-        for j in 1:nt
-            P[j] = exp(-c / 2) * abs(S[j])^(-T(1) / 2) * exp(-im * ph[j] / 2)
-        end
-        return P, s1, s2, M0
+        # sinh(mu)/mu = e^mu (1 - e^{-2 mu})/(2 mu): its modulus and its continuous argument Im mu + Arg(1 - e^{-2 mu}) -
+        # Arg mu, and s1 = mu coth mu - c, from e^{-2 mu} alone
+        mu = sqrt(z); e2 = exp(-2mu); om = 1 - e2
+        s1 = c > 0 ? eta1(c, t) : mu * (1 + e2) / om - c
+        lS = real(mu) + log(abs(om)) - log(2 * abs(mu))
+        ph = re ? 0.0 : imag(mu) + angle(om) - angle(mu)
+        return exp(-c / 2 - lS / 2) * cis(-ph / 2), s1, zc, zc
     end
     if model == 4 && !stat
-        # the GLS-detrended trend case: M(s,t) = e^{-s/2} P(t) (s_1 - s)^{-1/2} as in case DK, with M_{V_g}(t) = e^{-c/2}
-        # (cosh th |I - Q Sig|)^{-1/2} and s_1 = 1/(2 kap_1), 2 kap_1 = (1 - lam)^2 v' Sig (I - Q Sig)^{-1} v the variance of the
-        # detrended end point under the tilt; branches continuous along the nodes (t[1] real)
-        lam = lam_gls(CBAR_GLS); v = Complex{T}.(VGLS)
-        lD = Vector{Complex{T}}(undef, nt); lch = similar(lD)
-        for j in 1:nt
-            G = girsanov(4, c, t[j])
-            lD[j] = log(G.D); lch[j] = G.lch
-            s1[j] = 1 / ((1 - lam)^2 * (transpose(v) * (G.Sg * (G.N \ v))))
-            s2[j] = zero(t[j]); M0[j] = zero(t[j])
+        lam = lam_gls(CBAR_GLS); v = VGLS_C
+        G = girsanov(4, c, t)
+        s1 = 1 / ((1 - lam)^2 * (transpose(v) * (G.Sg * (G.N \ v))))
+        ph = 0.0
+        if !re
+            th = G.th                                         # GK = 1 - c tanh(th)/th, as girs_g forms it
+            GK = abs(th) < 1 ? 1 - c * polyq(GT, 1, th * th) : (e2 = exp(-2th); (G.del + c * (2 * e2 / (1 + e2))) / th)
+            ph = angle(GK) + angle(G.D / GK)                  # one update of each sign: the principal argument
         end
-        ph = unwrap!(imag.(lD)); ps = unwrap!(angle.(s1))
-        for j in 1:nt
-            P[j] = exp(-c / 2 - (lch[j] + real(lD[j]) + im * ph[j]) / 2 + (log(abs(s1[j])) + im * ps[j]) / 2)
-        end
-        return P, s1, s2, M0
+        return exp(-c / 2 - (G.lch + log(abs(G.D)) + im * ph) / 2 + (log(abs(s1)) + im * angle(s1)) / 2), s1, zc, zc
     end
-    sa = similar(P); sb = similar(P)
     if !stat && c > CGIRS
-        # cases DU, DT at large c: D(s,t)/e^c cancels catastrophically (terms of size e^{2c} against a value near
-        # one); the roots s_k = 1/nu_k of A2 nu^2 - A1 nu + A0 = 0 and M_V(t) = e^{-c/2} (cosh th det(I - Q Sig))^{-1/2}
-        # come from the Girsanov forms, and P = M_V (-s1 s2)^{1/2}
-        lD = Vector{Complex{T}}(undef, nt); lch = similar(lD)
-        for j in 1:nt
-            G = girsanov(model, c, t[j])
-            disc = sqrt(G.A1 * G.A1 - 4 * G.A0 * G.A2)
-            sw = sign(real(conj(G.A1) * disc)); sw == 0 && (sw = one(sw))
-            rb = (G.A1 + sw * disc) / (2 * G.A0); rs = G.A2 / (G.A0 * rb)   # the larger root from the formula, the smaller from the product
-            sa[j] = rb; sb[j] = rs
-            lD[j] = log(G.D); lch[j] = G.lch
-        end
-        if real(sa[1]) < real(sb[1]); s1[1], s2[1] = sa[1], sb[1] else s1[1], s2[1] = sb[1], sa[1] end
-        for j in 2:nt
-            if abs(sa[j] - s1[j-1]) + abs(sb[j] - s2[j-1]) <= abs(sb[j] - s1[j-1]) + abs(sa[j] - s2[j-1])
-                s1[j], s2[j] = sa[j], sb[j]
-            else
-                s1[j], s2[j] = sb[j], sa[j]
-            end
-        end
-        ph = unwrap!(imag.(lD))
-        m = [-s1[j] * s2[j] for j in 1:nt]
-        phm = unwrap!(angle.(m))
-        for j in 1:nt
-            lm = log(abs(m[j])) + im * phm[j]
-            M0[j] = exp(-lm / 2)
-            P[j] = exp(-c / 2 - (lch[j] + real(lD[j]) + im * ph[j]) / 2 + lm / 2)
-        end
-        return P, s1, s2, M0
+        G = girsanov(model, c, t)
+        disc = sqrt(G.A1 * G.A1 - 4 * G.A0 * G.A2)
+        sw = sign(real(conj(G.A1) * disc)); sw == 0 && (sw = one(sw))
+        rb = (G.A1 + sw * disc) / (2 * G.A0); rs = G.A2 / (G.A0 * rb)
+        s1, s2 = label(rb, rs)
+        ph = re ? 0.0 : angle(G.N[1, 1]) + argpos(angle(G.D / G.N[1, 1]), model == 3)
+        lm = complex(log(abs(s1 * s2)), angle(-s1) + angle(s2))
+        return exp(-c / 2 - (G.lch + log(abs(G.D)) + im * ph) / 2 + lm / 2), s1, s2, exp(-lm / 2)
     end
-    ma2 = Vector{Complex{T}}(undef, nt); rts = Vector{NTuple{3,Complex{T}}}(undef, nt)
-    # the Taylor coefficients in z of D(., t)/e^c at s = 0, -1, 1 (lam = 0, 1, -1), computed once
-    SER = model == 2 ? D1_SERIES : D2_SERIES
-    coef = [[f(lam, c, T) for f in SER] for lam in (zero(T), one(T), -one(T))]
-    Dser(k, z) = (acc = zero(z); for j in length(coef[k]):-1:1; acc = acc * z + coef[k][j]; end; exp(c) * acc)
-    s0, sp, sm = complex(zero(T)), complex(-one(T)), complex(one(T))
-    tmap!(j -> begin
-        z = c * c - 2t[j]
-        if model == 1                                                  # (the stationary start: no series needed)
-            d0 = Dfun(1, c, s0, t[j]; stat = true); dp = Dfun(1, c, sp, t[j]; stat = true); dm = Dfun(1, c, sm, t[j]; stat = true)
-        elseif abs(z) < Z0
-            d0 = Dser(1, z); dp = Dser(2, z); dm = Dser(3, z)
-            if stat
-                d0 += Dstat_add(model, c, s0, t[j]); dp += Dstat_add(model, c, sp, t[j]); dm += Dstat_add(model, c, sm, t[j])
-            end
-        else
-            d0 = Dfun(model, c, s0, t[j]; stat); dp = Dfun(model, c, sp, t[j]; stat); dm = Dfun(model, c, sm, t[j]; stat)
+    # the quadratic D(s, t) = a2 lam^2 + a1 lam + a0, lam = -s, from its values at s = 0, -1, 1
+    z = c * c - 2t
+    s0, sp, sm = complex(0.0), complex(-1.0), complex(1.0)
+    d0z = zc
+    # (the annotations: Dfun's series branch is not inferred, and an untyped value would slow every operation below)
+    if model == 1
+        d0 = Dfun(1, c, s0, t; stat = true)::ComplexF64; dp = Dfun(1, c, sp, t; stat = true)::ComplexF64; dm = Dfun(1, c, sm, t; stat = true)::ComplexF64
+    elseif abs(z) < Z0
+        e = exp(c)
+        d0 = e * evalpoly(z, tp.coef[1]); dp = e * evalpoly(z, tp.coef[2]); dm = e * evalpoly(z, tp.coef[3])
+        d0z = d0
+        if stat
+            d0 += Dstat_add(model, c, s0, t)::ComplexF64; dp += Dstat_add(model, c, sp, t)::ComplexF64; dm += Dstat_add(model, c, sm, t)::ComplexF64
         end
-        a2 = (dp + dm) / 2 - d0; a1 = (dp - dm) / 2; a0 = d0          # D = a2 lam^2 + a1 lam + a0, lam = -s
-        disc = sqrt(a1 * a1 - 4 * a2 * a0)
-        # the root of larger magnitude from the formula, the other from the product a0/a2 (the formula loses the
-        # small root to cancellation when the roots differ by orders of magnitude, as at large c)
-        sw = sign(real(conj(a1) * disc)); sw == 0 && (sw = one(sw))
-        rb = (-a1 - sw * disc) / (2a2); rs = a0 / (a2 * rb)
-        (-rb, -rs, -a2)
-    end, rts, nt)
-    for j in 1:nt; sa[j], sb[j], ma2[j] = rts[j]; end
-    # at the real point s1 < 0 < s2; then continuity
-    if real(sa[1]) < real(sb[1]); s1[1], s2[1] = sa[1], sb[1] else s1[1], s2[1] = sb[1], sa[1] end
-    for j in 2:nt
-        if abs(sa[j] - s1[j-1]) + abs(sb[j] - s2[j-1]) <= abs(sb[j] - s1[j-1]) + abs(sa[j] - s2[j-1])
-            s1[j], s2[j] = sa[j], sb[j]
-        else
-            s1[j], s2[j] = sb[j], sa[j]
-        end
+    else
+        d0 = Dfun(model, c, s0, t; stat)::ComplexF64; dp = Dfun(model, c, sp, t; stat)::ComplexF64; dm = Dfun(model, c, sm, t; stat)::ComplexF64
+        d0z = stat ? d0 - Dstat_add(model, c, s0, t)::ComplexF64 : d0
     end
-    abs(angle(ma2[1])) < 1e-8 || error("prefactor not positive at the real point")
-    ph = unwrap!(angle.(ma2))
-    for j in 1:nt
-        P[j] = abs(ma2[j])^(-T(1) / 2) * exp(-im * ph[j] / 2)       # D = (-a2)(s - s1)(s2 - s), P = (-a2)^{-1/2}
+    a2 = (dp + dm) / 2 - d0; a1 = (dp - dm) / 2; a0 = d0
+    disc = sqrt(a1 * a1 - 4 * a2 * a0)
+    sw = sign(real(conj(a1) * disc)); sw == 0 && (sw = one(sw))
+    rb = (-a1 - sw * disc) / (2a2); rs = a0 / (a2 * rb)
+    s1, s2 = label(-rb, -rs)
+    M0 = 1 / (sqrt(-s1) * sqrt(s2))
+    ph0 = 0.0
+    if !re
+        aK, mu, e2, G = argK(c, t)
+        DK = exp(c + mu) * (1 + e2) / 2 * G                   # e^c (cosh mu - c sinh(mu)/mu)
+        ph0 = aK
+        model == 1 || (ph0 += argpos(angle(d0z / DK), model == 3))
+        stat && (ph0 += argneg(angle(d0 / (model == 1 ? DK : d0z))))
     end
-    m = [-s1[j] * s2[j] for j in 1:nt]                              # positive at the real point
-    ph = unwrap!(angle.(m))
-    for j in 1:nt
-        M0[j] = abs(m[j])^(-T(1) / 2) * exp(-im * ph[j] / 2)
+    P = abs(a2)^(-0.5) * cis(-(ph0 - angle(-s1) - angle(s2)) / 2)
+    P, s1, s2, M0
+end
+"""the two roots labelled by their signs: s_1 in the left half-plane and s_2 in the right one; where both real parts have the
+same sign (beyond t_*), s_1 the root in the upper half-plane"""
+@inline function label(ra::ComplexF64, rb::ComplexF64)
+    (real(ra) < 0) != (real(rb) < 0) && return real(ra) < real(rb) ? (ra, rb) : (rb, ra)
+    imag(ra) > imag(rb) ? (ra, rb) : (rb, ra)
+end
+
+"""P(t), s1(t), s2(t) (s2 unused for M1) and M0(t) = (-s1 s2)^{-1/2}, the total mass of phi_t for M2 and M3 (unused for
+M1), at the points t of a grid of the line or of the contour integral's hyperbola, in any order: each point by
+`tparts_point`, the branches of the square roots and the labels of the roots fixed at the point (after Bao and Kan) with
+no reference to its neighbours.  For c > CGIRS with a zero start the roots and P(t) come from the Girsanov forms
+(girsanov), which are free of the cancellation of D.  (Against the continuation along the grid that this replaced, within
+5.7e-14 relative on the engine's grids, November 2026; on the hyperbolas of case DK at c = -480 the continuation gave
+non-finite values far out, the branch at the point does not.)"""
+function tparts(model::Int, c::Float64, t::Vector{ComplexF64}; stat::Bool = false)
+    # (the series of D at s = 0, -1, 1 only where a point lies within |z| < Z0 of the cases that use them)
+    need = model in (2, 3) && (stat || c <= CGIRS) && any(tk -> abs(c * c - 2tk) < Z0, t)
+    tp = TPoint(model, c, stat, need)
+    n = length(t)
+    r = Vector{NTuple{4,ComplexF64}}(undef, n)
+    if n <= 16
+        for j in 1:n; r[j] = tparts_point(tp, t[j]); end
+    else
+        tmap!(j -> tparts_point(tp, t[j]), r, n)
     end
+    P = Vector{ComplexF64}(undef, n); s1 = similar(P); s2 = similar(P); M0 = similar(P)
+    @inbounds for j in 1:n; P[j], s1[j], s2[j], M0[j] = r[j]; end
     P, s1, s2, M0
 end
 
@@ -340,6 +395,7 @@ end
 const CBAR_GLS = -13.5
 lam_gls(cb) = (1 - cb) / (1 - cb + cb * cb / 3)
 const VGLS = [1.0, 0.0, -3.0]                                             # V_cbar(1) = (1 - lam) (W(1) - 3 int r W)
+const VGLS_C = ComplexF64.(VGLS)
 
 """the scalar parts of `girsanov` at t: q = c^2 - 2t, theta, delta, the entries g1..g5 of Sigma (Sg = [g1 g2 g3; g2 g3
 g4; g3 g4 g5], the first 2 x 2 block in case DU), log cosh theta, log(sinh theta/theta), eta - delta and N[1,1]"""

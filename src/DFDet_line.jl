@@ -29,8 +29,8 @@
 # (PathTooLarge, raised before anything is evaluated: method = :auto then takes the inversion on paths, :line refuses), the
 # breakpoints and partitions at the edges of the support of X(v) and the infinite density at the tangency of a numerator of
 # rank one with c0 > 0, and its finer rules below c = -20.  Of its own: the roots labelled by the sign of their real part
-# (one root in each group, which stay apart on the line), the continuation of log P with a predicted increment and steps
-# walked through where the prediction fails (`line_continue`), the end of the line by |P| (`line_end`), the caps on the
+# (one root in each group, which stay apart on the line), the argument of log P at each point from the pivots of the
+# precision matrix (`line_point`, after Bao and Kan), the end of the line by |P| (`line_end`), the caps on the
 # first panels of the K_0 layouts by the root scale (k0first) and the line moved off tau = 1 where the fixed layouts'
 # bound on s_2 fails (`line_tau`).  Above the unit root the classical engine's Girsanov forms (case codes only) are not
 # needed: the general determinant is formed without the cancellation (`m011`, Sigma in closed form), within 1e-14 of the
@@ -67,8 +67,10 @@ Re t = tau is that of Re s (the roots of each group stay on their side of the ga
 function line_point(lm::LineModel, t::ComplexF64, F::DetCF)
     θ, ld, μ, _ = mgfparts(lm.Mo, lm.c, t, F.W)
     ld = ComplexF64(ld)
-    # the argument of log D_V at the point from the pivots of the precision matrix (`detlog`, Sigma as mgfparts left it)
-    LINE_PIVOTS[] && (ld = complex(real(ld), imag(θ) + imag(detlog(F, zero(ComplexF64), t, θ))))
+    # the argument of log D_V at the point from the pivots of the precision matrix (`detlog`, Sigma as mgfparts left it: one
+    # small elimination), after Bao and Kan; with the principal arguments of mu_+ and -mu_-, each in the right half-plane
+    # on the line, log P(t)^{-2} has its continuous imaginary part at the point
+    ld = complex(real(ld), imag(θ) + imag(detlog(F, zero(ComplexF64), t, θ)))
     lm.r == 1 && return (ld, ComplexF64(μ[1]), zero(ComplexF64))
     m1 = ComplexF64(μ[1]); m2 = ComplexF64(μ[2])
     real(m1) >= real(m2) ? (ld, m1, m2) : (ld, m2, m1)
@@ -110,40 +112,11 @@ end
 """log of P(t)^{-2} = D_V(t) mu_+ (-mu_-) from the transform, before the continuation of its imaginary part"""
 @inline lineLr(r::Int, v::NTuple{3,ComplexF64}) = r == 1 ? v[1] + log(v[2]) : v[1] + log(v[2]) + log(-v[3])
 
-"""
-    line_continue(lm, ta, La, tb, Lrb, dpred, first, depth) -> Lb
-
-The step of the continuation of L = log P^{-2} from ta (where it is La) to tb (where the transform gives Lrb, up to a
-multiple of 2 pi i): the multiple that puts the increment of Im L nearest to the prediction dpred (the previous increment
-scaled by the ratio of the steps; 0 at the first step, first = true).  Where the increment so found differs from the
-prediction by more than pi/4 (pi/8 at the first step), the step is walked through 8 points between ta and tb, recursively
-up to 4 levels (the points from the memo, computed where missing; the first sub-step predicted by dpred/8); beyond that an
-error (the classical integrator's line is then too coarse for the phase of P, which its rules are not)."""
-function line_continue(lm::LineModel, ta::ComplexF64, La::ComplexF64, tb::ComplexF64, Lrb::ComplexF64, dpred::Float64, first::Bool, depth::Int)
-    k = round((imag(La) + dpred - imag(Lrb)) / 2pi)
-    Lb = Lrb + 2pi * im * k
-    abs(imag(Lb) - imag(La) - dpred) <= (first ? pi / 8 : pi / 4) && return Lb
-    depth >= 4 && error("the line integral: the continuation of log P(t) failed between t = $ta and $tb (design $(lm.Mo.P.D.name), c = $(lm.c))")
-    m = 8
-    tsub = [ta + (tb - ta) * i / m for i in 1:m-1]
-    raw = line_raw(lm, tsub)
-    L = La; dp = dpred / m; fs = first; tprev = ta
-    for i in 1:m
-        ti = i < m ? tsub[i] : tb; Lri = i < m ? lineLr(lm.r, raw[i]) : Lrb
-        Ln = line_continue(lm, tprev, L, ti, Lri, dp, fs, depth + 1)
-        dp = imag(Ln) - imag(L); fs = false; L = Ln; tprev = ti
-    end
-    L
-end
-
-"""nothing (log P continued along the points by `line_continue`, the default), or a function (lm, t, v) -> Im log P(t)^{-2}
-that fixes the branch at each point (DFKan.line_phase, switched by DFKan.line_pointwise!)"""
-const LINE_PHASE = Ref{Any}(nothing)
-const LINE_PIVOTS = Ref(false)
 """P(t), s_1(t), s_2(t) and M_0(t) on the points t of the line (t[1] real) for the classical integrator: s_1 the negative
 root and s_2 the positive one (rank two), s_1 the positive root (rank one, s_2 and M_0 unused); M_0 = (-s_1)^{-1/2} s_2^{-1/2}
-with the principal branches (both arguments stay in the right half-plane on the line); P from log P^{-2} continued from the
-real point, where P > 0 (`line_continue`)"""
+with the principal branches (both arguments stay in the right half-plane on the line); P from log P^{-2} with its argument
+fixed at each point (`line_point`; until November 2026 continued from the real point along the line, within 1.7e-14 of
+these values on the engine's grids, at the same cost)"""
 function LX.tparts(lm::LineModel, c::Float64, t::Vector{ComplexF64}; stat::Bool = false)
     if !isempty(t) && imag(t[1]) != 0                              # (every grid of the classical integrator starts at the real point)
         P, s1, s2, M0 = LX.tparts(lm, c, [complex(real(t[1])); t])
@@ -152,7 +125,7 @@ function LX.tparts(lm::LineModel, c::Float64, t::Vector{ComplexF64}; stat::Bool 
     n = length(t)
     raw = line_raw(lm, t)
     P = Vector{ComplexF64}(undef, n); s1 = similar(P); s2 = similar(P); M0 = similar(P)
-    L = zero(ComplexF64); dprev = NaN
+    L = zero(ComplexF64)
     for j in 1:n
         v = raw[j]
         Lr = lineLr(lm.r, v)
@@ -161,16 +134,7 @@ function LX.tparts(lm::LineModel, c::Float64, t::Vector{ComplexF64}; stat::Bool 
             abs(imag(Lr) - 2pi * m) < 1e-7 || @warn "the line integral: D_V mu_+ (-mu_-) not positive at the real point" Lr
             Ln = complex(real(Lr), 0.0)
         else
-            if LINE_PIVOTS[]                                       # the argument fixed at the point (`line_point`)
-                Ln = Lr
-            elseif LINE_PHASE[] !== nothing                        # the branch at the point (DFKan.line_phase)
-                ph = LINE_PHASE[](lm, t[j], v)::Float64
-                Ln = complex(real(Lr), imag(Lr) + 2pi * round((ph - imag(Lr)) / 2pi))
-            else
-                dpred = isnan(dprev) ? 0.0 : (j > 2 ? dprev * abs(t[j] - t[j-1]) / abs(t[j-1] - t[j-2]) : dprev)
-                Ln = line_continue(lm, t[j-1], L, t[j], Lr, dpred, isnan(dprev), 0)
-                dprev = imag(Ln) - imag(L)
-            end
+            Ln = Lr                                                # (the argument fixed at the point, `line_point`)
         end
         L = Ln
         P[j] = exp(-L / 2)
@@ -421,28 +385,3 @@ function line_quantile(method::Symbol, D::Determ, p::Real, c::Real; x0::Real, to
         return nothing
     end
 end
-
-# ---------------------------------------------------------------------------------------------------------------------
-# The branch of log P(t) at each point (the devices of Bao and Kan, src/DFKan_det.jl): the prototype's switch
-# ---------------------------------------------------------------------------------------------------------------------
-"""
-    line_phase(lm, t, v) -> the imaginary part of log P(t)^{-2} at the point t of the line Re t = tau
-
-For the provider `lm` of the general engine's line integral (LineModel) and its transform v = (log D_V, mu_+, mu_-) at t:
-the argument of D_V from the pivots (at s = 0), those of mu_+ and -mu_- principal (each in the right half-plane on the
-line).
-"""
-function line_phase(lm::LineModel, t::ComplexF64, v::NTuple{3,ComplexF64})
-    lock(LINELOCK) do
-        F, memo = get!(() -> (DetCF(lm.Mo, lm.c), Dict{ComplexF64,Float64}()), LINECF, objectid(lm))::Tuple{DetCF,Dict{ComplexF64,Float64}}
-        ph = get!(memo, t) do
-            θ, _ = logmgf_tpart!(lm.Mo, lm.c, t, F.W)
-            imag(θ) + imag(detlog(F, zero(ComplexF64), t, θ))
-        end
-        lm.r == 1 ? ph + angle(v[2]) : ph + angle(v[2]) + angle(-v[3])
-    end
-end
-const LINECF = Dict{UInt,Tuple{DetCF,Dict{ComplexF64,Float64}}}()
-const LINELOCK = ReentrantLock()
-"""switch the general engine's line integral to the branch at each point (true) or back to the continuation (false)"""
-line_pointwise!(on::Bool = true) = (LINE_PHASE[] = on ? line_phase : nothing; on)

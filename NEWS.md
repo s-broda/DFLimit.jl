@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The branches fixed at each point.** The classical engine's P(t), M_0(t) and the labels of the roots of the line and
+  contour integrals (`DFExact.tparts`) and the argument of log P(t) in the provider of the general engine's line integral
+  are fixed at each point, after Bao and Kan (the factors whose arguments are known; the pivots of the precision matrix,
+  one small elimination per point in the general engine), in place of their continuation along the grids, which is
+  removed with the switches of the prototypes. On the engines' grids the values are those of before to 5.7e-14 relative
+  (whole calls of `ltratio_cdf`, `ltratio_pdf`, `ltratio_icdf`, `dist_cdf`, `dist_pdf`, `dist_quantile` to 1.7e-14); on
+  the hyperbolas of case DK at c = -480 the continuation gave non-finite values far out, the branch at the point does not.
+  Warm whole calls on one thread take 0.94 to 1.01 times as long as before (the quantiles of cases DT, SK, ST 0.29 to 0.46
+  times: a real point no longer builds the series of D; case DU at c = 2 1.25 times); the contour integral's stored
+  value at the corner (c g0)^2/2 = 7200 of case DT moved by 5.9e-12 (to within 2e-12 of the general engine's checked
+  value).
 - **The point-optimal statistic and `coef_cdf_gp` by the single inversion.** `pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`,
   `pt_envelope` (and `power_envelope` of designs beyond the classical cases) up to c = 4, and `coef_cdf_gp` (zero or
   stationary start) up to c = 5, take the single inversion of Bao and Kan with the branch of the square root of the
