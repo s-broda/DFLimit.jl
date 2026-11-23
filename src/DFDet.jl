@@ -3725,6 +3725,29 @@ dist_pdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, ga
 evaluation of the contour integral or, with verified = true, by `verify_eval`; the infinite density at a tangency"""
 function dist_eval(D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
                    method::Symbol = :auto, kw...)
+    v = dist_eval_(D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; method, kw...)
+    which == 1 && cdf_range_check("dist_cdf", D, c, start, gamma0, Float64(get(kw, :c0, 0.0)), "x", xs, v)
+    v
+end
+"""
+The final check of a distribution function (`dist_cdf`, `coef_cdf`): a value below -1e-8 or above 1 + 1e-8 (CDF_RANGE_TOL)
+raises an error that names the call, the design, c, c0, the start, the point and the value.  Where the contour integral
+holds its error is far below 1e-8, so a value outside [0, 1] by more than that is a computation that failed, never
+rounding; the check costs nothing and is not a cross-check (nothing is recomputed).  The same check and tolerance in
+DFLimit's classical engine (cdf_range_check of DFExact), the C engine and the MATLAB programs.
+"""
+const CDF_RANGE_TOL = 1e-8
+function cdf_range_check(fn::String, D::Determ, c::Real, start::Symbol, gamma0::Real, c0::Float64, xname::String, xs, v)
+    for k in eachindex(v)
+        (v[k] < -CDF_RANGE_TOL || v[k] > 1 + CDF_RANGE_TOL) || continue
+        st = start == :fixed ? "fixed start gamma0 = $gamma0" : "$start start"
+        error("$fn: the design $(D.name), c = $c, c0 = $c0, $st, $xname = $(xs[k]): the computed distribution function is " *
+              "$(v[k]), outside [0, 1] by more than $CDF_RANGE_TOL; the computation fails here and no value is returned")
+    end
+    v
+end
+function dist_eval_(D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
+                    method::Symbol = :auto, kw...)
     check_cmax(D, c, start, gamma0, which == 1 ? "the t-ratio (dist_cdf)" : "the t-ratio (dist_pdf)")
     lv = line_dist(method, D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; kw...); lv === nothing || return lv
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
@@ -3971,10 +3994,11 @@ function coef_cdf(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, 
                   phi = nothing, hfac = 1.0, verified::Bool = false, vtol::Real = 1e-9, kw...)
     check_cmax(D, c, start, gamma0, "the coefficient statistic (coef_cdf)")
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
-    nonfinite(ys, true) do y
+    v = nonfinite(ys, true) do y
         verified && return verify_eval((CPv, o) -> [contour_eval(CPv, [0.0]; c0 = Float64(c0) + yk, o..., kw...)[1][1] for yk in y], CP, Float64(vtol))
         [contour_eval(CP, [0.0]; c0 = Float64(c0) + yk, kw...)[1][1] for yk in y]
     end
+    cdf_range_check("coef_cdf", D, c, start, gamma0, Float64(c0), "y", ys, v)
 end
 """coef_pdf(D, ys, c = 0; c0, start, gamma0, kw...) -> f (vector): its density, by the kernel 2 v^3 (d/dc0 of F at x = 0)"""
 function coef_pdf(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
