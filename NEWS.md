@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **The upper tail of the fixed start near the unit root (general engine).** The placement of the U-shape G+ of a fixed
+  start (`ufixed_place`) counted the growth e^{sigma^2 x^2/(4 Re(t + c0 s))} of the v-kernels of the upper tail to the
+  left of the origin above the unit root only.  In case DK near it (c = 0, -0.5) G+ went left of the origin in the upper
+  tail as well, and one evaluation was off by 3e-7 at x = 9.7 (g0 = 1, c0 = 0, where F is 1 to 1e-12), 7e-3 at x = 12
+  and 1e39 at x = 20, with c0 = 2 by 55 at x = 4 and with c0 = -2 by 9e-5 at x = 20, without a warning below the range
+  check; the default route takes the general engine for these arguments (`ltratio_cdf(9.732, "DK", 0; g0 = 1)` returned
+  0.9999997).  The growth is now counted at every c (with the largest positive c0 in it): these points are within 1e-12 of
+  the classical engine, the bulk is unchanged, and cases DU, DT (whose G+ stays right of the origin) are unchanged bit for
+  bit.
+- **Case DK with a fixed start and c0 < 0 near the unit root goes to the classical engine.** The rule `autoengine` took the
+  general engine for the fixed start of case DK (c <= 1, (c g0)^2/2 <= 400) at every c0; with c0 < 0 near the unit root
+  the outer hyperbola of the general engine does not resolve the upper tail, and its one evaluation was off by 2.7e-6 at
+  the 99.99% point (c = 0.5, c0 = -5, g0 = 1), by 6.7e-6 at c = 0 with g0 = 1.5, and beyond the 99.99% point by up to
+  2.9e-2 (c0 = -10), where the range check also refused values of 1.23 (`ltratio_cdf(45.11, "DK", 0.5; c0 = -10, g0 =
+  1)` raised an error).  These points (c0 < 0, c > -1) now take the classical engine, whose line integral agrees with its
+  checked computation and with the conditional integral to 1e-12 there.  The general engine itself takes a finer outer
+  step there (see the rules of one evaluation below).
+- **Thinner rules of one evaluation of the general engine's paths.** `dist_cdf`, `dist_pdf` and `dist_quantile` (and the
+  classical functions where the rule takes the general engine) take the outer hyperbola with 1.5 times the step and the
+  U-shapes with 16 nodes per panel and 32 on the tails of the rays (24 and 40 before; 32 and 48 for 48 and 64 with a
+  fixed start), 0.50 times the time of one evaluation (median; 0.30 to 0.87), and near the unit root with c0 < 0 the
+  present step (or a finer one) with the thin inner rule, by regions of the start, the deterministic terms, c and c0
+  (`DFDet.path_region`, `DFDet.PATH_RULES`; the README, "The rules of one evaluation"), measured against a reference
+  with half the step and twice the nodes to within max(1e-9, twice the present rule's own error) in F and max(1e-8,
+  twice its own) of the largest density in f.  The values move by up to 7.6e-10 in F and 4e-9 of the peak in f (a dense
+  grid of x, 736 configurations); beyond the range measured (c > 2 with a fixed start, c > 5, c < -60 with c0 other than
+  0 and c) the rule is the present one.  With a fixed start, no deterministic terms, c0 < 0 and c > -1 the outer step is
+  finer than before: the present one was off by up to 0.86 in the upper tail (c = 0.5, g0 = 1, c0 = -20), now within
+  7e-12 of the classical engine, at 2 to 11 times the cost.  New keyword `rule` (:auto; :present the rule of before,
+  also taken by `verified = true`; :thin, :inner, :outer, :fine, :finestep); `hfac` is `nothing` (by the rule) unless
+  given.
 - **The branches fixed at each point.** The classical engine's P(t), M_0(t) and the labels of the roots of the line and
   contour integrals (`DFExact.tparts`) and the argument of log P(t) in the provider of the general engine's line integral
   are fixed at each point, after Bao and Kan (the factors whose arguments are known; the pivots of the precision matrix,
@@ -24,6 +55,41 @@
   quantile searches keep the transform values along the ray across the search (`DFDet.MemoCF`). The values move by at
   most 1.8e-11 (the 5% point of the point-optimal statistic with an intercept, where the grid's Newton search stops)
   below the unit root and by up to 5e-10 above it (c = 3), where the grid is the less accurate one.
+- **Thinner rules of one evaluation of the classical contour integral** (a fixed start in cases DU, DT;
+  `DFExact.ctr_rule`): 32 nodes per panel and ray of the U-shapes for 64 and 1.5 times the outer step near the unit root
+  (0.42 times the time, median), 32 nodes on the present step above the unit root (0.59 times), 64 nodes on the longer
+  step with c0 > 0 below c = -2.5 and below c = -10, the present rule where |c g0| > 20; within 6.2e-11 of the checked
+  computation in F on a dense grid of x (129 configurations), every configuration within max(1e-9, twice the present
+  rule's own error) in F and max(1e-8, twice its own) of the peak in f. `tr_contour` takes the keyword `rule` (:auto,
+  :present); `verified = true` is unchanged.
+- **Thinner rules of one evaluation of the classical conditional integral** (`DFExact.cond_rule`): 48 nodes on the path
+  of each inner inversion and of the integral over l for 96 with a stationary start for c <= -2, with a zero start in
+  cases DU, DT for c >= -5 and in case DK for c <= -13.5, and 64 with a stationary start for c > -2 (0.60 times the time
+  with a stationary start, 0.81 and 0.87 in cases DU, DT with a zero start; medians); every configuration of a dense
+  grid of x (150: the six cases, c from 2 to -100, c0 in {2, -2, -5, c}) within the criterion against the rule with 192
+  nodes and the outer tolerance 1e-14. A fixed start keeps 96 nodes. The options Nv, Nl of `tr_limdist` override the
+  rule; `verified = true` is unchanged.
+- **The fixed start of cases DU, DT far from the unit root goes to the general engine** (`autoengine`): with c0 > 0
+  below c = -20 (below c = -10 where |c g0| > 20) and with any c0 below c = -20 where |c g0| > 60.  The classical
+  contour integral's one evaluation was off there, in the density by up to 5e-6 of the peak (case DU, c = -30, g0 =
+  0.5, c0 = 2), 4.2e-3 (c = -75, c0 = 5) and 2.2e-2 (g0 = 1.5, c = -60, c0 = 5), in the distribution function by up to
+  3.9e-5 (case DU, g0 = 1.5, c = -60, c0 = -2) and 6.3e-6 (g0 = 0.9, c = -100); its checked computation by up to 8.4e-6
+  of the peak in the density.  The general engine's density there is the derivative of the distribution function on
+  which the two engines agree (to 1e-10 of the peak), at 0.23 to 0.9 times the time down to c = -45 and up to 5 times
+  below c = -75.  The classical engine warns of the brittle one evaluation where |c g0| > 60 below c = -20 too.
+- **The quantile searches start from the moments from jets.** `ltratio_icdf` (the classical Newton search, and the
+  general engine's search where the rule gives it the quantiles) starts at the normal approximation with the first two
+  moments from jets (`DFLimit.mom_start`, after Bao and Kan, 0.2 to 1 ms) in place of the circles of the engines (10 to
+  150 ms): whole calls of four quantiles take 0.27 to 1.0 times as long (median 0.85; case DK at c = 0 13.8 ms for 46).
+  The quantiles are those of before to 2.4e-11 (the search tolerance is 1e-10), except in case DK with c0 = 2 far from
+  the unit root (4.3e-10 at c = -20, 5.5e-9 at c = -60), where the distribution function that the search inverts is
+  itself known to about 1e-9. `DFLimit.MOM_START[] = false` restores the start of before.
+- **The quantile searches take F and f in one evaluation where the general engine computes.** The Newton steps of
+  `ltratio_icdf` (the classical search) evaluated `ltratio_cdf` and `ltratio_pdf` separately; where the rule gives the
+  point to the general engine, its paths return both from one pass (`DFLimit.route_dist2`, `DFDet.dist_both`), with the
+  values of the two functions bit for bit, so that the quantiles are unchanged bit for bit. Four quantiles take 0.54 to
+  0.77 times as long there (median 0.59; the zero start with c0 > 0, the stationary start with c0 != 0, case DK with a
+  fixed start; c from 0 to -60), elsewhere as long as before. `DFLimit.DIST2[] = false` restores the two evaluations.
 - **The moments of the t-ratio from jets.** `ltratio_mom` takes the derivatives of the moment generating function from
   one Taylor-mode jet per node of an adaptive quadrature (after Bao and Kan) by default in the six classical cases, for any
   c0 and fixed start up to c = 20: 16 to 290 times faster (0.3 to 1.3 ms for four moments), within 1.4e-11 relative of

@@ -2896,11 +2896,16 @@ of `uabscissas` replaced by `place` (or, with FIXED_RULE[] = :bound, by those of
 function ufixed_place(CP::CPath, logMt::LogMt{FixT}, c0s, gp::AbstractVector{ComplexF64}, gm::AbstractVector{ComplexF64}, hi::Float64,
                       lo::Float64, sp::Float64, sm::Float64, tr::Float64, alpha::Float64, A::Float64, xq::Float64)
     Mo = CP.Mo; rp = Mo.rp
-    # the fixed start: the abscissas where the largest |Mt| on the U-shape is smallest.  Above the unit root (c > 0) the
-    # objective also counts the growth e^{sigma^2 xq^2/(4 Re t)} of the v-kernels of the upper tail (x up to xq > 0) on
-    # G+ to the left of the origin (case DK at c = 1, g0 = 1: without it G+ went to -0.82, and F was off by 1e31 at
-    # mean + 5 sd; at c = 0.5 the abscissa left of the origin is the right one)
-    xg = CP.c > 0 ? xq : 0.0
+    # the fixed start: the abscissas where the largest |Mt| on the U-shape is smallest.  The objective also counts the
+    # growth e^{sigma^2 xq^2/(4 Re(t + c0 s))} of the v-kernels of the upper tail (x up to xq > 0, c0 the largest positive
+    # one) on G+ to the left of the origin (case DK at c = 1, g0 = 1: without it G+ went to -0.82, and F was off by 1e31 at
+    # mean + 5 sd; at c = 0.5 the abscissa left of the origin is the right one).  Until November 2026 only above the unit
+    # root: in case DK near it (c = 0 and -0.5) G+ went left of the origin in the upper tail as well, and one evaluation
+    # was off by 3e-7 at x = 9.7 (g0 = 1), 7e-3 at x = 12 and 1e39 at x = 20, with c0 = 2 by 55 at x = 4 and with c0 = -2
+    # by 9e-5 at x = 20, where F is 1 to 1e-12 (the default route takes the general engine for these arguments); with
+    # the growth counted at every c (and with c0 > 0 in it) these points are within 1e-12 of the classical engine and the
+    # bulk is unchanged; cases DU, DT, whose G+ stays right of the origin, are unchanged bit for bit
+    xg = xq
     # (above the unit root with c0 > 0 the placement is searched right of the branch point -Re(t)/c0, which the
     # semi-infinite piece of V+ needs, and counts the growth of the v-kernels there with Re(t + c0 s) in place of Re t:
     # cases DU at c = 2, g0 = 1.5 and DT at c = 2, g0 = 3, both with c0 = 3, were off by 1e-2 and 1e87 at mean + 4 sd)
@@ -2909,7 +2914,7 @@ function ufixed_place(CP::CPath, logMt::LogMt{FixT}, c0s, gp::AbstractVector{Com
         for c0 in c0s; c0 > 0 && (lbp = max(lbp, -tr / c0)); end
     end
     sp0 = isfinite(lbp) ? max(sp, lbp + alpha * (hi - lbp)) : sp
-    c0p = CP.c > 0 ? maximum((c0 for c0 in c0s if c0 > 0); init = 0.0) : 0.0
+    c0p = maximum((c0 for c0 in c0s if c0 > 0); init = 0.0)
     rule = FIXED_RULE[]
     if rule == :bound && CP.c <= 0 && hi > 0 && lo < 0
         # the abscissas of the proof: alpha times the real roots at the real point tau of the contour (the first node),
@@ -3307,7 +3312,10 @@ function contour_eval(CP::CPath, xs::Vector{Float64}; c0::Real = 0.0, n = nothin
     n = n === nothing ? (fixed ? 48 : 24) : Int(n); ntail = ntail === nothing ? (fixed ? 64 : 40) : Int(ntail)
     c0 = Float64(c0)
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))     # (+-Inf gave NaN, NaN an InexactError)
-    ushape_guard(CP, (c0,), CP.Mo.a, n, alpha, tol, max(0.0, maximum(xs; init = 0.0)))
+    # (the guard counts the nodes of the present rule's U-shapes, so that it refuses what it refused before November 2026
+    # whatever the rule: with the 16 nodes of the thin rule the count of the design (1 + r, 1{r <= 0.4}) stays below the
+    # cap where the transform matters, and `ushapes` refused it only after 3 s)
+    ushape_guard(CP, (c0,), CP.Mo.a, max(n, fixed ? 48 : 24), alpha, tol, max(0.0, maximum(xs; init = 0.0)))
     vr = filon && isnan(CP.h) ? filon_roots_x(CP, xs, c0) : nothing
     if vr !== nothing
         return contour_sum_filon(CP, length(xs), (gF, gf, aF, af, jF, jf, k) -> tnode_values_m!(gF, gf, aF, af, CP, k, xs, c0, n, ntail, alpha, vpow; vr, JFo = jF, Jfo = jf),
@@ -3703,18 +3711,121 @@ function startmodel(D::Determ, c::Real, start::Symbol, gamma0::Real, gls = nothi
     model(prep_cached(D, gls), start, gamma0)
 end
 
+# ---------- the rules of one evaluation of the inversion on paths (dist_cdf, dist_pdf, dist_quantile) ----------
 """
-    dist_cdf(D, xs, c = 0; c0 = 0, start = :zero, gamma0 = 0, phi = pi/4, hfac = 1, kw...) -> F (vector)
+    PATH_RULES
+
+The rules of one evaluation of the inversion on paths (`contour_eval` on the outer contour of `cpath`): (hfac, n, ntail,
+n with a fixed start, ntail with a fixed start), hfac the factor of the step of the outer hyperbola (`hyperbola`), n the
+Gauss-Legendre nodes per panel of the U-shapes and ntail those of the tails of their rays (a fixed start, whose roots are
+essential singularities of Mt, has more).  On the vertical line (`linecpath`: above the unit root, where no hyperbola
+keeps the positive roots right of the origin) hfac does not apply and the line keeps its 24 nodes per panel.
+
+  * :present, the rule until November 2026: hfac 1, n 24, ntail 40 (48, 64 with a fixed start);
+  * :thin, the thinner rule: hfac 1.5, n 16, ntail 32 (32, 48 with a fixed start);
+  * :inner, the thin inner rule on the outer contour of the present one;
+  * :outer, the inner rule of the present one on the outer contour of the thin one;
+  * :fine, the thin inner rule on the present hyperbola with half its step (`rule_path`);
+  * :finestep, the inner rule of the present one on the present hyperbola with the step min(1/2, 2.5/(g0 |c0|)) times
+    its own where the hyperbola is flatter than 70 degrees (2 to 11 times), for a fixed start without deterministic
+    terms (`rule_path`).
+
+The rule of `rule = :auto` is `path_region`; `verified = true` takes :present (and `verify_eval` its variants).
+"""
+const PATH_RULES = Dict(:present => (1.0, 24, 40, 48, 64), :thin => (1.5, 16, 32, 32, 48), :inner => (1.0, 16, 32, 32, 48),
+                        :outer => (1.5, 24, 40, 48, 64), :fine => (0.5, 16, 32, 32, 48), :finestep => (1.0, 24, 40, 48, 64))
+const RULE_MSG = "rule must be :auto, :present, :thin, :inner, :outer, :fine or :finestep (the rules of one evaluation of the inversion on paths, PATH_RULES)"
+check_rule(rule::Symbol) = (rule === :auto || haskey(PATH_RULES, rule)) || throw(ArgumentError(RULE_MSG))
+"""
+    path_region(Mo, c, c0) -> Symbol
+
+The rule of one evaluation (`PATH_RULES`) for the design of Mo with its start at c and the local null value c0, by
+regions of (the class of the design, the start, c, c0), measured in November 2026 against a reference with half the
+outer step and twice the inner nodes (the criterion: within max(1e-9, twice the present rule's own error) in F and
+max(1e-8, twice its own) of the largest density in f; see the comments below and the README).
+"""
+function path_region(Mo::Model, c::Float64, c0::Float64)
+    fixed = Mo.start == :fixed
+    rank1 = Mo.r == 1 && Mo.rm == 0
+    # near and above the unit root (c > -1) the outer integrand of the upper tail needs the outer step of the present rule
+    # or a finer one: with c0 < 0, where the parabola X(v) has its root b ~ x/|c0| far out, the thinner outer step lost up
+    # to 1e-4 with a fixed start (case DK at c = 0, c0 = -5 by 3.9e-5, case DU at c = 2, c0 = -5 by 3.1e-6) and 1.3e-8 of
+    # the density's peak with a zero start (case DK at c = 0, c0 = -5); without deterministic terms and with a fixed start
+    # the present step itself was off by up to 0.86 in the upper tail (case DK at c = 0.5, g0 = 1, c0 = -20; 1.8e-3 at c0 =
+    # -5), where the steps of :finestep are within 1e-11 of the classical engine (`rule_path`), and with deterministic
+    # terms :fine within 1e-12; there at c0 = 0 too the thinner step lost 1.4e-8 of the peak at mean + 5.75 sd (c = 0.5)
+    if c > PATH_UNITROOT_CMIN
+        # (beyond the range of the sweep above the unit root, with a fixed start beyond c = 2 and beyond c = 5 with a zero
+        # start: the present rule; at c = 5 with a fixed start the thin rule differed from it by up to 5.6e-6 of the
+        # peak of the density, Perron's model C with two breaks)
+        (c > PATH_THIN_CMAX_FIXED && fixed || c > PATH_THIN_CMAX) && return :present
+        c0 < 0 && return !fixed ? :inner : rank1 ? :finestep : :fine
+        (c0 == 0 && fixed && rank1) && return :inner
+    end
+    # (far from the unit root, below the range of the sweep, with c0 other than 0 and c: the present rule; in case DK at
+    # c = -480, c0 = 2 the thin rule differed from it by 7.7e-9)
+    (c < FAR_CMIN && c0 != 0 && c0 != c) && return :present
+    :thin
+end
+"""the borders of the regions of `path_region` in c"""
+const PATH_UNITROOT_CMIN = -1.0
+const PATH_THIN_CMAX_FIXED = 2.0
+const PATH_THIN_CMAX = 5.0
+"""
+    path_rule(rule, verified, Mo, c, c0, hfac, kw) -> (hfac, n, ntail, rule)
+
+The step factor of the outer hyperbola, the inner nodes and the rule of one evaluation: those of `rule` (:auto:
+`path_region`; :present with verified = true), with hfac (a number) and the keywords n and ntail of kw, where given, in
+their place.  The outer contour is `rule_path`'s.
+"""
+function path_rule(rule::Symbol, verified::Bool, Mo::Model, c::Real, c0::Real, hfac, kw)
+    check_rule(rule)
+    r = verified ? :present : rule === :auto ? path_region(Mo, Float64(c), Float64(c0)) : rule
+    hf, n, nt, nf, ntf = PATH_RULES[r]
+    fixed = Mo.start == :fixed
+    hfac === nothing || (hf = Float64(hfac); r = :given)
+    n = something(get(kw, :n, nothing), fixed ? nf : n)
+    nt = something(get(kw, :ntail, nothing), fixed ? ntf : nt)
+    hf, Int(n), Int(nt), r
+end
+"""
+    rule_path(Mo, c, phi, hf, r, c0) -> CPath
+
+The outer contour of the rule r with the step factor hf (`path_rule`): `cpath_cached`, except that the rules with a finer
+step keep the angle of the present rule's hyperbola (where `fixed_phi` chooses it, its criterion on the largest term
+weighs the step, and a finer step took a flatter hyperbola with larger terms: case DK at c = -0.5, g0 = 2, c0 = -20 was
+off by 1.7e-4 on it, against 4.5e-12 on the present one): :fine half the present step, :finestep (a fixed start without
+deterministic terms) the step min(1/2, 2.5/(g0 |c0|)) times the present one where the present hyperbola is flatter than
+70 degrees (at c = 0.5, g0 = 1, c0 = -20 the present step was off by 0.86, half of it by 0.31, this one by 7e-12; at
+g0 = 1.5, c0 = -1 the present step by 2.7e-7; on the steep hyperbolas of g0 = 2, 88 degrees, the present step is within
+1e-12 and the thin inner rule is not); on the vertical line the line itself.
+"""
+function rule_path(Mo::Model, c::Real, phi, hf::Float64, r::Symbol, c0::Real)
+    if phi === nothing && r in (:fine, :finestep)
+        CP1 = cpath_cached(Mo, c)
+        isnan(CP1.h) && return CP1
+        phi = CP1.phi
+        r === :finestep && (hf = CP1.phi < FINESTEP_PHI ? min(0.5, 2.5 / (abs(Mo.g0) * abs(Float64(c0)))) : 1.0)
+    end
+    cpath_cached(Mo, c; phi, hfac = hf)
+end
+"""the angle below which the step of :finestep shrinks (`rule_path`)"""
+const FINESTEP_PHI = 70 * pi / 180
+
+"""
+    dist_cdf(D, xs, c = 0; c0 = 0, start = :zero, gamma0 = 0, phi = nothing, hfac = nothing, rule = :auto, kw...) -> F (vector)
 
 The distribution function of the limit (U - c0 V)/sqrt(V) of the t-ratio for phi = 1 + c0/n under phi = 1 + c/n, with
 the start J(0) = 0 (start = :zero), J(0) = gamma0 (:fixed; y_0 = gamma0 sigma sqrt(n)) or J(0) ~ N(0, -1/(2c))
 (:stationary, c < 0).  gls = cbar: the data GLS-detrended at abar = 1 + cbar/n (`prep_gls`; zero start only).  method =
 :auto (the default), :line or :paths: the line integral with the explicit kernel where it covers the design (`line_dist`), or
-the inversion on paths around the roots.
+the inversion on paths around the roots.  rule: the rule of one evaluation of the paths (`PATH_RULES`; :auto, the
+default, by `path_region`; :present the rule until November 2026, also taken by verified = true); hfac (the factor of
+the outer step) and the keywords n, ntail (the nodes of the U-shapes) override it.
 """
-dist_cdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = 1.0,
-         verified::Bool = false, vtol::Real = 1e-9, kw...) =
-    dist_eval(D, xs, c, 1, start, gamma0, gls, phi, hfac, verified, Float64(vtol); kw...)
+dist_cdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = nothing,
+         verified::Bool = false, vtol::Real = 1e-9, rule::Symbol = :auto, kw...) =
+    dist_eval(D, xs, c, 1, start, gamma0, gls, phi, hfac, verified, Float64(vtol); rule, kw...)
 """
     dist_pdf(D, xs, c = 0; c0, start, gamma0, verified = false, kw...) -> f (vector)
 
@@ -3722,14 +3833,14 @@ Its density.  For a design whose numerator has rank one (no deterministic terms,
 is infinite at the tangency x = -sqrt(4 c0 a) of the parabola X(v) (a the shift of Mt: 1/2, or (1 + gamma0^2)/2 with a
 fixed start), and Inf is returned there (as by DFLimit); elsewhere it is continuous.
 """
-dist_pdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = 1.0,
-         verified::Bool = false, vtol::Real = 1e-9, kw...) =
-    dist_eval(D, xs, c, 2, start, gamma0, gls, phi, hfac, verified, Float64(vtol); kw...)
+dist_pdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = nothing,
+         verified::Bool = false, vtol::Real = 1e-9, rule::Symbol = :auto, kw...) =
+    dist_eval(D, xs, c, 2, start, gamma0, gls, phi, hfac, verified, Float64(vtol); rule, kw...)
 """the value of `dist_cdf` (which = 1) or `dist_pdf` (2): the non-finite points set (`nonfinite`), the finite ones by one
 evaluation of the contour integral or, with verified = true, by `verify_eval`; the infinite density at a tangency"""
 function dist_eval(D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
-                   method::Symbol = :auto, kw...)
-    v = dist_eval_(D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; method, kw...)
+                   method::Symbol = :auto, rule::Symbol = :auto, kw...)
+    v = dist_eval_(D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; method, rule, kw...)
     which == 1 && cdf_range_check("dist_cdf", D, c, start, gamma0, Float64(get(kw, :c0, 0.0)), "x", xs, v)
     v
 end
@@ -3751,17 +3862,39 @@ function cdf_range_check(fn::String, D::Determ, c::Real, start::Symbol, gamma0::
     v
 end
 function dist_eval_(D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
-                    method::Symbol = :auto, kw...)
+                    method::Symbol = :auto, rule::Symbol = :auto, kw...)
     check_cmax(D, c, start, gamma0, which == 1 ? "the t-ratio (dist_cdf)" : "the t-ratio (dist_pdf)")
-    lv = line_dist(method, D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; kw...); lv === nothing || return lv
-    CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
+    check_rule(rule)
+    lv = line_dist(method, D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; rule, kw...); lv === nothing || return lv
     c0 = Float64(get(kw, :c0, 0.0))
+    Mo = startmodel(D, c, start, gamma0, gls)
+    hf, n, nt, rl = path_rule(rule, verified, Mo, c, c0, hfac, kw)
+    CP = rule_path(Mo, c, phi, hf, rl, c0)
     nonfinite(xs, which == 1) do x
         v = verified ? verify_eval((CPv, o) -> contour_eval(line_refined(CPv, x; c0), x; o..., kw...)[which], CP, vtol) :
-                       contour_eval(line_refined(CP, x; c0), x; kw...)[which]
+                       contour_eval(line_refined(CP, x; c0), x; kw..., n, ntail = nt)[which]
         which == 2 && tangency!(v, CP.Mo, x, c0)
         v
     end
+end
+"""
+    dist_both(D, xs, c = 0; c0 = 0, start = :zero, gamma0 = 0, gls = nothing) -> (F, f)
+
+`dist_cdf` and `dist_pdf` of the inversion on paths (method = :paths) in one evaluation: the paths return both from one
+pass (`contour_eval`), the values those of the two functions bit for bit (one evaluation by the rule of `path_region`).
+"""
+function dist_both(D::Determ, xs::Vector{Float64}, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing)
+    check_cmax(D, c, start, gamma0, "the t-ratio (dist_cdf)")
+    c0 = Float64(c0)
+    isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
+    Mo = startmodel(D, c, start, gamma0, gls)
+    hf, n, nt, rl = path_rule(:auto, false, Mo, c, c0, nothing, pairs((;)))
+    CP = rule_path(Mo, c, nothing, hf, rl, c0)
+    all(isfinite, xs) || throw(ArgumentError("dist_both: finite points only"))
+    F, f = contour_eval(line_refined(CP, xs; c0), xs; c0, n, ntail = nt)[1:2]
+    tangency!(f, CP.Mo, xs, c0)
+    cdf_range_check("dist_cdf", D, c, start, gamma0, c0, "x", xs, F)
+    F, f
 end
 """Inf at the points of x where the density of a rank-one design with c0 > 0 is infinite (`dist_pdf`)"""
 function tangency!(v::Vector{Float64}, Mo::Model, x::Vector{Float64}, c0::Float64)
@@ -3830,25 +3963,29 @@ end
 
 The p-quantile by Newton's method on F(x) - p with the density from the same evaluation, from x0, the step limited to 1;
 where that does not converge in 30 steps (or leaves the finite numbers), the safeguarded Newton's method of `newton_safe`
-(a bracket, bisection where a step leaves it).  p may be a vector (one quantile each, from the same x0).  method as in
-`dist_cdf` (the search by the line integral: `line_quantile`).
+(a bracket, bisection where a step leaves it).  p may be a vector (one quantile each, from the same x0).  method, rule
+and hfac as in `dist_cdf` (the search by the line integral: `line_quantile`).
 """
 function dist_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol::Real = 1e-9, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
-                       phi = nothing, hfac = 1.0, method::Symbol = :auto, kw...)
+                       phi = nothing, hfac = nothing, method::Symbol = :auto, rule::Symbol = :auto, kw...)
     0 < p < 1 || throw(ArgumentError("dist_quantile: p must lie in (0, 1)"))
     search_args("dist_quantile", "x0", x0, tol)
     check_cmax(D, c, start, gamma0, "the quantiles of the t-ratio (dist_quantile)")
+    check_rule(rule)
     lq = line_quantile(method, D, p, c; x0, tol, start, gamma0, gls, phi, hfac, kw...); lq === nothing || return lq
-    CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
+    c0 = Float64(get(kw, :c0, 0.0))
+    Mo = startmodel(D, c, start, gamma0, gls)
+    hf, n, nt, rl = path_rule(rule, false, Mo, c, c0, hfac, kw)
+    CP = rule_path(Mo, c, phi, hf, rl, c0)
     x = Float64(x0)
     for it in 1:30
-        F, f, _ = contour_eval(line_refined(CP, [x]; c0 = Float64(get(kw, :c0, 0.0))), [x]; kw...)
+        F, f, _ = contour_eval(line_refined(CP, [x]; c0), [x]; kw..., n, ntail = nt)
         dx = clamp((F[1] - p) / f[1], -1.0, 1.0)
         isfinite(dx) || break
         x -= dx
         abs(dx) < tol && return x
     end
-    FF(y) = (r = contour_eval(line_refined(CP, [y]; c0 = Float64(get(kw, :c0, 0.0))), [y]; kw...); (r[1][1], r[2][1]))
+    FF(y) = (r = contour_eval(line_refined(CP, [y]; c0), [y]; kw..., n, ntail = nt); (r[1][1], r[2][1]))
     newton_safe(FF, p, x0, 1.0; tol)
 end
 dist_quantile(D::Determ, p::AbstractVector, c::Real = 0.0; kw...) = [dist_quantile(D, pk, c; kw...) for pk in p]

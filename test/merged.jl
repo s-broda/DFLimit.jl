@@ -27,7 +27,21 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:dist, spec("DK"; g0 = 1.0), 0, 0, -1) == :general         # fixed start, case DK, (c g0)^2/2 <= 400
         @test ae(:dist, spec("DK"; g0 = 2.0), -20, 0, -1) == :classical
         @test ae(:dist, spec("DK"; g0 = 1.0), 2, 0, -1) == :classical
+        # (c0 < 0 near the unit root: the classical engine; the general engine's one evaluation of before was off in the upper
+        # tail, by 2.7e-6 at the 99.99% point at c = 0.5, c0 = -5, g0 = 1)
+        @test ae(:dist, spec("DK"; g0 = 1.0), 0.5, -5, 25) == :classical && ae(:dist, spec("DK"; g0 = 1.0), -2, -5, 10) == :general
+        @test ltratio_cdf(25.173, "DK", 0.5; c0 = -5.0, g0 = 1.0) ≈ ltratio_cdf(25.173, "DK", 0.5; c0 = -5.0, g0 = 1.0, engine = :classical, verified = true) atol = 1e-10
         @test ae(:dist, spec("DU"; g0 = 1.0), -10, 0, -1) == :classical     # fixed start, cases DU, DT
+        # (far from the unit root the general engine: c0 > 0 below c = -20, or below c = -10 where |c g0| > 20, and any c0
+        # below c = -20 where |c g0| > 60; the classical contour integral's one evaluation was off there by up to 2.2e-2 of
+        # the peak of the density and 3.9e-5 in F, its checked computation by 8.4e-6 in the density)
+        @test ae(:dist, spec("DU"; g0 = 0.5), -30, 2, -3) == :general && ae(:dist, spec("DU"; g0 = 0.5), -15, 2, -3) == :classical
+        @test ae(:dist, spec("DU"; g0 = 1.5), -13.5, 2, -3) == :general && ae(:dist, spec("DT"; g0 = 1.0), -13.5, 2, -3) == :classical
+        @test ae(:dist, spec("DU"; g0 = 1.5), -60, -2, -3) == :general && ae(:dist, spec("DT"; g0 = 1.0), -60, -2, -3) == :classical
+        let x = -9.1684, h = 2e-3      # the density is the derivative of F (Richardson's central difference; 8e-12 measured)
+            Fh = ltratio_cdf(x .+ h .* [-2, -1, 1, 2], "DU", -60; c0 = 2.0, g0 = 1.5)
+            @test abs(ltratio_pdf(x, "DU", -60; c0 = 2.0, g0 = 1.5) - (8 * (Fh[3] - Fh[2]) - (Fh[4] - Fh[1])) / (12h)) < 1e-8
+        end
         @test ae(:dist, spec("DG"), -10, 0, -2) == :classical
         # x = 0, the points of the coefficient statistic: c0 > 0 the classical engine, c0 < 0 in case DK for c > -5 the general
         @test ae(:dist, spec("DU"), -5, 2, 0) == :classical && ae(:dist, spec("DK"), 0, 2, 0) == :classical && ae(:dist, spec("DT"), -80, 2, 0) == :classical
@@ -150,5 +164,31 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5, method = :engine) == Fl
         @test abs(ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5) - Fl) < 1e-10      # (the single inversion of Bao and Kan: 5.4e-12)
         @test occursin("cases DK and DG only", errm(() -> ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5, engine = :classical)))
+    end
+
+    @testset "the quantile searches: the start from the moments from jets (mom_start)" begin
+        # the quantiles of before to the search tolerance (2.4e-11 measured)
+        m = MD.mom_start(2, "DU", -5.0; c0 = -2.0)
+        @test m !== nothing && maximum(abs.(m ./ ltratio_mom(2, "DU", -5; c0 = -2.0, method = :engine) .- 1)) < 1e-9
+        @test MD.mom_start(2, "DG", -5.0) === nothing && MD.mom_start(2, "DU", 25.0) === nothing
+        for (cas, c, c0) in (("DU", -5.0, 0.0), ("DT", -5.0, -2.0), ("DK", -5.0, 2.0))
+            q1 = ltratio_icdf([0.05, 0.5], cas, c; c0)
+            MD.MOM_START[] = false
+            q0 = try; ltratio_icdf([0.05, 0.5], cas, c; c0); finally; MD.MOM_START[] = true; end
+            @test maximum(abs, q1 .- q0) < 1e-9
+        end
+    end
+
+    @testset "the quantile searches: F and f in one evaluation where the general engine computes (route_dist2)" begin
+        # the values of ltratio_cdf and ltratio_pdf bit for bit, and so the quantiles of the two evaluations
+        for (cas, c, c0, g0) in (("DU", -5.0, 2.0, 0.0), ("SU", -5.0, -5.0, 0.0), ("DK", -5.0, 0.0, 1.0))
+            Ff = MD.route_dist2(-2.5, cas, c; c0, g0)
+            @test Ff !== nothing && Ff[1] == ltratio_cdf(-2.5, cas, c; c0, g0) && Ff[2] == ltratio_pdf(-2.5, cas, c; c0, g0)
+            q1 = ltratio_icdf([0.05, 0.5], cas, c; c0, g0)
+            MD.DIST2[] = false
+            q0 = try; ltratio_icdf([0.05, 0.5], cas, c; c0, g0); finally; MD.DIST2[] = true; end
+            @test q1 == q0
+        end
+        @test MD.route_dist2(-2.5, "DU", -5.0; c0 = 0.0) === nothing        # (the classical engine's point)
     end
 end

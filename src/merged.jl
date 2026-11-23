@@ -114,8 +114,23 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
             return :general
         end
         !fixed && !stat && c0 != 0 && c < -100 && return :general            # 2.4 to 3.3 times faster
-        # the fixed start of case DK: 1.04 to 4.3 times faster (beyond, the classical engine is up to 1.5 times faster)
-        fixed && cas == "DK" && c <= 1 && ((c * S.g0)^2 / 2 <= 400 || (S.g0 <= 0.5 && c >= -100)) && return :general
+        # the fixed start of case DK: 1.04 to 4.3 times faster (beyond, the classical engine is up to 1.5 times faster),
+        # except with c0 < 0 near the unit root (c > -1): there the outer hyperbola of the general engine does not resolve
+        # the upper tail, and its one evaluation was off by 2.7e-6 at the 99.99% point (c = 0.5, c0 = -5, g0 = 1) and 2.9e-2
+        # beyond (mean + 6 sd at c0 = -10, where at mean + 4 sd it gave 1.23 and the range check refused), 6.7e-6 at c = 0
+        # with g0 = 1.5 (November 2026, `scratch/rules/probe_dkfixed6.jl`); the classical engine's line integral, its
+        # checked computation and the conditional integral agree to 1e-12 there
+        fixed && cas == "DK" && c <= 1 && !(c0 < 0 && c > -1) && ((c * S.g0)^2 / 2 <= 400 || (S.g0 <= 0.5 && c >= -100)) && return :general
+        # the fixed start of cases DU, DT far from the unit root: with c0 > 0 below c = -20 (and below c = -10 where |c g0| >
+        # 20), and with any c0 below c = -20 where |c g0| > 60, the classical contour integral's one evaluation was off, in
+        # the density by up to 5e-6 of its peak (case DU at c = -30, g0 = 0.5, c0 = 2), 4.2e-3 (c = -75, c0 = 5) and 2.2e-2
+        # (g0 = 1.5, c = -60, c0 = 5), in the distribution function by 3.9e-5 (case DU, g0 = 1.5, c = -60, c0 = -2) and
+        # 6.3e-6 (g0 = 0.9, c = -100), and its checked computation in the density by up to 8.4e-6 of the peak; the general
+        # engine's density there is the derivative of the distribution function on which the two engines agree (to 1e-10
+        # of the peak; Richardson's central difference), its F within 1e-10 of the classical checked one.  It takes 0.23 to
+        # 0.9 times the time of the classical one evaluation down to c = -45, up to 1.8 times at c = -60 and 1.2 to 5 times
+        # below c = -75 (November 2026, `scratch/rules/probe_ctr_far2.jl` to `probe_ctr_far6.jl`)
+        fixed && cas in ("DU", "DT") && c < -10 && ((c0 > 0 && (c < -20 || abs(c * S.g0) > 20)) || (c < -20 && abs(c * S.g0) > 60)) && return :general
         return :classical
     elseif f === :icdf
         # the quantiles at c0 = 0: the general engine's search, which evaluates F and f in one pass on one path, where it is
@@ -188,8 +203,37 @@ function router(f::Symbol, engine::Symbol, args...; kw...)
     f === :lincdf_inv && return inv_lincdf(engine, args...; kw...)
     f === :envelope_inv && return inv_envelope(engine, args...; kw...)
     f === :mom_inv && return inv_mom(engine, args...; kw...)
+    f === :mom_start && return mom_start(args...; kw...)
+    f === :dist2 && return route_dist2(args...; kw...)
     throw(ArgumentError("router: unknown function $f"))
 end
+
+"""
+    mom_start(p, cas, c; c0 = 0, g0 = 0) -> m or nothing
+
+The first p moments of the t-ratio of a classical case for the start of a quantile search (`ltratio_icdf`, `gen_icdf`):
+from one jet per node, the method of Bao and Kan (`DFKan.tratio_mom1`, 0.2 to 1 ms for two moments, where the circles of
+the engines take 10 to 150 ms), or nothing outside its region (`DFKan.mom_ok`; case DG) or where its error estimate
+exceeds 1e-6 relative; the search then starts from the engines' circles.  The start only places the first step and the
+bracket of the search: the quantile is the root of F(x) - p to the tolerance of the search either way.
+"""
+function mom_start(p::Int, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0)
+    MOM_START[] || return nothing
+    cs = uppercase(String(cas))
+    (inv_case(cs) && DFKan.mom_ok(cs, Float64(c), Float64(c0), Float64(g0))) || return nothing
+    m, e = try
+        DFKan.tratio_mom1(DFKan.limcf(cs, c, g0), max(p, 2), Float64(c0), 1e-10)
+    catch err
+        DFDet.nofallback(err) && rethrow()
+        return nothing
+    end
+    sc = [max(abs(m[j]), abs(m[2])^(j / 2)) for j in eachindex(m)]
+    all(j -> isfinite(m[j]) && e[j] <= 1e-6 * sc[j], 1:p) || return nothing
+    m[1:p]
+end
+"""whether the quantile searches start from the moments from jets (`mom_start`; false: from the engines' circles, as before
+November 2026, kept for checking)"""
+const MOM_START = Ref(true)
 
 # ---------- the single inversion of Bao and Kan (DFKan) for the half-plane statistics of the six classical cases ----------
 # The method of Yong Bao and Raymond Kan, "Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in
@@ -379,6 +423,30 @@ function merged_dist(kind::Int, x, S::Spec, c::Real; c0::Real, engine::Symbol, m
     isempty(ci) || (F[ci] = DX.ltratio_dist(kind, xs[ci], S.case, c; c0, g0 = S.g0, method, verified, engine = :classical, kw...))
     outshape(F, x)
 end
+"""
+    route_dist2(x, cas, c; c0, g0, method, engine) -> (F, f) or nothing
+
+F and f of the t-ratio at one point x in one evaluation, for the Newton steps of the classical quantile search
+(`ltratio_icdf`): where the rule gives the point to the general engine (engine = :auto, method = :auto, no further
+options), its paths return both from one pass (`DFDet.dist_both`), with the values of `ltratio_cdf` and `ltratio_pdf`
+bit for bit; nothing elsewhere (the classical engine, the tails that go back to it, other options), and the search takes
+the two evaluations.
+"""
+function route_dist2(x::Real, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, engine::Symbol = :auto, kw...)
+    (DIST2[] && method === :auto && engine === :auto && isempty(kw) && isfinite(x)) || return nothing
+    S = case_spec(cas, g0)
+    autoengine(:dist, S, Float64(c), Float64(c0), Float64(x)) === :general || return nothing
+    F, f = DFDet.dist_both(S.D, [Float64(x)], Float64(c); c0 = Float64(c0), gkw(S)...)
+    # (the tails below 1e-3 where the classical engine would take its conditional integral go back to it, as in
+    # `merged_dist`, for F and f each: the search then takes the two evaluations)
+    md = DX.ltratio_args(S.case, c; c0, g0 = S.g0, method)
+    ((F[1] < 1e-3 || f[1] < 1e-3) && DX.automethod(md[1], md[2], Float64(c), Float64(c0), S.g0, Float64(x)) === :double) && return nothing
+    DX.cdf_range_check("ltratio_cdf", DX.cdf_args(cas, c, c0, g0), x, F)
+    F[1], max(f[1], 0.0)
+end
+"""whether the classical quantile search takes F and f in one evaluation where the general engine computes (`route_dist2`;
+false: two evaluations, as before November 2026, kept for checking)"""
+const DIST2 = Ref(true)
 function route_dist(engine::Symbol, kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto,
                     verified::Bool = false, kw...)
     S = case_spec(cas, g0)
@@ -387,13 +455,17 @@ function route_dist(engine::Symbol, kind::Int, x, cas::AbstractString, c::Real; 
     engine === :auto && (method !== :auto || verified || !isempty(kw)) && return nothing
     merged_dist(kind, x, S, c; c0, engine, method, verified, kw...)
 end
-"""the general engine's p-quantiles of S, started at the normal approximation from its moments where it has them"""
+"""the general engine's p-quantiles of S, started at the normal approximation from the moments: from jets in the six
+classical cases (`mom_start`), otherwise from the engines' moments where they have them"""
 function gen_icdf(p, S::Spec, c::Real; tol::Real = 1e-10, c0::Real = 0.0, method::Symbol = :auto, kw...)
     x0 = -2.0; sd = 1.0
     # (the start from the moments of the engine the rule takes for them; a design without moments starts at -2)
     m = nothing
-    if S.case !== nothing && S.case != "DG" && classical_valid(S, c, c0, :auto) &&
-       autoengine(:mom, S, Float64(c), Float64(c0), 0.0) === :classical
+    # (the six classical cases: the moments from jets, `mom_start`, where they hold; otherwise the engine of the rule)
+    cv = S.case !== nothing && S.case != "DG" && classical_valid(S, c, c0, :auto)
+    cv && (m = mom_start(2, S.case, c; c0, g0 = S.g0))
+    if m !== nothing
+    elseif cv && autoengine(:mom, S, Float64(c), Float64(c0), 0.0) === :classical
         m = DX.ltratio_mom(2, S.case, c; c0, g0 = S.g0, engine = :classical)
     elseif S.D.detrend != :first
         # (where the moments fail, the start at -2; an interrupt or an exhausted memory reaches the caller)

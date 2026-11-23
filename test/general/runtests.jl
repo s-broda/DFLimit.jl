@@ -129,6 +129,46 @@ end
         F, f, _, er = contour_eval(CP, [-3.0, 0.0])
         @test maximum(er.F) < 1e-10 && maximum(er.f) < 1e-10
     end
+    @testset "fixed start: the upper tail near the unit root (the growth of the v-kernels in the placement at every c)" begin
+        # (counted above the unit root only until November 2026: case DK at c = 0, g0 = 1 was off by 3e-7 at x = 9.7, 7e-3
+        # at x = 12, 1e39 at x = 20, and with c0 = 2 by 55 at x = 4)
+        F = dist_cdf(trend(-1), [9.732, 12.0, 20.0], 0.0; start = :fixed, gamma0 = 1.0)
+        @test maximum(abs, F .- 1) < 1e-10
+        F = dist_cdf(trend(-1), [4.0, 8.0], -0.5; c0 = 2.0, start = :fixed, gamma0 = 1.0)
+        @test maximum(abs, F .- 1) < 1e-10
+        xs = [-3.0, 0.0, 4.0, 12.0]
+        @test maximum(abs, dist_cdf(trend(-1), xs, 0.0; c0 = -2.0, start = :fixed, gamma0 = 1.0) - ltratio_cdf(xs, "DK", 0.0; c0 = -2.0, g0 = 1.0, engine = :classical)) < 1e-10
+    end
+    @testset "the rules of one evaluation of the paths (path_region)" begin
+        reg(D, c, c0; start = :zero, g0 = 0.0, gls = nothing) = DFDet.path_region(DFDet.startmodel(D, c, start, g0, gls), Float64(c), Float64(c0))
+        @test reg(trend(0), -5.0, 2.0) == :thin && reg(perron(:C, 0.5), -13.5, 0.0) == :thin && reg(trend(1), -30.0, -5.0; start = :stationary) == :thin
+        @test reg(trend(-1), 0.0, -5.0) == :inner && reg(trend(-1), 0.5, -5.0; start = :fixed, g0 = 1.0) == :finestep
+        @test reg(trend(0), 0.5, -5.0; start = :fixed, g0 = 1.0) == :fine
+        @test reg(trend(1), -30.0, 2.0; start = :fixed, g0 = 1.0) == :thin && reg(trend(0), 2.0, 0.0) == :thin && reg(perron(:B, 0.5), -60.0, 0.0) == :thin
+        @test reg(trend(-1), 0.5, 0.0; start = :fixed, g0 = 1.0) == :inner && reg(trend(0), 0.5, 0.0; start = :fixed, g0 = 1.0) == :thin
+        Mo = DFDet.startmodel(trend(-1), 0.5, :fixed, 1.0, nothing)
+        @test DFDet.path_rule(:auto, false, Mo, 0.5, -10.0, nothing, pairs((;))) == (1.0, 48, 64, :finestep)
+        @test DFDet.path_rule(:auto, true, Mo, 0.5, -10.0, nothing, pairs((;))) == (1.0, 48, 64, :present)      # verified: the present rule
+        @test DFDet.path_rule(:thin, false, Mo, 0.5, -10.0, 0.7, pairs((n = 30,))) == (0.7, 30, 48, :given)      # hfac, n override
+        # the step of :finestep (no deterministic terms): min(1/2, 2.5/(g0 |c0|)) times the present one, on its angle
+        CP1 = DFDet.cpath_cached(Mo, 0.5); CP = DFDet.rule_path(Mo, 0.5, nothing, 1.0, :finestep, -10.0)
+        @test CP.phi == CP1.phi && CP.h ≈ 0.25 * CP1.h
+        @test_throws ArgumentError dist_cdf(trend(0), [-2.0], -5.0; rule = :finest)
+        # the thin rule against the present one (up to 7.6e-10 in F and 4e-9 of the peak in f on a dense grid; here up to 8e-12)
+        xs = [-3.5, -2.3, -0.7, 0.4]                         # (not at the tangency x = -2 of the GLS design with c0 = 2, where f = Inf)
+        for (D, c, kw) in ((trend(0), -5.0, (c0 = 2.0,)), (perron(:C, 0.5), -13.5, (;)), (trend(1), -5.0, (c0 = -2.0, start = :stationary)),
+                           (trend(1), -5.0, (c0 = 2.0, gls = -13.5)), (trend(-1), -5.0, (c0 = 2.0, start = :fixed, gamma0 = 1.0)))
+            F = dist_cdf(D, xs, c; kw...); Fp = dist_cdf(D, xs, c; kw..., rule = :present)
+            f = dist_pdf(D, xs, c; kw...); fp = dist_pdf(D, xs, c; kw..., rule = :present)
+            @test maximum(abs, F - Fp) < 1e-9 && maximum(abs, f - fp) < 1e-8
+        end
+        # :fine with a fixed start and c0 < 0 near the unit root, where the present rule was off by up to 1e-3 (the upper
+        # tail of case DK at c = 0.5, c0 = -5, g0 = 1: 1.8e-3 at x = 34.04; the range check refused x = 45.1 at c0 = -10)
+        xs = [7.435, 16.304, 25.173, 34.042]
+        F = dist_cdf(trend(-1), xs, 0.5; c0 = -5.0, start = :fixed, gamma0 = 1.0)
+        @test maximum(abs, F - ltratio_cdf(xs, "DK", 0.5; c0 = -5.0, g0 = 1.0, engine = :classical)) < 1e-10
+        @test 0.99 < dist_cdf(trend(-1), [45.11], 0.5; c0 = -10.0, start = :fixed, gamma0 = 1.0)[1] <= 1
+    end
     @testset "local null value c0" begin
         xs = [-3.5, -2.0, -0.7, 0.4, 2.5]
         for c0 in (3.0, -3.0)
