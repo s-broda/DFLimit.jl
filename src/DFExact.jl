@@ -2099,17 +2099,73 @@ of two paths and the refinement of their rules), whatever its status.  Against t
 x = 0.05 off by 1.2e-3 (flagged; a central difference of the distribution function agrees with the newer engine to 8e-6):
 ltratio_dist warns where the value returned is flagged (route_warn); case DK with a zero start (c in {-1, 0, 2}, c0 in
 {-1e-3, -1e-2, -0.1}) and a fixed start (g0 = 1, c0 = -1e-2) within 1e-13.  (b) Large x above the
-unit root (bound :rule): with its checks where its status is 0, otherwise one path; against the newer engine at c = 7
-(x up to 1000, cases DK, DU, DT) and c = 10 (case DT, x up to 1500) within 1e-14 (distribution function and density),
-where in case DK one path is off by up to 5e-2 (its checked value has the status 0) and in case DT the checked value by
-up to 3e-2 (with the status 2; one path is right).  Returns the value and whether it is flagged (only in region (a))."""
+unit root (bound :rule): in case DK the checked value whatever its status, in cases DU, DT the checked value where its
+status is 0 and otherwise one path.  Against the newer engine at c = 7 (x up to 1000, cases DK, DU, DT) and c = 10 (case
+DT, x up to 1500) within 1e-14 (distribution function and density), where in case DT the checked value is off by up to
+3e-2 with the status 2 and one path is right.  In case DK the status 2 is a false alarm and one path is far off: against
+an independent computation (the law of V given J(1) from Girsanov's theorem, inverted on a line through its saddle point
+and integrated over J(1); scratch/fut/bridge_ref.jl), at c = 7, 10 and 13 with c0 in {-2, 0, 2, c - 1, c + 2} from the
+24% to the 99.7% point, the checked value is within 1.2e-9 at every point (32 of 36 with the status 2), one path off by
+up to 8 (the distribution function at 9.3 or -4.1); before November 23, 2026 the flagged points of case DK got one path
+too, and the default route returned values outside [0, 1] there (0.84 for 0.74 at c = 10, c0 = 2, x = 1e4, -1.37 at
+x = 3e4).  Returns the value and whether it is flagged (only in region (a))."""
 function route_double(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g0::Float64, start::Symbol, p::PathTooLarge)
     F, info = tr_limdist([x], model, c; c0, g0, start, pdf = kind == 1, warn = false, verified = true)
     p.bound == :path && return F[1], info.status[1] != 0
-    info.status[1] == 0 && return F[1], false
+    (info.status[1] == 0 || model == 1) && return F[1], false
     F1, _ = tr_limdist([x], model, c; c0, g0, start, pdf = kind == 1, warn = false, verified = false)
     F1[1], false
 end
+"""
+Far above the unit root at large |x| (method = :auto, a zero start, c > FAR_C): at x > FAR_X in cases DK, DU, DT, and in case
+DK with c0 > c at x < -FAR_XNEG, the conditional integral as route_double gives it (in case DK the checked value, in cases
+DU, DT the checked value where its status is 0 and one path otherwise), as at the points where the line integral exceeds
+the bounds of the engine; these points are taken before the rule's representations (far_tail in ltratio_dist).  At large x
+the line integral's cost grows like x^4 (the phase of the saddle factor of its inner integrals grows like x^2, and the
+panels of the outer rule follow it): in case DK at c = 10, c0 = -2 it took 0.9 s at x = 200, 3.2 s at 400, 10 s at 700,
+35 s at 1300 and more than three minutes at 2350 (four threads, November 2026), and in cases DU, DT at c = 16, c0 = 0 10
+to 20 s and some 2 GB at x = 1.3e6 (the 31% point) and more than 8 GB at x = 4.4e6 (the median: the memory guard ended the
+process), where the conditional integral takes 0.1 to 0.4 s at every x; x = 300 is where the line integral's time passes
+the conditional integral's at c = 5 to 10.  With c0 > c the bulk of case DK lies at x < 0, where X(v) has two positive roots
+and the far one, |x|/c0, lies inside the range of sqrt(V): there the line integral is off by up to 9.8e-6 at c = 5
+(c0 = 5.5, x = -30), 5.5e-5 at c = 7 (c0 = 9, x = -300; a negative value at x = -627), 1.5e-3 at c = 10 (c0 = 10.5,
+x = -400) and 2.9e-4 at c = 13, without a warning, and within 5e-7 of the reference at x >= -20 (cases DU, DT take the
+conditional integral at x < 0 with c0 > 0 anyway).  The values: in case DK the checked conditional integral within 1.3e-8
+of an independent computation (scratch/fut/bridge_ref.jl) up to c = 14, within 3e-10 at x from -30 to -400; in cases DU,
+DT route_double's value within 1e-14 of the general engine up to c = 13 (x up to 3e4) and within 5e-7 of the large-c law
+(t ~ (c - c0) |J(1)| sqrt(k), k the limit of V/J(1)^2) at c = 13 and 14 (scratch/fut/check_asym.jl).  Below c = 5 the
+distribution has no mass beyond x = 300 worth the change (F(300) = 1 - 1e-12 at c = 3), and with c0 > c the line integral
+is within 1.7e-12 at c = 3.
+"""
+const FAR_C = 4.0
+const FAR_X = 300.0
+const FAR_XNEG = 20.0
+far_tail(model::Int, stat::Bool, g0::Float64, c::Float64, c0::Float64, x::Float64) =
+    1 <= model <= 3 && !stat && g0 == 0 && c > FAR_C && (x > FAR_X || (model == 1 && c0 > c && x < -FAR_XNEG))
+"""
+The largest c at which the classical engine computes far above the unit root at large |x| (far_tail, or where the line
+integral exceeds its bounds): FAR_CMAX = 14.  In case DK, against an independent computation (the law of V given J(1) by
+Girsanov's theorem, inverted on a line through its saddle point and integrated over J(1); scratch/fut/bridge_ref.jl) at c0
+in {-2, 2, c - 1, c + 2} and x at the 24% to 99.99994% points, the checked conditional integral is within 1.3e-8 at c = 13
+and 14, and off by up to 7.7e-5 at c = 16 (from the 99.7% point on), 5.5e-3 at c = 18 and by orders of magnitude at
+c = 20; in case DT at c = 16 one path of the conditional integral gives values of 1e44 and more at the 95% and 99.7% points
+(c0 in {-2, 0, 2}) and 0.30377 for 0.30440 at c0 = 0, x = 1.3e6; in case DU it is within 1e-8 of the large-c law at c = 16,
+but its line integral at c0 = 0 exhausts the memory there, and the bound serves the three cases.  The general engine's
+line exceeds its bounds there (from x ~ 3e4 at c = 10), and above c = 16 it refuses the cases DU, DT.  Above, such a point
+raises an ArgumentError (far_check), before anything is computed.
+"""
+const FAR_CMAX = 14.0
+function far_check(kind::Int, model::Int, c::Float64, c0::Float64, x::Float64)
+    c > FAR_CMAX || return nothing
+    fn = kind == 2 ? "ltratio_cdf" : "ltratio_pdf"
+    cas = ("DK", "DU", "DT")[model]
+    throw(ArgumentError("$fn: case $cas, c = $c" * (c0 != 0 ? ", c0 = $c0" : "") * ", x = $x: far above the unit root at large " *
+        "|x| (for c > $(FAR_C) at x > $(FAR_X), in case DK with c0 > c at x < -$(FAR_XNEG), and where the line integral " *
+        "exceeds the bounds of the engine) the classical engine computes for c <= $(FAR_CMAX) only: beyond, the conditional " *
+        "integral that takes these points is off by up to 7.7e-5 in case DK at c = 16 and gives values of 1e44 and more in " *
+        "case DT, the line integral exhausts the memory, and the general engine's line exceeds its bounds"))
+end
+
 """the warning of ltratio_dist where route_double returned flagged values (a far root, bound :path): once per call (or once
 per ltratio_icdf, coef_cdf, coef_icdf, through brittle_once)"""
 function route_warn(cas::AbstractString, c::Float64, c0::Float64, g0::Float64)
@@ -2137,8 +2193,33 @@ function route(f::Symbol, engine::Symbol, args...; kw...)
     ROUTE[](f, engine, args...; kw...)
 end
 
+"""
+The final check of a distribution function (CDF_RANGE_TOL): a value below -1e-8 or above 1 + 1e-8 raises an error that names
+the call, its arguments and the value.  Where the representations hold, their errors are far below 1e-8 (the line
+integral's absolute error is 1e-14 to 1e-21, the others' are relative), so a value outside [0, 1] by more than that is a
+computation that failed, never rounding; the check costs nothing and is not a cross-check (nothing is recomputed).  The
+same check and tolerance in the general engine (DFDet.cdf_range_check) and in the C engine and the MATLAB programs.
+"""
+const CDF_RANGE_TOL = 1e-8
+function cdf_range_check(fn::AbstractString, args::AbstractString, xs, F; xname::AbstractString = "x")
+    for k in eachindex(F)
+        v = F[k]
+        (v < -CDF_RANGE_TOL || v > 1 + CDF_RANGE_TOL) || continue
+        error("$fn: $args, $xname = $(xs isa Number ? xs : xs[k]): the computed distribution function is $v, outside [0, 1] by " *
+              "more than $CDF_RANGE_TOL; the computation fails here and no value is returned")
+    end
+    F
+end
+cdf_args(cas::AbstractString, c, c0, g0) = "case $(uppercase(String(cas))), c = $c" * (c0 != 0 ? ", c0 = $c0" : "") * (g0 != 0 ? ", g0 = $g0" : "")
+
 function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, verified::Bool = false,
                       engine::Symbol = :auto, kw...)
+    F = ltratio_dist_(kind, x, cas, c; c0, g0, method, verified, engine, kw...)
+    kind == 2 && cdf_range_check("ltratio_cdf", cdf_args(cas, c, c0, g0), x, F)
+    F
+end
+function ltratio_dist_(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, verified::Bool = false,
+                       engine::Symbol = :auto, kw...)
     engine === :general && return route(:dist, engine, kind, x, cas, c; c0, g0, method, verified, kw...)
     model, stat, c0, g0, method = ltratio_args(cas, c; c0, g0, method)
     r = route(:dist, engine, kind, x, cas, c; c0, g0, method, verified, kw...); r === nothing || return r
@@ -2147,9 +2228,15 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
     F = [isnan(xk) ? NaN : xk == Inf ? (kind == 2 ? 1.0 : 0.0) : xk == -Inf ? 0.0 : 0.0 for xk in xs]
     fin = findall(isfinite, xs)
     mth(k) = method == :auto ? (verified ? automethod_verified : automethod)(model, stat, Float64(c), c0, g0, xs[k]) : method
-    ctr = [k for k in fin if mth(k) == :contour]
-    dbl = [k for k in fin if mth(k) == :double]
-    sgl = setdiff(fin, dbl, ctr)
+    # far above the unit root at large |x| (far_tail): the conditional integral as route_double gives it, in place of the
+    # rule's representations; above FAR_CMAX refused before anything is computed (far_check), with verified = true too
+    far = method == :auto ? [k for k in fin if far_tail(model, stat, g0, Float64(c), c0, xs[k])] : Int[]
+    foreach(k -> far_check(kind, model, Float64(c), c0, xs[k]), far)
+    farval(k) = route_double(kind, xs[k], model, Float64(c), c0, g0, start, PathTooLarge(:rule, "the line integral far above the unit root", 0.0, RULEMAX))[1]
+    rest = setdiff(fin, far)
+    ctr = [k for k in rest if mth(k) == :contour]
+    dbl = [k for k in rest if mth(k) == :double]
+    sgl = setdiff(rest, dbl, ctr)
     single(k) = kind == 2 ? cdf(xs[k], model; c = Float64(c), c0, g0, start, kw...) : density(xs[k], model; c = Float64(c), c0, g0, start, kw...)
     # the line integral at a point of sgl; where its paths exceed the bounds of the engine (PathTooLarge, raised before its
     # inner integrals are evaluated), with method = :auto the conditional integral with its checks (route_double), with
@@ -2161,6 +2248,7 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
         catch e
             p = pathtoolarge(e); p === nothing && rethrow()
             (method == :auto && model != 4) || throw(path_error(kind, cas, Float64(c), c0, g0, xs[k], p, model))
+            (p.bound == :rule && !stat && g0 == 0) && far_check(kind, model, Float64(c), c0, xs[k])
             v, fl = route_double(kind, xs[k], model, Float64(c), c0, g0, start, p)
             fl && (nflag[] += 1)
             return v
@@ -2191,6 +2279,7 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
             for (j, k) in enumerate(dbl); F[k] = Fd[j]; end
         end
         for k in sgl; F[k] = single_route(k); end
+        for k in far; F[k] = farval(k); end
         nflag[] > 0 && route_warn(cas, Float64(c), c0, g0)
         kind == 1 && (F[F .< 0] .= 0.0)                               # a density below the error of the method
         return x isa Number ? F[1] : reshape(F, size(x))
@@ -2225,6 +2314,7 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
         end
     end
     for k in sgl; F[k] = single_route(k); end
+    for k in far; F[k] = farval(k); end
     nflag[] > 0 && route_warn(cas, Float64(c), c0, g0)
     if nkeep[] > 0
         msg = "$(uppercase(String(cas))), c = $c, c0 = $c0" * (g0 != 0 ? ", g0 = $g0" : "") * ": at some points the value of " *
@@ -6166,7 +6256,9 @@ in every case and with every start and option of `ltratio_cdf` (method, g0).  As
     coef_cdf(-14.094, "DU", 0)                      # 0.05: the 5% critical value of rho^_mu
 """
 function coef_cdf(y, cas::AbstractString, c::Real = 0; c0::Real = 0.0, kw...)
-    one(yk) = isnan(yk) ? NaN : yk == Inf ? 1.0 : yk == -Inf ? 0.0 : ltratio_cdf(0.0, cas, c; c0 = c0 + yk, kw...)
+    # (the t-ratio at x = 0 with the null value c0 + y, its final check (cdf_range_check) named as the call of coef_cdf at y)
+    one(yk) = isnan(yk) ? NaN : yk == Inf ? 1.0 : yk == -Inf ? 0.0 :
+        cdf_range_check("coef_cdf", cdf_args(cas, c, c0, get(kw, :g0, 0.0)), yk, ltratio_dist_(2, 0.0, cas, c; c0 = c0 + yk, kw...); xname = "y")
     brittle_once(() -> y isa Number ? one(y) : map(one, y))   # (the brittle regimes that c0 + y passes, each warned once)
 end
 """

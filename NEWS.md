@@ -146,6 +146,52 @@
       classical engine; the rule `autoengine` takes the classical engine there. Without deterministic terms the
       coefficient statistic with a fixed start (g0 = 1, 3) is within 5.4e-8 of DFKan up to c = 20, with them (cases DU,
       DT) within 3.2e-6 up to c = 10.
+- **The upper tail above the unit root, and the final check of a distribution function** (`src/DFExact.jl`, `src/DFDet.jl`,
+  `src/DFDet_line.jl`; the same changes in the C engine and the MATLAB programs of dflimit-matlab). Above the unit root the
+  t-ratio with a null value c0 != c has its upper tail at x of the order (c - c0) e^c/(2c) (V is of the order e^{2c}), and
+  the default route returned values of the distribution function outside [0, 1] there without a warning: in case DK at
+  c = 10, c0 = 2 0.8415 for 0.7436 at x = 1e4 and -1.3674 for 0.9993 at x = 3e4, at c = 7, c0 = 2 1.3804 for 1.0 at x = 3e3,
+  at c = 10, c0 = 9 1.0479 for 0.9936 at x = 3e3 (also with `verified = true` and `engine = :classical`). The cause: beyond
+  x ~ 700 the rule of the line integral's inner integrals needs more than RULEMAX nodes (the phase of their saddle factor
+  grows like x^2), the point goes to the conditional integral with its checks (`route_double`), and where that flagged the
+  point its one evaluation (one path) was returned, which in case DK is off by up to 14 (it was set on case DT, where the
+  checked value is off by 3e-2 with the flag and one path is right). In case DK the flag is a false alarm: against an
+  independent computation (the law of V given J(1) from Girsanov's theorem, inverted on a line through its saddle point
+  and integrated over J(1), `scratch/fut/bridge_ref.jl`, within 1e-12 of both engines where they agree) the checked value
+  is within 1.3e-8 up to c = 14. Case DK now takes the checked value whatever its flag; cases DU, DT are unchanged (one
+  path where the checked value is flagged, within 1e-14 of the general engine). Far above the unit root (c > 4) the
+  three cases take the conditional integral, as at the points beyond the bound, at x > 300 too, and case DK with c0 > c at
+  x < -20 (`far_tail`, before the rule's representations): at large x the line integral's cost grows like x^4 (10 s at
+  x = 700 and more than three minutes at x = 2350 in case DK at c = 10, c0 = -2; in cases DU, DT at c = 16, c0 = 0 some
+  2 GB at x = 1.3e6 and more than 8 GB at the median, x = 4.4e6), the conditional integral's is 0.1 to 0.4 s; and in case
+  DK with c0 > c at x < -20 the far root |x|/c0 of X(v) lies inside the range of sqrt(V) and the line integral was off
+  by up to 9.8e-6 at c = 5, 5.5e-5 at c = 7 (a negative value at c0 = 9, x = -627), 1.5e-3 at c = 10 (c0 = 10.5,
+  x = -400) and 2.9e-4 at c = 13 without a warning (the conditional integral within 3e-10 there). In cases DU, DT these
+  values are within 1e-14 of the general engine up to c = 13 (x up to 3e4) and within 5e-7 of the large-c law (t ~ (c -
+  c0) |J(1)| sqrt(k), k the limit of V/J(1)^2; `scratch/fut/check_asym.jl`) at c = 13 and 14. Above c = 14 these points
+  are refused in the three cases with an `ArgumentError` that names the statistic, c, c0, x and the region computed
+  (`FAR_CMAX`; before anything is computed, with `verified = true` too): the checked conditional integral of case DK is
+  off by up to 7.7e-5 at c = 16 from the 99.7% point on, 5.5e-3 at c = 18 and by orders of magnitude at c = 20, one path
+  of case DT gives values of 1e44 and more at c = 16, the line integral of cases DU, DT exhausts the memory there, and the
+  general engine's line exceeds its bounds. With `verified = true` these points no longer fall back to the line
+  integral. The
+  general engine cut its vertical line to the oscillation of the outer integrand as if c0 were 0 (`line_refine`): with
+  c0 != 0 the stationary value of the exponent, (s_k x)^2/(4 (t + c0 s_k)), oscillates faster, by 1/|1 - c0/c| in case DK,
+  and the distribution function was off by 1.1e-3 at c = 10, c0 = 9, x = 1000, 3.8e-3 at x = 3000, and 1.0000000112 at
+  x = 1e4 (`engine = :general`); for c0 > 0 the line is now cut to the larger of the two rates (`line_refined(CP, xs;
+  c0)`), within 2e-13 of the reference (with c0 < 0 the rate is below that of c0 = 0, and the cut is unchanged). Every distribution function of the two engines (`ltratio_cdf`, `coef_cdf`, `dist_cdf`,
+  `DFDet.coef_cdf`) ends with a check of its values (`cdf_range_check`): a value below -1e-8 or above 1 + 1e-8 raises an
+  error that names the call, its arguments, the point and the value; where the representations hold their errors are far
+  below 1e-8, so such a value is a computation that failed (the general engine in case DK with c0 > 0 at x < -sqrt(2 c0)
+  above the unit root, where its line keeps the Gauss-Legendre rule and its warning: -1.7e-4 for 7.5e-6 at c = 5, c0 = 1,
+  x = -4, now an error). The map of the default route in case DK with a zero start (c in {1, 2, 3, 5, 7, 10, 13, 16},
+  c0 in {-2, 0, 1, 2, c - 1, c + 2}, x from about the 0.1% to the 99.994% point and into both tails, `scratch/fut/map2.jl`
+  against `bridge_ref.jl` for c >= 5 and the general engine below): within 1.1e-8 of the reference at every point
+  computed (5.2e-7 at c = 7, c0 = 9, x = -15.7, where the line integral keeps the point), no value outside [0, 1], and at
+  c = 16 the points beyond x = 300 (and below x = -20 with c0 > c) refused; cases DU, DT (against the general engine
+  where it computes, and the large-c law at c >= 13) within 8.2e-6 of the law at c = 13 and 1.3e-7 at c = 16 (its own
+  error at c0 = c - 1), the two engines differing by up to 1.7e-4 only where the general engine's line keeps its
+  Gauss-Legendre rule (c0 > 0 at x < -sqrt(2 c0)).
 - **Case DG faster.** The transform behind the linear form and the power envelope of case DG (`cf_gls`) formed 3 x 3
   complex matrices on the heap with a matrix solve and a determinant at each of the 60001 points of its grid; written
   out, it is 6 times faster (82 to 14 ms; the classical envelope of case DG at c = -5, -10, -20 from 623 to 151 ms),

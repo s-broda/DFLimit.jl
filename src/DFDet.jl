@@ -2114,7 +2114,7 @@ function linecuts(CP::CPath, nq::Int = linenq(CP))
 end
 
 """
-    line_refine(CP, xmax; nq = 24) -> CPath
+    line_refine(CP, xmax; nq = 24, amax, c0s) -> CPath
 
 The vertical line of CP (c > 0) with its panels in w cut to the oscillation of the outer integrand at |x| <= xmax.  Far
 above the unit root the root s_k(t) of the group around which a U-shape runs moves with t (in case DK, s_1(t) is close to
@@ -2126,13 +2126,15 @@ into parts of length at most 30/Omega (Omega the largest over the roots at the p
 above e^{-40}; a Gauss-Legendre rule of 24 nodes integrates e^{i Omega w} over 30/Omega to about 1e-18); the roots
 are continued along the new nodes.  Without the cut the panels doubling in w carried up to 25 oscillations, and the upper
 tail at c = 5 (x = 194, F = 0.991) was off by 2.3e-4.  The number of nodes grows with xmax like xmax (about 2 xmax at c = 5).
+With a local null value c0 > 0 (c0s, the values of the kernels with a slope) the kernel is e^{-(t + c0 s_k) v^2 - s_k X(v)}
+and the rate is that of its stationary value (comment below), faster by about 1/|1 - c0/c| in case DK.
 Returns CP itself when no panel needs cutting.  amax: the values |A| of the kernels (default the shift a of the model, the
 A of the t-ratio), each with its own damping; the parabola terms of the linear form U - aV <= b have A = a + b, and their
 factor e^{-s A} at the root, e^{-A s_k(t)}, oscillates in w at the rate kappa |A| (with x = 0 the cut is to that rate
 alone: P(U - aV <= b) in case DK at c = 5, a = -3.5, b = 770 was off by 2.5e-6 on the doubling panels, to 1e-15 on the
 cut ones).
 """
-function line_refine(CP::CPath, xmax::Float64; nq::Int = linenq(CP), amax = CP.Mo.a)
+function line_refine(CP::CPath, xmax::Float64; nq::Int = linenq(CP), amax = CP.Mo.a, c0s = (0.0,))
     (isnan(CP.h) && (xmax > 0 || maximum(amax) > CP.Mo.a)) || return CP
     cuts = linecuts(CP, nq); np = length(cuts) - 1
     w = imag.(CP.t); τ = CP.tau
@@ -2157,6 +2159,28 @@ function line_refine(CP::CPath, xmax::Float64; nq::Int = linenq(CP), amax = CP.M
                 xu = den > 0 ? min(xmax, sqrt(num / den)) : xmax
                 Om = max(Om, kap^2 * xu^2 / 4 + kap * am)
             end
+            # a local null value c0 != 0: X(v) = c0 v^2 + x v + a, the exponent -alpha v^2 - s_k x v - s_k a with
+            # alpha = t + c0 s_k has the stationary value phi_s = (s_k x)^2/(4 alpha) - s_k a, which changes with w at the
+            # rate Re dphi_s/dt (s_k' = Im s_k/w the drift of the root along the line, as above).  For c0 near c in case
+            # DK, alpha ~ t (1 - c0/c) and the rate is that of c0 = 0 times 1/|1 - c0/c| (at c = 10, c0 = 9 the panels cut
+            # to the rate of c0 = 0 left the distribution function off by 1.1e-3 at x = 1000 and 3.8e-3 at x = 3000).  The
+            # largest |x| <= xmax at which the term is not negligible from log|M_V| + Re phi_s; the cut is to the larger
+            # of this rate and that of c0 = 0.  Only c0 > 0: with c0 < 0, alpha ~ t (1 + |c0|/c) and the rate is below that
+            # of c0 = 0, which the cut above covers (taken for c0 < 0 too, the stationary values at the roots of a fixed
+            # start gave rates far above the oscillation: the line of case DU at c = 10, g0 = 1, c0 = -2 grew to 1e6 nodes
+            # at x = 132, against 2544)
+            for c0 in c0s
+                (c0 > 0 && xmax > 0) || continue
+                for r in view(CP.R, :, j), am in amax
+                    rp = imag(r) / wj
+                    al = CP.t[j] + c0 * r
+                    L0 = 40 + lmv - real(r) * am
+                    L0 > 0 || continue
+                    Q = real(r * r / (4al))
+                    xu = Q < 0 ? min(xmax, sqrt(L0 / -Q)) : xmax
+                    Om = max(Om, abs(real(xu^2 * (2r * rp * al - r * r * (1 + c0 * rp)) / (4al^2))) + abs(rp) * am)
+                end
+            end
         end
         m = max(1, ceil(Int, min((b - a) * Om / 30, 1e6)))
         m > 1 && (changed = true)
@@ -2175,10 +2199,11 @@ const LINE_MAXPANELS = 4000
 """the number of nodes of a refined line above which `line_refine` refuses (about 100 bytes a node and eight root
 evaluations each)"""
 const LINE_MAXNODES = 400_000
-"""`line_refine` cached per path, xmax and the values amax beyond the shift a rounded up to powers of two (nothing to do
-unless CP is a vertical line)"""
-function line_refined(CP::CPath, xs::AbstractVector{Float64}; amax = CP.Mo.a)
+"""`line_refine` cached per path, xmax and the values amax beyond the shift a rounded up to powers of two, and the local
+null values c0 (a number or a vector; those != 0 count where x != 0) (nothing to do unless CP is a vertical line)"""
+function line_refined(CP::CPath, xs::AbstractVector{Float64}; amax = CP.Mo.a, c0 = 0.0)
     isnan(CP.h) || return CP
+    c0s = sort(unique(Float64[c0...]))
     fin = [abs(x) for x in xs if isfinite(x)]
     xm = isempty(fin) ? 0.0 : maximum(fin)
     xb = xm > 0 ? 2.0^ceil(log2(xm)) : 0.0
@@ -2187,10 +2212,12 @@ function line_refined(CP::CPath, xs::AbstractVector{Float64}; amax = CP.Mo.a)
     # (keyed by the contents of the path, not its address, which a freed path can pass on to a new one)
     key = isempty(ab) ? hash((CP.t, CP.c, CP.Mo.start, CP.Mo.g0, dkey(CP.Mo.P.D), CP.Mo.P.cbar, xb)) :
                         hash((CP.t, CP.c, CP.Mo.start, CP.Mo.g0, dkey(CP.Mo.P.D), CP.Mo.P.cbar, xb, ab))
+    c0s = filter(>(0), c0s)                                    # (only c0 > 0 refines further, line_refine)
+    (xb > 0 && !isempty(c0s)) && (key = hash((key, c0s)))
     ab = [CP.Mo.a; ab]
     hit = lock(CPLOCK) do; get(LINECACHE, key, nothing); end
     hit === nothing || return hit
-    CPr = line_refine(CP, xb; amax = ab)
+    CPr = line_refine(CP, xb; amax = ab, c0s)
     lock(CPLOCK) do; cache_put!(LINECACHE, LINEORDER, key, CPr); end
     CPr
 end
@@ -3702,13 +3729,36 @@ dist_pdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, ga
 evaluation of the contour integral or, with verified = true, by `verify_eval`; the infinite density at a tangency"""
 function dist_eval(D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
                    method::Symbol = :auto, kw...)
+    v = dist_eval_(D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; method, kw...)
+    which == 1 && cdf_range_check("dist_cdf", D, c, start, gamma0, Float64(get(kw, :c0, 0.0)), "x", xs, v)
+    v
+end
+"""
+The final check of a distribution function (`dist_cdf`, `coef_cdf`): a value below -1e-8 or above 1 + 1e-8 (CDF_RANGE_TOL)
+raises an error that names the call, the design, c, c0, the start, the point and the value.  Where the contour integral
+holds its error is far below 1e-8, so a value outside [0, 1] by more than that is a computation that failed, never
+rounding; the check costs nothing and is not a cross-check (nothing is recomputed).  The same check and tolerance in
+DFLimit's classical engine (cdf_range_check of DFExact), the C engine and the MATLAB programs.
+"""
+const CDF_RANGE_TOL = 1e-8
+function cdf_range_check(fn::String, D::Determ, c::Real, start::Symbol, gamma0::Real, c0::Float64, xname::String, xs, v)
+    for k in eachindex(v)
+        (v[k] < -CDF_RANGE_TOL || v[k] > 1 + CDF_RANGE_TOL) || continue
+        st = start == :fixed ? "fixed start gamma0 = $gamma0" : "$start start"
+        error("$fn: the design $(D.name), c = $c, c0 = $c0, $st, $xname = $(xs[k]): the computed distribution function is " *
+              "$(v[k]), outside [0, 1] by more than $CDF_RANGE_TOL; the computation fails here and no value is returned")
+    end
+    v
+end
+function dist_eval_(D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
+                    method::Symbol = :auto, kw...)
     check_cmax(D, c, start, gamma0, which == 1 ? "the t-ratio (dist_cdf)" : "the t-ratio (dist_pdf)")
     lv = line_dist(method, D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; kw...); lv === nothing || return lv
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     c0 = Float64(get(kw, :c0, 0.0))
     nonfinite(xs, which == 1) do x
-        v = verified ? verify_eval((CPv, o) -> contour_eval(line_refined(CPv, x), x; o..., kw...)[which], CP, vtol) :
-                       contour_eval(line_refined(CP, x), x; kw...)[which]
+        v = verified ? verify_eval((CPv, o) -> contour_eval(line_refined(CPv, x; c0), x; o..., kw...)[which], CP, vtol) :
+                       contour_eval(line_refined(CP, x; c0), x; kw...)[which]
         which == 2 && tangency!(v, CP.Mo, x, c0)
         v
     end
@@ -3792,13 +3842,13 @@ function dist_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol::
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
     x = Float64(x0)
     for it in 1:30
-        F, f, _ = contour_eval(line_refined(CP, [x]), [x]; kw...)
+        F, f, _ = contour_eval(line_refined(CP, [x]; c0 = Float64(get(kw, :c0, 0.0))), [x]; kw...)
         dx = clamp((F[1] - p) / f[1], -1.0, 1.0)
         isfinite(dx) || break
         x -= dx
         abs(dx) < tol && return x
     end
-    FF(y) = (r = contour_eval(line_refined(CP, [y]), [y]; kw...); (r[1][1], r[2][1]))
+    FF(y) = (r = contour_eval(line_refined(CP, [y]; c0 = Float64(get(kw, :c0, 0.0))), [y]; kw...); (r[1][1], r[2][1]))
     newton_safe(FF, p, x0, 1.0; tol)
 end
 dist_quantile(D::Determ, p::AbstractVector, c::Real = 0.0; kw...) = [dist_quantile(D, pk, c; kw...) for pk in p]
@@ -3948,10 +3998,11 @@ function coef_cdf(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, 
                   phi = nothing, hfac = 1.0, verified::Bool = false, vtol::Real = 1e-9, kw...)
     check_cmax(D, c, start, gamma0, "the coefficient statistic (coef_cdf)")
     CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
-    nonfinite(ys, true) do y
+    v = nonfinite(ys, true) do y
         verified && return verify_eval((CPv, o) -> [contour_eval(CPv, [0.0]; c0 = Float64(c0) + yk, o..., kw...)[1][1] for yk in y], CP, Float64(vtol))
         [contour_eval(CP, [0.0]; c0 = Float64(c0) + yk, kw...)[1][1] for yk in y]
     end
+    cdf_range_check("coef_cdf", D, c, start, gamma0, Float64(c0), "y", ys, v)
 end
 """coef_pdf(D, ys, c = 0; c0, start, gamma0, kw...) -> f (vector): its density, by the kernel 2 v^3 (d/dc0 of F at x = 0)"""
 function coef_pdf(D::Determ, ys::AbstractVector, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
@@ -4068,8 +4119,9 @@ verified = true, by `verify_eval`"""
 function spec_eval(CP::CPath, specs::Vector{Vector{XSpec}}, which::Int, verified::Bool, vtol::Float64; kw...)
     qm = [maximum((abs(sp.q) for sp in S); init = 0.0) for S in specs]          # (the slopes: x of the t-ratio and ADFmax)
     am = [abs(sp.A) for S in specs for sp in S]                                 # (the constants of the kernels, `line_refine`)
-    verified ? verify_eval((CPv, o) -> contour_eval_specs(line_refined(CPv, qm; amax = am), specs; o..., kw...)[which], CP, vtol) :
-               contour_eval_specs(line_refined(CP, qm; amax = am), specs; kw...)[which]
+    c0s = [sp.c0 for S in specs for sp in S if sp.q != 0]                       # (the parabolas with a slope, `line_refine`)
+    verified ? verify_eval((CPv, o) -> contour_eval_specs(line_refined(CPv, qm; amax = am, c0 = c0s), specs; o..., kw...)[which], CP, vtol) :
+               contour_eval_specs(line_refined(CP, qm; amax = am, c0 = c0s), specs; kw...)[which]
 end
 """lin_pdf(D, bs, a, c = 0; kw...) -> the density of U - aV at each b (arguments as `lin_cdf`; a = NaN: of V, `v_pdf`)"""
 function lin_pdf(D::Determ, bs::AbstractVector, a::Real, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing,
