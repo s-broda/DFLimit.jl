@@ -170,7 +170,7 @@ let LR = [split(l) for l in readlines(joinpath(@__DIR__, "largec_ref.txt"))], w 
     for p in LR
         if p[1] == "mom" && p[2] in ("DU", "SU") && p[4] == "0"
             c = parse(Float64, p[3]); mr = parse.(Float64, p[5:8])
-            wm = max(wm, maximum(abs.(ltratio_mom(4, String(p[2]), c) .- mr) ./ abs.(mr)))
+            wm = max(wm, maximum(abs.(ltratio_mom(4, String(p[2]), c; method = :engine) .- mr) ./ abs.(mr)))
         elseif p[1] == "icdf" && p[2] == "DU" && p[5] == "0.05"
             c = parse(Float64, p[3]); q = ltratio_icdf(0.05, "DU", c)
             wq = max(wq, abs(q - parse(Float64, p[6])), abs(ltratio_cdf(q, "DU", c) - 0.05))

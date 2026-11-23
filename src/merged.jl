@@ -272,8 +272,12 @@ end
 function inv_mom(engine::Symbol, p::Int, cas::AbstractString, c::Real; c0::Float64, g0::Float64, method::Symbol, verified::Bool, tol::Float64, err::Bool, kw...)
     inv_take("ltratio_mom", method === :jets ? :jets : method, engine, cas, c, kw) || return nothing
     method === :auto && !DFKan.mom_ok(String(cas), Float64(c), c0, g0) && return nothing
-    m, e = DFKan.tratio_mom1(DFKan.limcf(cas, c, g0), p, c0, tol)
-    bad = findall(j -> !(e[j] <= tol * abs(m[j])), 1:p)
+    m, e = DFKan.tratio_mom1(DFKan.limcf(cas, c, g0), max(p, 2), c0, tol)
+    # (the tolerance relative to max(|m_j|, m_2^{j/2}): a mean near zero, as with c0 = c far above the unit root, has no
+    # relative accuracy to speak of)
+    sc = [max(abs(m[j]), abs(m[2])^(j / 2)) for j in eachindex(m)]
+    m = m[1:p]; e = e[1:p]
+    bad = findall(j -> !(e[j] <= tol * sc[j]), 1:p)
     if !isempty(bad)
         if verified
             m = DX.ltratio_mom(p, cas, c; c0, g0, method = :engine)

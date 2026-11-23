@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The moments of the t-ratio from jets.** `ltratio_mom` takes the derivatives of the moment generating function from
+  one Taylor-mode jet per node of an adaptive quadrature (after Bao and Kan) by default in the six classical cases, for any
+  c0 and fixed start up to c = 20: 16 to 290 times faster (0.3 to 1.3 ms for four moments), within 1.4e-11 relative of
+  before near the unit root. Far from the unit root with c0 = c the values move by 1e-8 to 2e-7 relative, where the circles
+  of before were not converged; with a fixed start above the unit root (by up to 0.65 relative) and at c = 10, 20 with c0 = c
+  the one evaluation of before was wrong. New keywords `method` (`:auto`, `:jets`, `:engine`, the circles of before),
+  `tol`, `err`, `verified`.
 - **The single inversion of Bao and Kan for the half-plane statistics.** The coefficient statistic (`coef_cdf`,
   `coef_icdf`), the linear form (`ltratio_lincdf`) and the power envelope (`power_envelope`) of the six classical cases are
   computed by default by one inversion of the closed-form joint characteristic function along the ray of the half-plane,

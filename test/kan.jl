@@ -141,10 +141,37 @@ errm(f) = try; f(); ""; catch e; sprint(showerror, e); end
         @test power_envelope(-13.5, "DG") == power_envelope(-13.5, "DG"; method = :engine)
     end
     @testset "moments of the t-ratio from jets" begin
+        # near the unit root against the engines' circles (within 1.4e-11 relative)
         for (cas, c, c0) in (("DK", 0.0, 0.0), ("DU", -5.0, 0.0), ("DT", -5.0, -5.0), ("SU", -3.0, 0.0))
             a = ltratio_mom(4, cas, c; c0); b = quietly(() -> ltratio_mom(4, cas, c; c0, method = :engine))
-            @test maximum(abs.(a .- b) ./ abs.(b)) < 1e-8
+            @test maximum(abs.(a .- b) ./ abs.(b)) < 2e-10
         end
+        @test ltratio_mom(2, "DU")[2] ≈ 3.05599535 atol = 1e-8                  # Nabeya (1999)
+        # the stored values of the classical engine's circles: within 3.7e-9 relative in test/ref/mom_ref.txt (c = c0 = -60,
+        # where the integral of x^j times the density is within 1.5e-9 of the jets and 5.2e-9 of the circles), and in
+        # test/engine/largec_ref.txt within 3.2e-10 at c0 = 0, 6e-9 with c0 != 0 and a zero start, 2e-7 with c0 = c and a
+        # stationary start (c from -100 to -480, where the circles move towards the jets under refinement)
+        casecode(m, st) = (st == 1 ? "S" : "D") * "KUT"[Int(m)]
+        for l in eachline(joinpath(@__DIR__, "ref", "mom_ref.txt"))
+            (startswith(l, "#") || isempty(strip(l))) && continue
+            p = parse.(Float64, split(l)); m, c, c0, g0, st = p[1:5]; mr = p[6:9]
+            @test maximum(abs.(ltratio_mom(4, casecode(m, st), c; c0, g0) ./ mr .- 1)) < 4e-8
+        end
+        for l in eachline(joinpath(@__DIR__, "engine", "largec_ref.txt"))
+            p = split(l); p[1] == "mom" || continue
+            cas = String(p[2]); c, c0 = parse.(Float64, p[3:4]); mr = parse.(Float64, p[5:8])
+            tol = c0 == 0 ? 4e-9 : cas[1] == 'S' ? 2e-6 : 6e-8
+            @test maximum(abs.(ltratio_mom(4, cas, c; c0) ./ mr .- 1)) < tol
+        end
+        # with a fixed start above the unit root the engines' one evaluation is off (by 2e-4 at c = 1 and 0.65 at c = 2 with
+        # c0 = -2, g0 = 1, case DK); their circles with Nu = 256, h = 0.0125 are within 3.4e-13 of the jets at c = 2
+        m = ltratio_mom(4, "DK", 2.0; c0 = -2.0, g0 = 1.0)
+        mr = DFLimit.DFExact.moments(1; c = 2.0, c0 = -2.0, g0 = 1.0, pmax = 4, Nu = 256, h = 0.0125)
+        @test maximum(abs.(m ./ mr .- 1)) < 5e-12
+        mm, e = ltratio_mom(4, "DK", 20.0; c0 = 20.0, err = true)
+        @test all(e .< 1e-9) && abs(mm[2] - 1) < 1e-5
+        @test ltratio_mom(4, "DU", -5; engine = :classical) == DFLimit.DFExact.moments(2; c = -5.0, pmax = 4)   # (engine = :classical: the circles)
+        @test occursin("does not apply with engine = :general", errm(() -> ltratio_mom(4, "DU", -5; method = :jets, engine = :general)))
     end
     @testset "the general engine's determinant from the pivots" begin
         for (D, cas, start) in ((trend(-1), "DK", :zero), (trend(0), "DU", :zero), (trend(1), "DT", :zero), (trend(0), "SU", :stationary), (trend(1), "ST", :stationary)), c in (-4.0, 0.0)

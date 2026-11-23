@@ -61,9 +61,9 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ltratio_cdf(-9.0, "SU", -1.2; c0 = 1.2) == ltratio_cdf(-9.0, "SU", -1.2; c0 = 1.2, engine = :classical)   # a tail: classical
         @test ltratio_cdf(x, "DU", -5; c0 = 2.0, method = :single) == ltratio_cdf(x, "DU", -5; c0 = 2.0, engine = :classical, method = :single)
         @test ltratio_cdf(x, "SU", -10; c0 = -10, verified = true) == ltratio_cdf(x, "SU", -10; c0 = -10, verified = true, engine = :classical)
-        @test ltratio_mom(4, "DT", -5) == ltratio_mom(4, "DT", -5; engine = :general)
-        @test ltratio_mom(4, "DT", -100; c0 = -100) == ltratio_mom(4, "DT", -100; c0 = -100, engine = :general)
-        @test ltratio_mom(4, "DU", -100; c0 = -100) == ltratio_mom(4, "DU", -100; c0 = -100, engine = :classical)
+        @test ltratio_mom(4, "DT", -5; method = :engine) == ltratio_mom(4, "DT", -5; engine = :general)
+        @test ltratio_mom(4, "DT", -100; c0 = -100, method = :engine) == ltratio_mom(4, "DT", -100; c0 = -100, engine = :general)
+        @test ltratio_mom(4, "DU", -100; c0 = -100, method = :engine) == ltratio_mom(4, "DU", -100; c0 = -100, engine = :classical)
         @test ltratio_icdf(0.05, "DT", -5) == ltratio_icdf(0.05, "DT", -5; engine = :general)
         @test ltratio_icdf(0.05, "DK") == ltratio_icdf(0.05, "DK"; engine = :classical)
         @test ltratio_lincdf([0.1, 0.3], NaN, "DK", -5) == ltratio_lincdf([0.1, 0.3], NaN, "DK", -5; engine = :general)
@@ -84,7 +84,7 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
             p = split(l); p[1] == "mom" || continue
             cas = String(p[2]); c, c0 = parse.(Float64, p[3:4]); mr = parse.(Float64, p[5:8])
             tol = (cas[1] == 'S' && c0 != 0) ? 2e-8 : (c0 != 0 && c <= -200) ? 5e-10 : 1e-10
-            @test maximum(abs.(quietly(() -> ltratio_mom(4, cas, c; c0)) ./ mr .- 1)) < tol
+            @test maximum(abs.(quietly(() -> ltratio_mom(4, cas, c; c0, method = :engine)) ./ mr .- 1)) < tol
         end
     end
 

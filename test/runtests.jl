@@ -158,7 +158,7 @@ end
 @testset "moments" begin
     for p in readref("mom_ref.txt")
         m, c, c0, g0, st = num(p[1:5]); mr = num(p[6:9]); cas = casecode(m, st)
-        @test maximum(abs.(ltratio_mom(4, cas, c; c0, g0) ./ mr .- 1)) < 1e-10
+        @test maximum(abs.(ltratio_mom(4, cas, c; c0, g0, method = :engine) ./ mr .- 1)) < 1e-10   # (the engines' circles; the jets: test/kan.jl)
     end
     @test ltratio_mom(2, "DU")[2] ≈ 3.05599535 atol = 1e-8                  # Nabeya (1999); quickcheck.jl, section 8
 end
@@ -176,7 +176,7 @@ end
             @test ltratio_pdf(x, cas, c; c0) ≈ fr atol = 1e-10
         elseif p[1] == "mom"
             c, c0 = num(p[3:4]); mr = num(p[5:8])
-            @test maximum(abs.(ltratio_mom(4, cas, c; c0) ./ mr .- 1)) < 1e-10
+            @test maximum(abs.(ltratio_mom(4, cas, c; c0, method = :engine) ./ mr .- 1)) < 1e-10
         else
             c, c0, pr, qr = num(p[3:6])
             q = ltratio_icdf(pr, cas, c; c0)

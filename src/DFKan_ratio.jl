@@ -330,8 +330,15 @@ single inversion by 2e-8 at the 99.9% point with a = 2, which no third computati
 """
 lin_ok(cas::AbstractString, c::Float64, g0::Float64, a::Float64, b::Float64) =
     a != 0 && -100 <= c <= ((cas == "DK" && g0 == 0) ? 4.0 : 2.0)
-"""whether the moments of the t-ratio from jets (`tratio_mom1`) are the default (`ltratio_mom` with method = :auto)"""
-mom_ok(cas::String, c::Float64, c0::Float64, g0::Float64) = false
+"""
+whether the moments of the t-ratio from jets (`tratio_mom1`) are the default (`ltratio_mom` with method = :auto): c up to
+INV_CMAX, any c0 and start (compared with the engines in November 2026 over the six cases, c from -480 to 20, c0 in {0,
+c, -2, 2}, g0 in {0, 1}: within 1e-11 relative near the unit root; with c0 = c far from it, 1e-8 to 1.3e-7, where the
+engines' circles are not converged and move towards these values under refinement; with a fixed start above the unit
+root (c = 1, 2, c0 = -2) and at c = 10, 20 with c0 = c the engines' one evaluation was off by up to 0.65 relative, and
+their refined rules reach these values to 3e-13)
+"""
+mom_ok(cas::String, c::Float64, c0::Float64, g0::Float64) = c <= INV_CMAX
 """whether the single inversion is the default for the power envelope at c (`envelope1`): c <= -1e-4 (within 2.7e-12 of the
 general engine's envelope from c = -1e-4 to -500, November 2026; closer to zero the weight a = c/2 puts the critical value
 at the edge of the support of U - aV), and c >= 0 or NaN (the level, NaN)"""
