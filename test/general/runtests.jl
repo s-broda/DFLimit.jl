@@ -146,6 +146,66 @@ end
         m, _ = dist_moments(trend(1), -5.0; start = :stationary)
         @test maximum(abs, m - DX.moments(3; c = -5.0, start = :stationary)) < 1e-9
     end
+    @testset "above the unit root: the coefficient statistic to c = 20, the moments, Gil-Pelaez, the range of c" begin
+        msg(f) = try; f(); ""; catch e; sprint(showerror, e); end
+        # (the segments of the U-shapes shorter than 1e-12 got no panel at all: case DK at c = 20 gave 0.3128 for the 30%
+        # point, without a warning; the classical engine gives 0.29999999961 and DFKan 0.29999999720 at this y)
+        y = 19.999999940099205
+        F20 = DFDet.coef_cdf(trend(-1), [y], 20.0)[1]
+        @test abs(F20 - 0.3) < 2e-8
+        @test abs(DFLimit.coef_cdf(y, "DK", 20.0; engine = :general) - F20) < 1e-12
+        @test abs(DFLimit.coef_cdf(y, trend(-1), 20.0; engine = :general) - F20) < 1e-12
+        @test abs(ltratio_cdf(0.0, "DK", 20.0; c0 = y, engine = :general) - F20) < 1e-12
+        @test abs(dist_cdf(trend(-1), [0.0], 20.0; c0 = y)[1] - F20) < 1e-12
+        # an intercept and a trend at c = 16, the end of the range with deterministic terms (within 2.2e-9 of the classical
+        # engine at seven levels)
+        for (cas, p) in (("DU", 0), ("DT", 1)), pr in (0.01, 0.5, 0.99)
+            yq = DFLimit.coef_icdf(pr, cas, 16.0; engine = :classical, tol = 1e-13)
+            @test abs(DFDet.coef_cdf(trend(p), [yq], 16.0)[1] - DFLimit.coef_cdf(yq, cas, 16.0; engine = :classical)) < 2e-8
+        end
+        # the moments above the unit root (the (1,1) entry of the matrix of the transform was formed with an absolute rounding
+        # error of 1e-16: off by 6e-4 relative at c = 15 and by 0.95 at c = 20 on the default route)
+        for (cas, p) in (("DK", -1), ("DT", 1)), c in (15.0, 16.0)
+            mc = ltratio_mom(4, cas, c; engine = :classical)
+            @test maximum(abs.(dist_moments(trend(p), c)[1] .- mc) ./ abs.(mc)) < 1e-11
+        end
+        mc = ltratio_mom(4, "DK", 20.0; engine = :classical)
+        @test maximum(abs.(ltratio_mom(4, "DK", 20.0) .- mc) ./ abs.(mc)) < 1e-11
+        # the circle of the moments with c0 != 0 continues the logarithm of e^{c + theta} det(...): with that of the
+        # determinant alone, case DT at c = 0, c0 = -2 refused (theta imaginary at the real point of every circle)
+        mc = ltratio_mom(4, "DT", 0.0; c0 = -2.0, engine = :classical)
+        @test maximum(abs.(ltratio_mom(4, "DT", 0.0; c0 = -2.0) .- mc) ./ abs.(mc)) < 1e-9
+        # Gil-Pelaez: refused where its grid does not resolve the transform (the 30% point of case DK at c = 10 has d/h = 3.1
+        # with the default N, and at c = 12 0.5, where it was off by 1.1e-2), right with the N it names
+        y10 = 9.999331938731642
+        @test occursin("needs N >=", msg(() -> coef_cdf_gp(trend(-1), [y10], 10.0)))
+        @test occursin("needs N >=", msg(() -> coef_cdf_gp(trend(-1), [11.999892584561692], 12.0)))
+        @test abs(coef_cdf_gp(trend(-1), [y10], 10.0; N = 120000)[1] - DFLimit.coef_cdf(y10, "DK", 10.0; engine = :classical)) < 2e-8
+        # the range of c: 20 without deterministic terms, 16 with them; the refusal names the statistic, and the default
+        # route takes the classical engine above it
+        m = msg(() -> DFDet.coef_cdf(trend(0), [17.0], 17.0))
+        @test occursin("the coefficient statistic (coef_cdf) at c = 17", m) && occursin("up to c = 16", m) && occursin("engine = :classical", m)
+        @test occursin("up to c = 20", msg(() -> DFDet.coef_cdf(trend(-1), [21.0], 21.0)))
+        # (with a fixed start and deterministic terms 10: case DU at c = 12, g0 = 1 was off by 3e-5 without a warning)
+        @test occursin("up to c = 10", msg(() -> DFDet.coef_cdf(trend(0), [12.0], 12.0; start = :fixed, gamma0 = 1.0)))
+        @test isfinite(DFDet.coef_cdf(trend(-1), [20.0], 20.0; start = :fixed, gamma0 = 1.0)[1])
+        @test occursin("the t-ratio (dist_cdf) at c = 18", msg(() -> dist_cdf(perron(:A, 0.5), [0.0], 18.0; c0 = 2.0)))
+        @test occursin("the moments of the t-ratio (dist_moments)", msg(() -> dist_moments(trend(1), 17.0)))
+        @test occursin("the linear form", msg(() -> lin_cdf(trend(0), [0.0], 1.0, 17.0)))
+        @test occursin("the general engine", msg(() -> DFLimit.coef_cdf(17.0, "DU", 17.0; engine = :general)))
+        @test ltratio_mom(2, "DU", 18.0) == ltratio_mom(2, "DU", 18.0; engine = :classical)
+        @test DFLimit.autoengine(:mom, DFLimit.case_spec("DU"), 17.0, 0.0, 0.0) === :classical
+        @test DFLimit.autoengine(:mom, DFLimit.case_spec("DK"), 20.0, 0.0, 0.0) === :general
+    end
+    @testset "the density of the coefficient statistic with a fixed start above the unit root (the placement of G+)" begin
+        # (the objective of `place` did not see the branch point -Re(t)/c0, where the kernel of the density has a double
+        # pole: one evaluation was off by 5.7e-2, 9.6e-6, 0.12 and 5.9e-5 at these points; the values of DFKan's single
+        # inversion)
+        for (p, y, c, g0, f) in ((-1, 4.7896667009717016, 5.0, 0.5, 0.19213193458921624), (-1, 1.1217517791675216, 2.0, 1.0, 0.11506216456797136),
+                                 (0, 5.0894405699792555, 5.0, 0.5, 1.2879293929910602), (0, 2.649672830593643, 2.0, 1.0, 0.13052636896998593))
+            @test abs(DFDet.coef_pdf(trend(p), [y], c; start = :fixed, gamma0 = g0)[1] - f) < 1e-8
+        end
+    end
     @testset "designs: functions, Legendre trends, several breaks, from a matrix" begin
         xs = [-4.0, -3.0, -2.0]
         @test maximum(abs, dist_cdf(ltrend(3), xs) - dist_cdf(trend(3), xs)) < 1e-11
@@ -402,8 +462,9 @@ end
         # above the unit root)
         e = try; dist_cdf(trend(0), [-2.0], -5.0; hfac = 1e-4); nothing; catch err; err; end
         @test e isa ErrorException && occursin("PATH_MAXNODES", e.msg)
+        # (far above the unit root the range of c refuses first, before the cap of the grid of the moments)
         e = try; dist_moments(trend(0), 1e5); nothing; catch err; err; end
-        @test e isa ErrorException && occursin("beyond the range of the moments", e.msg)
+        @test e isa ArgumentError && occursin("up to c = 16", e.msg)
     end
     @testset "the rules far from the unit root from c = -60 on (FAR_CMIN)" begin
         # (on -100 <= c < -60 the 45-degree hyperbola left errors up to 1.4e-9 against the line integral; the angle of
