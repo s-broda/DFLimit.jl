@@ -82,6 +82,9 @@ and the measurements behind it are the table "Which engine" of the README (dev/e
 """
 function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
     cas = S.case; fixed = S.start == :fixed; stat = S.start == :stationary
+    # (above the range of the general engine, DFDet.gen_cmax: 20 without deterministic terms, 16 with them, 10 with them
+    # and a fixed start, where it refuses, the classical engine; below, the rule)
+    c > DFDet.gen_cmax(S.D, fixed) && return :classical
     if f === :dist
         # the t-ratio.  The faster engine where the two agree to 1e-10, the more accurate one where they do not; the
         # classical line integral keeps c0 = 0 with a zero or stationary start (1.7 to 28 times faster), its conditional
