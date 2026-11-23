@@ -327,7 +327,7 @@ function line_dist(method::Symbol, D::Determ, xs::AbstractVector, c::Real, which
     lm === nothing && return nothing
     fn = which == 1 ? "dist_cdf" : "dist_pdf"
     paths(xp) = (CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac);
-                 v = contour_eval(line_refined(CP, xp), xp; c0)[which]; which == 2 && tangency!(v, CP.Mo, xp, c0); v)
+                 v = contour_eval(line_refined(CP, xp; c0), xp; c0)[which]; which == 2 && tangency!(v, CP.Mo, xp, c0); v)
     nonfinite(xs, which == 1) do x
         v = similar(x); fb = Int[]
         for k in eachindex(x)
@@ -346,7 +346,7 @@ function line_dist(method::Symbol, D::Determ, xs::AbstractVector, c::Real, which
             d = maximum(k -> abs(v[k] - vp[k]), fin; init = 0.0)
             if !(d <= vtol)
                 CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
-                v = verify_eval((CPv, o) -> contour_eval(line_refined(CPv, x), x; o..., c0)[which], CP, vtol)
+                v = verify_eval((CPv, o) -> contour_eval(line_refined(CPv, x; c0), x; o..., c0)[which], CP, vtol)
                 which == 2 && tangency!(v, CP.Mo, x, c0)
                 @warn "verified: the line integral and the inversion on paths differ by $(round(d, sigdigits = 2)) (above $vtol); the checked inversion on paths is returned" D.name start c c0
             end
