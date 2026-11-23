@@ -820,15 +820,22 @@ MWork(S, M, sw, Sx) = MWork(S, M, sw, Sx, nothing)
 MWork(P::Prep; nq::Int = 24) = (S = zeros(ComplexF64, P.N, P.N);
     MWork(S, zeros(ComplexF64, P.N, P.N), SigWork(P; nq), S, sdata(P.A, P.B, P.L, P.Dv, zeros(P.N))))
 
-"""the matrix I - 2 (s A + t B + gamma E11) Sigma into W.M (its (1,1) entry without cancellation); Sigma in W.S"""
+"""the matrix I - 2 (s A + t B + gamma E11) Sigma into W.M (its (1,1) entry without cancellation); Sigma in W.S.
+The (1,1) entry is m011 - 2 ((s A + t B) Sigma)_11, formed from these two terms alone: above the unit root it is of the
+order e^{-2c} where the transform matters (the moments, the inversion of Gil-Pelaez), and the earlier form 1 - 2 ((s A +
+t B) Sigma)_11 - 2 gamma Sigma_11 + (m011 - (1 - 2 gamma Sigma_11)) carried an absolute rounding error of 1e-16, which
+put the moments off by 6e-4 relative at c = 15 and by 0.95 at c = 20.  (At s = 0 the product term is -2 t (B Sigma)_11,
+zero where the first row of B vanishes, as for the polynomial trends and Perron's models: there m011 came through before
+as well, and the roots and log D_V of the contour integral change by rounding only.)"""
 function buildM!(W::MWork, P::Prep, c::Float64, s::ComplexF64, t::ComplexF64, θ::ComplexF64)
     S = W.S; M = W.M; N = P.N
     γ = (c + θ) / 2
     Q = s .* P.A .+ t .* P.B
     mul!(M, Q, S, -2, false)
+    q11 = M[1, 1]
     for i in 1:N; M[i, i] += 1; end
     for j in 1:N; M[1, j] -= 2γ * S[1, j]; end
-    M[1, 1] += m011(c, t, θ) - (1 - 2γ * S[1, 1])
+    M[1, 1] = m011(c, t, θ) + q11
     M
 end
 
@@ -1298,9 +1305,10 @@ end
 @inline function buildM_s(sd::SData{N}, S::SMatrix{N,N,ComplexF64}, c::Float64, s::ComplexF64, t::ComplexF64, θ::ComplexF64) where {N}
     γ = (c + θ) / 2
     M = MMatrix{N,N,ComplexF64}(-2 * ((s * sd.A + t * sd.B) * S))
+    @inbounds q11 = M[1, 1]
     @inbounds for i in 1:N; M[i, i] += 1; end
     @inbounds for j in 1:N; M[1, j] -= 2γ * S[1, j]; end
-    @inbounds M[1, 1] += m011(c, t, θ) - (1 - 2γ * S[1, 1])
+    @inbounds M[1, 1] = m011(c, t, θ) + q11
     SMatrix(M)
 end
 """the stationary start: I - 2 (s A + t B + gamma (E11 - ENN)) Sx (`buildMx!`)"""
@@ -2380,7 +2388,11 @@ function seg_panels!(out::Vector{Tuple{Float64,Float64}}, st::Float64, en::Float
 end
 """panels of [A, B] graded toward the focus points (position, scale): a focus point whose position lies within its own
 scale of one with a smaller scale is dropped; between two kept points the interval is split at the midpoint (as in
-DFExact.ctr_upath)"""
+DFExact.ctr_upath).  Points within 1e-12 (B - A) of each other or of an end are merged with it: a tolerance relative to
+the length of the interval, because far above the unit root the segments of the U-shapes are tiny (the positive root
+lies within about 2c e^{-2c} of the branch point -t/c0 of the coefficient statistic, 1e-16 at c = 20); with the
+tolerance 1e-12 max(B - A, 1) used before, every point of a segment shorter than 1e-12 merged with its lower end, the
+segment got no panel at all, and from c = 16 on the coefficient statistic was off by up to 0.2."""
 function graded_panels(A::Float64, B::Float64, foc::Vector{Tuple{Float64,Float64}}; ratio::Float64 = 2.0)
     kl = Float64[]; kh = Float64[]
     for k in sortperm([f[2] for f in foc])
@@ -2388,7 +2400,7 @@ function graded_panels(A::Float64, B::Float64, foc::Vector{Tuple{Float64,Float64
         any(abs(pos - y) <= h for y in kl) && continue
         push!(kl, pos); push!(kh, h)
     end
-    tol = 1e-12 * max(B - A, 1.0)
+    tol = 1e-12 * (B - A)
     pts = [(A, Inf)]
     for k in sortperm(kl)
         if abs(kl[k] - pts[end][1]) <= tol
@@ -2608,6 +2620,13 @@ function place(logMt::L, grp::AbstractVector{ComplexF64}, oth::AbstractVector{Co
     edge = side == 1 ? minimum(real, grp) : maximum(real, grp)
     foc = [0.0]
     isempty(oth) || push!(foc, side == 1 ? maximum(real, oth) : minimum(real, oth))
+    # (above the unit root with c0 > 0 the branch point -Re(t)/c0 of the v-kernels, the left end of the admissible interval of
+    # G+, is a focus of the grading cost too: the kernel of the density of the coefficient statistic has a double pole there,
+    # int 2 v^3 e^{-(t + c0 s) v^2} dv = (t + c0 s)^{-2}, which the objective did not see, and with a fixed start at c from 1
+    # to 5 the density was off by up to 0.12 (case DU, c = 5, g0 = 0.5, at the 90% point), the distribution function by up to
+    # 1e-5, without a warning; with the cost within 1.3e-8 of DFKan's single inversion on a map of c from 1 to 5, g0 in {0.5,
+    # 1, 3}, cases DK, DU, DT)
+    side == 1 && c0p > 0 && push!(foc, -tr / c0p)
     # (xq > 0: the growth of the v-kernels of the upper tail to the left of the origin, max_v e^{-Re(t + c0 s) v^2 - Re(s) xq v}
     # = e^{Re(s)^2 xq^2/(4 Re(t + c0 s))}, c0p the largest positive c0, which makes it grow without bound toward the branch
     # point -Re(t)/c0)
@@ -4235,10 +4254,20 @@ function dist_moments(D::Determ, c::Real = 0.0; p::Int = 4, c0::Real = 0.0, star
                 # (with c0 = 0 every point of the circle has t = -s: Sigma(theta) and the data of the fixed start are computed
                 # once, not Nu times)
                 θk, fxk = logmgf_tpart!(Mo, c, complex(-s - c0 * U[1]), W)
+                # (whether the circle in t = -s - c0 u reaches the cut t >= c^2/2 of theta: then see below)
+                cut = c0 != 0 && -s + abs(c0) * r > c * c / 2
                 for k in 1:Nu
                     tk = complex(-s - c0 * U[k])
                     (c0 != 0 && k > 1) && ((θk, fxk) = logmgf_tpart!(Mo, c, tk, W))
                     L0[k], LD[k] = logmgf_spart(Mo, c, U[k], tk, θk, fxk, W, Bf)
+                    # (where the circle reaches the cut, the logarithm continued around it is that of the entire function
+                    # e^{c + theta} det(...), real and positive at the real point u = r, and not that of the determinant
+                    # alone, whose phase jumps with theta across the cut: where -s - c0 r > c^2/2, as at c = 0 with c0 < 0
+                    # for every s below |c0| r, theta is imaginary at the real point, the check of the real start failed on
+                    # every circle, and the moments refused (case DT at c = 0, c0 = -2).  Elsewhere the logarithm of the
+                    # determinant, as before, bit for bit: the moments far from the unit root with c0 = c are converged to
+                    # 1e-8 only, and the rounding of the other form moves them by 3e-9.  With c0 = 0 the circle is t = -s.)
+                    cut && (LD[k] += c + θk; L0[k] += (c + θk) / 2)
                 end
                 ld, ok = circlog(exp.(LD .- real(LD[1])))
                 L = L0 .- (ld .+ real(LD[1])) ./ 2
