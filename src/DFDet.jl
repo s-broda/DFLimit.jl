@@ -2896,11 +2896,16 @@ of `uabscissas` replaced by `place` (or, with FIXED_RULE[] = :bound, by those of
 function ufixed_place(CP::CPath, logMt::LogMt{FixT}, c0s, gp::AbstractVector{ComplexF64}, gm::AbstractVector{ComplexF64}, hi::Float64,
                       lo::Float64, sp::Float64, sm::Float64, tr::Float64, alpha::Float64, A::Float64, xq::Float64)
     Mo = CP.Mo; rp = Mo.rp
-    # the fixed start: the abscissas where the largest |Mt| on the U-shape is smallest.  Above the unit root (c > 0) the
-    # objective also counts the growth e^{sigma^2 xq^2/(4 Re t)} of the v-kernels of the upper tail (x up to xq > 0) on
-    # G+ to the left of the origin (case DK at c = 1, g0 = 1: without it G+ went to -0.82, and F was off by 1e31 at
-    # mean + 5 sd; at c = 0.5 the abscissa left of the origin is the right one)
-    xg = CP.c > 0 ? xq : 0.0
+    # the fixed start: the abscissas where the largest |Mt| on the U-shape is smallest.  The objective also counts the
+    # growth e^{sigma^2 xq^2/(4 Re(t + c0 s))} of the v-kernels of the upper tail (x up to xq > 0, c0 the largest positive
+    # one) on G+ to the left of the origin (case DK at c = 1, g0 = 1: without it G+ went to -0.82, and F was off by 1e31 at
+    # mean + 5 sd; at c = 0.5 the abscissa left of the origin is the right one).  Until November 2026 only above the unit
+    # root: in case DK near it (c = 0 and -0.5) G+ went left of the origin in the upper tail as well, and one evaluation
+    # was off by 3e-7 at x = 9.7 (g0 = 1), 7e-3 at x = 12 and 1e39 at x = 20, with c0 = 2 by 55 at x = 4 and with c0 = -2
+    # by 9e-5 at x = 20, where F is 1 to 1e-12 (the default route takes the general engine for these arguments); with
+    # the growth counted at every c (and with c0 > 0 in it) these points are within 1e-12 of the classical engine and the
+    # bulk is unchanged; cases DU, DT, whose G+ stays right of the origin, are unchanged bit for bit
+    xg = xq
     # (above the unit root with c0 > 0 the placement is searched right of the branch point -Re(t)/c0, which the
     # semi-infinite piece of V+ needs, and counts the growth of the v-kernels there with Re(t + c0 s) in place of Re t:
     # cases DU at c = 2, g0 = 1.5 and DT at c = 2, g0 = 3, both with c0 = 3, were off by 1e-2 and 1e87 at mean + 4 sd)
@@ -2909,7 +2914,7 @@ function ufixed_place(CP::CPath, logMt::LogMt{FixT}, c0s, gp::AbstractVector{Com
         for c0 in c0s; c0 > 0 && (lbp = max(lbp, -tr / c0)); end
     end
     sp0 = isfinite(lbp) ? max(sp, lbp + alpha * (hi - lbp)) : sp
-    c0p = CP.c > 0 ? maximum((c0 for c0 in c0s if c0 > 0); init = 0.0) : 0.0
+    c0p = maximum((c0 for c0 in c0s if c0 > 0); init = 0.0)
     rule = FIXED_RULE[]
     if rule == :bound && CP.c <= 0 && hi > 0 && lo < 0
         # the abscissas of the proof: alpha times the real roots at the real point tau of the contour (the first node),

@@ -129,6 +129,16 @@ end
         F, f, _, er = contour_eval(CP, [-3.0, 0.0])
         @test maximum(er.F) < 1e-10 && maximum(er.f) < 1e-10
     end
+    @testset "fixed start: the upper tail near the unit root (the growth of the v-kernels in the placement at every c)" begin
+        # (counted above the unit root only until November 2026: case DK at c = 0, g0 = 1 was off by 3e-7 at x = 9.7, 7e-3
+        # at x = 12, 1e39 at x = 20, and with c0 = 2 by 55 at x = 4)
+        F = dist_cdf(trend(-1), [9.732, 12.0, 20.0], 0.0; start = :fixed, gamma0 = 1.0)
+        @test maximum(abs, F .- 1) < 1e-10
+        F = dist_cdf(trend(-1), [4.0, 8.0], -0.5; c0 = 2.0, start = :fixed, gamma0 = 1.0)
+        @test maximum(abs, F .- 1) < 1e-10
+        xs = [-3.0, 0.0, 4.0, 12.0]
+        @test maximum(abs, dist_cdf(trend(-1), xs, 0.0; c0 = -2.0, start = :fixed, gamma0 = 1.0) - ltratio_cdf(xs, "DK", 0.0; c0 = -2.0, g0 = 1.0, engine = :classical)) < 1e-10
+    end
     @testset "local null value c0" begin
         xs = [-3.5, -2.0, -0.7, 0.4, 2.5]
         for c0 in (3.0, -3.0)
