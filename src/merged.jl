@@ -204,6 +204,7 @@ function router(f::Symbol, engine::Symbol, args...; kw...)
     f === :envelope_inv && return inv_envelope(engine, args...; kw...)
     f === :mom_inv && return inv_mom(engine, args...; kw...)
     f === :mom_start && return mom_start(args...; kw...)
+    f === :dist2 && return route_dist2(args...; kw...)
     throw(ArgumentError("router: unknown function $f"))
 end
 
@@ -422,6 +423,30 @@ function merged_dist(kind::Int, x, S::Spec, c::Real; c0::Real, engine::Symbol, m
     isempty(ci) || (F[ci] = DX.ltratio_dist(kind, xs[ci], S.case, c; c0, g0 = S.g0, method, verified, engine = :classical, kw...))
     outshape(F, x)
 end
+"""
+    route_dist2(x, cas, c; c0, g0, method, engine) -> (F, f) or nothing
+
+F and f of the t-ratio at one point x in one evaluation, for the Newton steps of the classical quantile search
+(`ltratio_icdf`): where the rule gives the point to the general engine (engine = :auto, method = :auto, no further
+options), its paths return both from one pass (`DFDet.dist_both`), with the values of `ltratio_cdf` and `ltratio_pdf`
+bit for bit; nothing elsewhere (the classical engine, the tails that go back to it, other options), and the search takes
+the two evaluations.
+"""
+function route_dist2(x::Real, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, engine::Symbol = :auto, kw...)
+    (DIST2[] && method === :auto && engine === :auto && isempty(kw) && isfinite(x)) || return nothing
+    S = case_spec(cas, g0)
+    autoengine(:dist, S, Float64(c), Float64(c0), Float64(x)) === :general || return nothing
+    F, f = DFDet.dist_both(S.D, [Float64(x)], Float64(c); c0 = Float64(c0), gkw(S)...)
+    # (the tails below 1e-3 where the classical engine would take its conditional integral go back to it, as in
+    # `merged_dist`, for F and f each: the search then takes the two evaluations)
+    md = DX.ltratio_args(S.case, c; c0, g0 = S.g0, method)
+    ((F[1] < 1e-3 || f[1] < 1e-3) && DX.automethod(md[1], md[2], Float64(c), Float64(c0), S.g0, Float64(x)) === :double) && return nothing
+    DX.cdf_range_check("ltratio_cdf", DX.cdf_args(cas, c, c0, g0), x, F)
+    F[1], max(f[1], 0.0)
+end
+"""whether the classical quantile search takes F and f in one evaluation where the general engine computes (`route_dist2`;
+false: two evaluations, as before November 2026, kept for checking)"""
+const DIST2 = Ref(true)
 function route_dist(engine::Symbol, kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto,
                     verified::Bool = false, kw...)
     S = case_spec(cas, g0)

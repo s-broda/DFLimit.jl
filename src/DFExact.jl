@@ -2556,7 +2556,10 @@ function ltratio_icdf_(p, cas::AbstractString, c::Real, model::Int; tol::Real, c
         while ltratio_cdf(lo, cas, c; c0, g0, method, kw...) > pk; lo -= 2(x - lo); end
         while ltratio_cdf(hi, cas, c; c0, g0, method, kw...) < pk; hi += 2(hi - x); end
         for _ in 1:60
-            F = ltratio_cdf(x, cas, c; c0, g0, method, kw...); f = ltratio_pdf(x, cas, c; c0, g0, method, kw...)
+            # (F and f from one evaluation where the rule gives the point to the general engine's paths, which return both
+            # in one pass, `DFLimit.route_dist2`; otherwise two evaluations)
+            Ff = ROUTE[] === nothing ? nothing : ROUTE[](:dist2, :auto, x, cas, c; c0, g0, method, kw...)
+            F, f = Ff === nothing ? (ltratio_cdf(x, cas, c; c0, g0, method, kw...), ltratio_pdf(x, cas, c; c0, g0, method, kw...)) : Ff
             F > pk ? (hi = x) : (lo = x)
             xn = x - (F - pk) / f
             (lo <= xn <= hi && isfinite(xn)) || (xn = (lo + hi) / 2)     # (a step below half an ulp lands on the end of the bracket: converged)

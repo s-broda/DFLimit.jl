@@ -3877,6 +3877,25 @@ function dist_eval_(D::Determ, xs::AbstractVector, c::Real, which::Int, start::S
         v
     end
 end
+"""
+    dist_both(D, xs, c = 0; c0 = 0, start = :zero, gamma0 = 0, gls = nothing) -> (F, f)
+
+`dist_cdf` and `dist_pdf` of the inversion on paths (method = :paths) in one evaluation: the paths return both from one
+pass (`contour_eval`), the values those of the two functions bit for bit (one evaluation by the rule of `path_region`).
+"""
+function dist_both(D::Determ, xs::Vector{Float64}, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing)
+    check_cmax(D, c, start, gamma0, "the t-ratio (dist_cdf)")
+    c0 = Float64(c0)
+    isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
+    Mo = startmodel(D, c, start, gamma0, gls)
+    hf, n, nt, rl = path_rule(:auto, false, Mo, c, c0, nothing, pairs((;)))
+    CP = rule_path(Mo, c, nothing, hf, rl, c0)
+    all(isfinite, xs) || throw(ArgumentError("dist_both: finite points only"))
+    F, f = contour_eval(line_refined(CP, xs; c0), xs; c0, n, ntail = nt)[1:2]
+    tangency!(f, CP.Mo, xs, c0)
+    cdf_range_check("dist_cdf", D, c, start, gamma0, c0, "x", xs, F)
+    F, f
+end
 """Inf at the points of x where the density of a rank-one design with c0 > 0 is infinite (`dist_pdf`)"""
 function tangency!(v::Vector{Float64}, Mo::Model, x::Vector{Float64}, c0::Float64)
     (c0 > 0 && Mo.r == 1 && Mo.rm == 0) || return v

@@ -84,6 +84,12 @@
   The quantiles are those of before to 2.4e-11 (the search tolerance is 1e-10), except in case DK with c0 = 2 far from
   the unit root (4.3e-10 at c = -20, 5.5e-9 at c = -60), where the distribution function that the search inverts is
   itself known to about 1e-9. `DFLimit.MOM_START[] = false` restores the start of before.
+- **The quantile searches take F and f in one evaluation where the general engine computes.** The Newton steps of
+  `ltratio_icdf` (the classical search) evaluated `ltratio_cdf` and `ltratio_pdf` separately; where the rule gives the
+  point to the general engine, its paths return both from one pass (`DFLimit.route_dist2`, `DFDet.dist_both`), with the
+  values of the two functions bit for bit, so that the quantiles are unchanged bit for bit. Four quantiles take 0.54 to
+  0.77 times as long there (median 0.59; the zero start with c0 > 0, the stationary start with c0 != 0, case DK with a
+  fixed start; c from 0 to -60), elsewhere as long as before. `DFLimit.DIST2[] = false` restores the two evaluations.
 - **The moments of the t-ratio from jets.** `ltratio_mom` takes the derivatives of the moment generating function from
   one Taylor-mode jet per node of an adaptive quadrature (after Bao and Kan) by default in the six classical cases, for any
   c0 and fixed start up to c = 20: 16 to 290 times faster (0.3 to 1.3 ms for four moments), within 1.4e-11 relative of

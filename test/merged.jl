@@ -179,4 +179,16 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         end
     end
 
+    @testset "the quantile searches: F and f in one evaluation where the general engine computes (route_dist2)" begin
+        # the values of ltratio_cdf and ltratio_pdf bit for bit, and so the quantiles of the two evaluations
+        for (cas, c, c0, g0) in (("DU", -5.0, 2.0, 0.0), ("SU", -5.0, -5.0, 0.0), ("DK", -5.0, 0.0, 1.0))
+            Ff = MD.route_dist2(-2.5, cas, c; c0, g0)
+            @test Ff !== nothing && Ff[1] == ltratio_cdf(-2.5, cas, c; c0, g0) && Ff[2] == ltratio_pdf(-2.5, cas, c; c0, g0)
+            q1 = ltratio_icdf([0.05, 0.5], cas, c; c0, g0)
+            MD.DIST2[] = false
+            q0 = try; ltratio_icdf([0.05, 0.5], cas, c; c0, g0); finally; MD.DIST2[] = true; end
+            @test q1 == q0
+        end
+        @test MD.route_dist2(-2.5, "DU", -5.0; c0 = 0.0) === nothing        # (the classical engine's point)
+    end
 end
