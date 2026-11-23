@@ -5,6 +5,12 @@
 # test/ref/ (the first line of each file says where it comes from) and test/engine/.  About six minutes on a laptop; run with
 #   julia --project -e 'using Pkg; Pkg.test()'                         (one thread)
 #   JULIA_NUM_THREADS=auto julia --project -e 'using Pkg; Pkg.test()'  (all performance cores)
+# With DFLIMIT_TEST_IVM=true (the CI job that adds IntelVectorMath to the test dependencies) the tests load
+# IntelVectorMath first, so that they run through the package extension DFLimitIntelVectorMathExt.
+const TEST_IVM = get(ENV, "DFLIMIT_TEST_IVM", "false") == "true"
+if TEST_IVM
+    using IntelVectorMath
+end
 using DFLimit, Test, Printf, Logging
 using SpecialFunctions: erf
 
@@ -18,6 +24,17 @@ casecode(m, st) = m == 4 ? "DG" : (st == 1 ? "S" : "D") * "KUT"[Int(m)]
 errmsg(f) = try; f(); ""; catch e; e isa ArgumentError ? e.msg : "other: " * sprint(showerror, e); end
 # f() without a warning: the conditional integral warns where its error estimate is not met
 nowarn(f) = @test_logs min_level = Logging.Warn f()
+
+# a stand-in for the method of the hook DFExact.ivm_expsincos! that the extension defines (the test set "vector
+# library"): plain loops, which count their calls
+const FAKE_CALLS = Threads.Atomic{Int}(0)
+function fake_expsincos!(e, sn, cs, a, b, n)
+    Threads.atomic_add!(FAKE_CALLS, 1)
+    @inbounds for k in 1:n
+        e[k] = exp(a[k]); sn[k], cs[k] = sincos(b[k])
+    end
+    nothing
+end
 
 const T0 = time()
 @printf("DFLimit tests: Julia %s, %d threads, %d workers, vector math: %s\n", VERSION, Threads.nthreads(), D.NWORKERS[], D.vecmath())
@@ -441,6 +458,42 @@ end
 end
 Base.include(Module(), joinpath(@__DIR__, "general", "line.jl"))   # the line integral of the general designs of rank one or two
 Base.include(Module(), joinpath(@__DIR__, "kan.jl"))               # the prototypes of the devices of Bao and Kan (src/DFKan*.jl)
+
+# The vector library of the batched sums (DFExact.vecmath): Accelerate on macOS, IntelVectorMath on x86-64 Linux and
+# Windows when it is loaded (the extension DFLimitIntelVectorMathExt, which then defines the method of the hook
+# DFExact.ivm_expsincos! and sets HAVE_IVM), plain loops otherwise.  Without the extension, a stand-in for its method
+# (plain loops) with Accelerate switched off checks that the engine takes the hook and that the hook gives the values of
+# the plain loops; the method is deleted and the switches restored at the end (this test set comes last, as the code
+# that calls the hook is compiled again each time).
+@testset "vector library" begin
+    ext = Base.get_extension(DFLimit, :DFLimitIntelVectorMathExt)
+    @test (ext !== nothing) == TEST_IVM
+    @test D.vecmath() == (Sys.isapple() ? "Accelerate" : (TEST_IVM && Sys.ARCH === :x86_64) ? "IntelVectorMath" : "none")
+    if ext === nothing
+        @test isempty(methods(D.ivm_expsincos!))
+        accel, ivm = D.HAVE_ACCEL[], D.HAVE_IVM[]
+        x = [-2.0, 0.0]
+        vals() = (ltratio_cdf(x, "DK", -3), ltratio_pdf(x, "DK", 0), ltratio_cdf(x, "DU", -3), ltratio_pdf(x, "DT", -5))
+        sig = (Vector{Float64}, Vector{Float64}, Vector{Float64}, Vector{Float64}, Vector{Float64}, Int)
+        try
+            D.HAVE_ACCEL[] = false; D.HAVE_IVM[] = false
+            plain = vals()
+            @eval D.ivm_expsincos!(e::Vector{Float64}, sn::Vector{Float64}, cs::Vector{Float64}, a::Vector{Float64},
+                                   b::Vector{Float64}, n::Int) = fake_expsincos!(e, sn, cs, a, b, n)
+            D.HAVE_IVM[] = true
+            @test D.vecmath() == "IntelVectorMath"
+            hooked = Base.invokelatest(vals)
+            @test FAKE_CALLS[] > 0
+            for (h, p) in zip(hooked, plain)
+                @test h ≈ p rtol = 1e-13
+            end
+        finally
+            D.HAVE_ACCEL[] = accel; D.HAVE_IVM[] = ivm
+            hasmethod(D.ivm_expsincos!, sig) && Base.delete_method(which(D.ivm_expsincos!, sig))
+        end
+        @test isempty(methods(D.ivm_expsincos!))
+    end
+end
 
 end # @testset "DFLimit"
 

@@ -1,5 +1,8 @@
 # DFLimit.jl
 
+[![CI](https://github.com/s-broda/DFLimit.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/s-broda/DFLimit.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Coverage](https://codecov.io/gh/s-broda/DFLimit.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/s-broda/DFLimit.jl)
+
 The exact limiting distribution of the Dickey-Fuller t-ratio in Julia.
 
 `DFLimit` computes the distribution function, density, quantiles and moments of the limits of the Dickey-Fuller
@@ -102,7 +105,12 @@ string. Where the general engine computes (a design the classical engine does no
 inversion on paths around the roots), see "Which engine"; for a design that is a classical case `method = :line` is the
 classical line integral and `method = :paths` the general engine's paths, so that `ltratio_cdf(x, trend(2), c; method =
 :paths)` and `ltratio_icdf(p, trend(0), c; method = :paths)` force the paths and `ltratio_cdf(x, "DU", c; engine =
-:general, method = :line)` the general engine's line integral. The general engine is checked from c = -480 to 10.
+:general, method = :line)` the general engine's line integral. The general engine is checked from c = -480 to 10, and
+above the unit root, for the coefficient statistic, the moments and the t-ratio centred at the true value (c0 = c), up to c = 16 with
+deterministic terms (10 with them and a fixed start) and up to c = 20 without them (`DFLimit.DFDet.gen_cmax`): beyond, one
+root of its transform is of the
+order 2c e^{-2c} and the others are no longer resolved in double precision, and every function of the general engine
+raises an `ArgumentError` that names the statistic, c and the bound; the rule takes the classical engine there.
 
 The general engine's own functions are exported as well: `dist_cdf(D, xs, c; c0, start, gamma0, gls, method)`, `dist_pdf`,
 `dist_quantile`, `dist_moments`, `coef_pdf`, `coef_quantile`, `coef_cdf_gp`, `lin_cdf`, `lin_pdf`, `lin_quantile`,
@@ -169,6 +177,7 @@ the line integral was added).
 | ADFmax, stationary start, c <= -0.1 | general | 110 to 196 | 50 to 58 | 3e-12 | 2.2 to 3.4 times faster; next to zero (c = -1e-4) it is off by 2e-9 |
 | ADFmax, zero start | classical | 22, 34 | 50, 52 | 2.6e-12 | 1.6 to 2.3 times faster |
 | regions (`ltratio_region`) | classical | 1.1, 1.4 | 3.4, 3.8 | 1e-12 | 2.7 to 3.1 times faster, and the only engine for the WAP boundary and a function g |
+| above the range of the general engine (c > 16 with deterministic terms, c > 10 with them and a fixed start, c > 20 without) | classical | | | | the general engine refuses there |
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
 
 Where the classical engine computes, its values are those of 0.5.0 bit for bit; where the rule takes the general engine
@@ -238,20 +247,30 @@ The engine is multithreaded: start Julia with `julia -t auto` (or set the enviro
 `JULIA_NUM_THREADS=auto`). It runs its loops on `DFLimit.DFExact.NWORKERS[]` tasks, by default the smaller of the
 number of threads and the number of cores; set it to change that.
 
+The batched sums of the line integral take the exponentials of all their nodes at once from a vector library where one
+is at hand. On macOS that is Apple's Accelerate framework, part of the system, which the package uses without being
+asked. On x86-64 Linux and Windows it is IntelVectorMath (MKL), an optional dependency: install it in your environment
+(`pkg> add IntelVectorMath`) and load it in the session, `using IntelVectorMath` before or after `using DFLimit`, and
+Julia loads the package extension `DFLimitIntelVectorMathExt`, which makes the engine use it. Without either the engine
+uses plain loops. `DFLimit.DFExact.vecmath()` says which is in use: `"Accelerate"`, `"IntelVectorMath"` or `"none"`.
+
 ## Installation
 
-The package needs Julia 1.10 or later. It is not registered; install it from its GitHub repository with
+The package needs Julia 1.10 or later. It is registered in Julia's General registry; install it from the package
+prompt (press `]` at the `julia>` prompt) with
 
-```julia
-using Pkg
-Pkg.add(url = "https://github.com/s-broda/DFLimit.jl")
+```
+pkg> add DFLimit
 ```
 
-or, from a local clone, `Pkg.develop(path = "/path/to/DFLimit.jl")`. The dependencies (SpecialFunctions, QuadGK,
-PrecompileTools) are installed with it. The first `using DFLimit` precompiles the package, which takes about half a
-minute: it runs a few of the functions once, so that their first call in a session does not wait several seconds for
-compilation. `Pkg.test("DFLimit")` runs the tests (about six minutes; they compare the values with values stored by the
-paper's code, and end with the engine's own checks in `test/engine/`). The longer checks of the engine and the scripts that
+or, equivalently, `using Pkg; Pkg.add("DFLimit")`. The development version, which may hold changes that are not yet
+released, comes from the GitHub repository: `pkg> add DFLimit#main` (or
+`Pkg.add(url = "https://github.com/s-broda/DFLimit.jl")`), or, from a local clone,
+`Pkg.develop(path = "/path/to/DFLimit.jl")`. The dependencies (SpecialFunctions, QuadGK, PrecompileTools) are
+installed with it. The first `using DFLimit` precompiles the package, which takes about half a minute: it runs a few of
+the functions once, so that their first call in a session does not wait several seconds for compilation.
+`Pkg.test("DFLimit")` runs the tests (about six minutes; they compare the values with values stored by the paper's
+code, and end with the engine's own checks in `test/engine/`). The longer checks of the engine and the scripts that
 write its stored values are in `dev/` (see `dev/README.md`).
 
 ## Other implementations

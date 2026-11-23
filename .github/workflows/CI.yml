@@ -1,36 +1,67 @@
-# Pkg.test() of DFLimit on Linux, macOS and Windows with the current stable Julia release.
-# Started by hand only (Actions tab, "Run workflow", or gh workflow run CI.yml): the account's Actions minutes are
-# limited, so nothing runs on a push or a pull request.
+# Pkg.test() of DFLimit with coverage, uploaded to Codecov, on every push to main, on tags and on pull requests (and by
+# hand: Actions tab, "Run workflow"). The oldest supported Julia (the julia entry of [compat]) and the current release on
+# Linux, the current release on macOS (Apple silicon) and on Windows; and the current release on x86-64 Linux with
+# IntelVectorMath loaded, which runs the same tests through the package extension DFLimitIntelVectorMathExt (MKL's
+# vector exponential, sine and cosine in the batched sums of the line integral). A push whose head commit message
+# contains [skip ci] starts no run (GitHub's own rule).
 name: CI
 
 on:
+  push:
+    branches:
+      - main
+    tags: ['*']
+  pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 jobs:
   test:
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }}${{ matrix.ivm && ' - IntelVectorMath' || '' }}
     runs-on: ${{ matrix.os }}
-    name: ${{ matrix.os }} (Julia ${{ matrix.version }})
+    timeout-minutes: 60
+    permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
+      actions: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        version: ['1']
+        include:
+          - { version: 'min', os: ubuntu-latest }
+          - { version: '1', os: ubuntu-latest }
+          - { version: '1', os: macos-latest }
+          - { version: '1', os: windows-latest }
+          - { version: '1', os: ubuntu-latest, ivm: true }
     env:
-      JULIA_NUM_THREADS: auto
+      JULIA_NUM_THREADS: auto          # the engine is multithreaded
+      DFLIMIT_TEST_IVM: ${{ matrix.ivm && 'true' || 'false' }}   # test/runtests.jl loads IntelVectorMath when 'true'
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
-
-      - uses: julia-actions/cache@v2
-
+      - uses: julia-actions/cache@v3
+      # IntelVectorMath is a weak dependency, not a test dependency (MKL is large and exists on x86-64 only); this job
+      # adds it to the test target of the checked-out Project.toml, on the runner only
+      - name: Add IntelVectorMath to the test dependencies
+        if: matrix.ivm
+        shell: julia --color=yes {0}
+        run: |
+          import TOML
+          p = TOML.parsefile("Project.toml")
+          p["extras"]["IntelVectorMath"] = p["weakdeps"]["IntelVectorMath"]
+          push!(p["targets"]["test"], "IntelVectorMath")
+          open(io -> TOML.print(io, p), "Project.toml", "w")
       - uses: julia-actions/julia-buildpkg@v1
-
       - uses: julia-actions/julia-runtest@v1
+      - uses: julia-actions/julia-processcoverage@v1
+      - uses: codecov/codecov-action@v7
         with:
-          coverage: false
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

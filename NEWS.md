@@ -91,6 +91,61 @@
   classical line integral for c0 + y > 0 (2 to 12 times faster there) and the general engine for c0 + y < 0 in case DK
   with c > -5 (1.4 to 2.7 times faster); elsewhere the rule of the t-ratio. The values move within the differences of
   the two engines (within 3e-11 in these cells).
+- **The general engine above the unit root** (`src/DFDet.jl`, `src/merged.jl`; the same repairs in the C engine and the
+  MATLAB programs of dflimit-matlab). Four repairs, a guard of `coef_cdf_gp`, and the range of c made explicit.
+    - The coefficient statistic far above the unit root was silently wrong. The panels of the paths around the roots
+      merged every point within 1e-12 max(B - A, 1) of an end with it (`graded_panels`); far above the unit root the
+      segment of the path around the positive root is shorter than that (the root lies within about 2c e^{-2c} of the
+      branch point -t/c0 of the coefficient statistic, 1e-16 at c = 20) and got no panel at all. From c = 16 on the
+      coefficient statistic of the general engine was off by up to 0.2 without a warning (case DK at c = 20: 0.3128 for
+      the 30% point; through `DFDet.coef_cdf`, `coef_cdf(y, "DK", c; engine = :general)`, `coef_cdf(y, trend(-1), c;
+      engine = :general)`, `ltratio_cdf(0, "DK", c; c0, engine = :general)` and `dist_cdf`; the default route takes the
+      classical engine there and was right). The tolerance is now relative to the length of the interval. Against the
+      classical engine and the single inversion of DFKan (seven levels from 0.1% to 99.9%) the distribution function and
+      the density are within 2.4e-9 and 4.2e-9 relative up to c = 20 without deterministic terms, the distribution
+      function within 1.5e-8 up to c = 16 for an intercept, a linear and a quadratic trend and Perron's models A and C
+      (the density of cases DU, DT within 4.4e-9 relative); the quantiles (`coef_quantile`) within 1.3e-13 of the
+      classical engine's.
+    - The moments far above the unit root were wrong on the default route. The (1,1) entry of the matrix of the
+      transform was formed as 1 plus the product term minus 2 gamma Sigma_11 plus (m011 - (1 - 2 gamma Sigma_11)), with
+      an absolute rounding error of 1e-16; above the unit root the entry is of the order e^{-2c} where the moments and
+      the inversion of Gil-Pelaez evaluate the transform (s != 0), and the moments of the general engine, which the rule
+      takes at c0 = 0 for every c, were off by 1.5e-9 to 7e-8 relative at c = 10, 6e-4 at c = 15 and 0.95 at c = 20 in
+      cases DK, DU, DT (`ltratio_mom(4, "DK", 20)` among them). The entry is now m011 plus the product term (`buildM!`,
+      `buildM_s`): within 1.1e-14 relative of the classical engine at c = 2 to 20, c0 in {-2, 0, 2}.
+    - The moments with a local null value c0 != 0 refused where the circle of the Cauchy integrals reaches beyond t =
+      c^2/2: the logarithm continued around the circle was that of the determinant alone, whose phase at the real point
+      is -Im theta there, and the check of the real start failed on every circle (`ltratio_mom(4, "DT", 0.0; c0 = -2.0)`
+      threw a TaskFailedException on the default route; case DT at c = 0 with c0 < 0). The logarithm is now that of the
+      entire function e^{c + theta} det(...) where the circle reaches t = c^2/2 (`dist_moments`; elsewhere unchanged bit
+      for bit).
+    - The density of the coefficient statistic with a fixed start above the unit root was off without a warning: the
+      abscissa of the path G+ around the positive roots is chosen by an objective (`place`) that weighs the size of the
+      transform and the grading toward the origin and the other group, but not the branch point -Re(t)/c0 of the
+      v-kernels, the left end of its admissible interval, where the kernel of the density of the coefficient statistic
+      has a double pole, (t + c0 s)^{-2}. With a fixed start (cases DK, DU, g0 in {0.5, 1, 3}) one evaluation was off by
+      more than 1e-5 at 42 of 270 points of a map from c = 1 to 5 (nine levels from 1% to 99%), by up to 0.12 (case DU
+      at c = 5, g0 = 0.5, at the 90% point, the density 1.29) and 5.7e-2 (case DK at c = 5, g0 = 0.5, at the 5% point),
+      and by 5.9e-5 in case DU at c = 2, g0 = 1 at the 95% point; the distribution function by up to 1.1e-5. The branch
+      point is now a focus of the grading cost: within 1.3e-8 of DFKan on the map, extended to case DT (405 points). At
+      c <= 0 nothing changes (the map was within 3e-10 before): the change applies above the unit root with c0 > 0 only.
+    - `coef_cdf_gp` refuses where its grid does not resolve the transform (`gp_edge`, `GP_EDGE`): the error of its
+      trapezoidal rule is about 0.16 exp(-2 pi d/h), d the distance of the nearest singularity of the transform from the
+      real line, h the step of the grid near the origin, and d shrinks like 2c e^{-c} above the unit root; it was off by
+      1.1e-2 at c = 12, by 1.7 at c = 15 and by 15 at c = 20 for the 30% point of case DK. Below d/h = 3.3 it now raises
+      an ArgumentError that names the N that serves (with the default N from about c = 10 in the bulk and c = 5 in the
+      lower tail).
+    - The range of c. Above the unit root one root of the transform is of the order 2c e^{-2c}, and the reciprocal
+      roots, the eigenvalues of a small matrix, span e^{2c}: with deterministic terms the others are lost in double
+      precision from c = 17 (the second reciprocal root of case DU is -0.0051 at c = 14, -0.0040 at c = 16, -0.0023 at c
+      = 17 and zero at c = 19, and the paths fail with "rootpath: ... roots at the start" from c = 17 in case DU, c = 18
+      in case DT; with a fixed start the coefficient statistic of case DU was off by 3e-5 at c = 12 and that of case DT
+      by 1e-4 at c = 14, without a warning). Every function of the general engine now refuses above c = 20 without
+      deterministic terms, above c = 16 with them and above c = 10 with them and a fixed start (`gen_cmax`, `GEN_CMAX0`,
+      `GEN_CMAX`, `GEN_CMAX_FIXED`), with an ArgumentError that names the statistic, c and the bound and points to the
+      classical engine; the rule `autoengine` takes the classical engine there. Without deterministic terms the
+      coefficient statistic with a fixed start (g0 = 1, 3) is within 5.4e-8 of DFKan up to c = 20, with them (cases DU,
+      DT) within 3.2e-6 up to c = 10.
 - **Case DG faster.** The transform behind the linear form and the power envelope of case DG (`cf_gls`) formed 3 x 3
   complex matrices on the heap with a matrix solve and a determinant at each of the 60001 points of its grid; written
   out, it is 6 times faster (82 to 14 ms; the classical envelope of case DG at c = -5, -10, -20 from 623 to 151 ms),
@@ -151,6 +206,12 @@ Four errors of the engine are repaired. Values outside the regions named below a
   `test/engine/quickcheck.jl` and `test/engine/test_dfexact.jl` run with `Pkg.test()` (JSON and Random are test
   dependencies), the longer checks and the writers of stored values are in `dev/`. The engine and the results are
   unchanged.
+- IntelVectorMath is a weak dependency (`[weakdeps]`, compat 0.5): its use, on x86-64 Linux and Windows, is in the
+  package extension `DFLimitIntelVectorMathExt`, which Julia loads when IntelVectorMath is loaded in the session; the
+  engine no longer loads it from the active environment itself. Without it the values are unchanged, bit for bit.
+- The tests run on GitHub Actions on every push to `main`, on tags and on pull requests (Julia 1.10 and the current
+  release on Linux, the current release on macOS and Windows, and one job with IntelVectorMath), with coverage on
+  Codecov; CompatHelper keeps the compatibility bounds current.
 
 ## 0.2.0
 

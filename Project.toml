@@ -13,7 +13,14 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
+[weakdeps]
+IntelVectorMath = "c8ce9da6-5d36-5c03-b118-5a70151be7bc"
+
+[extensions]
+DFLimitIntelVectorMathExt = "IntelVectorMath"
+
 [compat]
+IntelVectorMath = "0.5"
 JSON = "1"
 Libdl = "1"
 LinearAlgebra = "1"

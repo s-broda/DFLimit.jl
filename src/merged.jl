@@ -82,6 +82,9 @@ and the measurements behind it are the table "Which engine" of the README (dev/e
 """
 function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
     cas = S.case; fixed = S.start == :fixed; stat = S.start == :stationary
+    # (above the range of the general engine, DFDet.gen_cmax: 20 without deterministic terms, 16 with them, 10 with them
+    # and a fixed start, where it refuses, the classical engine; below, the rule)
+    c > DFDet.gen_cmax(S.D, fixed) && return :classical
     if f === :dist
         # the t-ratio.  The faster engine where the two agree to 1e-10, the more accurate one where they do not; the
         # classical line integral keeps c0 = 0 with a zero or stationary start (1.7 to 28 times faster), its conditional
@@ -189,12 +192,14 @@ The keyword `method` where the general engine computes (engine = :general, or a 
 have): the general engine's own choice, which `DFDet.dist_cdf`, `dist_pdf` and `dist_quantile` take as their `method`:
 :auto (the line integral with the explicit kernel where it covers the design and c0 = 0, the inversion on paths around
 the roots otherwise), :line (the line integral with the explicit kernel, an ArgumentError with the reason where it does
-not cover the design) or :paths (the inversion on paths).  A representation of the classical engine (:single, :double,
-:conditional, :contour) is refused.  (For a design that is a classical case, with engine = :auto, method = :line is the
+not cover the design; :single, the classical engine's name of the line integral, is taken as :line, as by the C router)
+or :paths (the inversion on paths).  The other representations of the classical engine (:double, :conditional,
+:contour) are refused.  (For a design that is a classical case, with engine = :auto, method = :line is the
 classical engine's line integral, which ltratio_args accepts under that name, and :paths, which it does not accept,
 takes the general engine's paths.)
 """
 function genmethod(method::Symbol)
+    method === :single && return :line                  # (the classical name of the line integral, as in ltratio_args and the C router)
     method in (:auto, :line, :paths) && return method
     throw(ArgumentError("method = :$method names a representation of the classical engine; it does not apply with engine = :general (whose methods are :auto, :line and :paths)"))
 end

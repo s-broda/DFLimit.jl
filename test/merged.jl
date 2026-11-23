@@ -77,12 +77,13 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         # (test/engine/largec_ref.txt, the classical engine's values, which test_dfexact.jl holds it to 1e-10).  The moments of
         # the merged default come from the general engine at c0 = 0 and with a stationary start: within 1e-10 except with
         # c0 = c and a stationary start, where both engines move by 1e-8 to 5e-7 relative under refinement of their rules
-        # and differ by up to 4.1e-9 (scratch evidence in the report of the merge): 5e-9 there; with c0 = c and a zero start
+        # and differ by up to 4.1e-9 with Accelerate or IntelVectorMath and by 5.4e-9 with the plain loops (Linux and
+        # Windows without a vector library, where the sums round differently): 2e-8 there; with c0 = c and a zero start
         # below c = -100 both move by up to 1e-10 and differ by up to 5.2e-10 (the general engine takes case DT): 5e-10
         for l in eachline(joinpath(@__DIR__, "engine", "largec_ref.txt"))
             p = split(l); p[1] == "mom" || continue
             cas = String(p[2]); c, c0 = parse.(Float64, p[3:4]); mr = parse.(Float64, p[5:8])
-            tol = (cas[1] == 'S' && c0 != 0) ? 5e-9 : (c0 != 0 && c <= -200) ? 5e-10 : 1e-10
+            tol = (cas[1] == 'S' && c0 != 0) ? 2e-8 : (c0 != 0 && c <= -200) ? 5e-10 : 1e-10
             @test maximum(abs.(quietly(() -> ltratio_mom(4, cas, c; c0)) ./ mr .- 1)) < tol
         end
     end
@@ -132,7 +133,7 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test round(power_envelope(-10.0, perron(:C, 0.5)), digits = 4) == 0.1789                # paper/envelope.txt of df-deterministics
         # the argument errors of the interface
         @test occursin("the classical engine has the cases", errm(() -> ltratio_cdf(-2.0, D, 0; engine = :classical)))
-        @test occursin("does not apply with engine = :general", errm(() -> ltratio_cdf(-2.0, "DU", 0; method = :single, engine = :general)))
+        @test occursin("does not apply with engine = :general", errm(() -> ltratio_cdf(-2.0, "DU", 0; method = :double, engine = :general)))
         @test occursin("engine must be", errm(() -> ltratio_cdf(-2.0, "DU", 0; engine = :fast)))
         @test occursin("exclude each other", errm(() -> ltratio_cdf(-2.0, D, -5; g0 = 1.0, start = :stationary)))
     end
