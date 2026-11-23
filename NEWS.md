@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **The upper tail of the fixed start near the unit root (general engine).** The placement of the U-shape G+ of a fixed
+  start (`ufixed_place`) counted the growth e^{sigma^2 x^2/(4 Re(t + c0 s))} of the v-kernels of the upper tail to the
+  left of the origin above the unit root only.  In case DK near it (c = 0, -0.5) G+ went left of the origin in the upper
+  tail as well, and one evaluation was off by 3e-7 at x = 9.7 (g0 = 1, c0 = 0, where F is 1 to 1e-12), 7e-3 at x = 12
+  and 1e39 at x = 20, with c0 = 2 by 55 at x = 4 and with c0 = -2 by 9e-5 at x = 20, without a warning below the range
+  check; the default route takes the general engine for these arguments (`ltratio_cdf(9.732, "DK", 0; g0 = 1)` returned
+  0.9999997).  The growth is now counted at every c (with the largest positive c0 in it): these points are within 1e-12 of
+  the classical engine, the bulk is unchanged, and cases DU, DT (whose G+ stays right of the origin) are unchanged bit for
+  bit.
+- **Case DK with a fixed start and c0 < 0 near the unit root goes to the classical engine.** The rule `autoengine` took the
+  general engine for the fixed start of case DK (c <= 1, (c g0)^2/2 <= 400) at every c0; with c0 < 0 near the unit root
+  the outer hyperbola of the general engine does not resolve the upper tail, and its one evaluation was off by 2.7e-6 at
+  the 99.99% point (c = 0.5, c0 = -5, g0 = 1), by 6.7e-6 at c = 0 with g0 = 1.5, and beyond the 99.99% point by up to
+  2.9e-2 (c0 = -10), where the range check also refused values of 1.23 (`ltratio_cdf(45.11, "DK", 0.5; c0 = -10, g0 =
+  1)` raised an error).  These points (c0 < 0, c > -1) now take the classical engine, whose line integral agrees with its
+  checked computation and with the conditional integral to 1e-12 there.  The general engine itself takes a finer outer
+  step there (see the rules of one evaluation below).
 - **The branches fixed at each point.** The classical engine's P(t), M_0(t) and the labels of the roots of the line and
   contour integrals (`DFExact.tparts`) and the argument of log P(t) in the provider of the general engine's line integral
   are fixed at each point, after Bao and Kan (the factors whose arguments are known; the pivots of the precision matrix,

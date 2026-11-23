@@ -27,6 +27,10 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:dist, spec("DK"; g0 = 1.0), 0, 0, -1) == :general         # fixed start, case DK, (c g0)^2/2 <= 400
         @test ae(:dist, spec("DK"; g0 = 2.0), -20, 0, -1) == :classical
         @test ae(:dist, spec("DK"; g0 = 1.0), 2, 0, -1) == :classical
+        # (c0 < 0 near the unit root: the classical engine; the general engine's one evaluation of before was off in the upper
+        # tail, by 2.7e-6 at the 99.99% point at c = 0.5, c0 = -5, g0 = 1)
+        @test ae(:dist, spec("DK"; g0 = 1.0), 0.5, -5, 25) == :classical && ae(:dist, spec("DK"; g0 = 1.0), -2, -5, 10) == :general
+        @test ltratio_cdf(25.173, "DK", 0.5; c0 = -5.0, g0 = 1.0) ≈ ltratio_cdf(25.173, "DK", 0.5; c0 = -5.0, g0 = 1.0, engine = :classical, verified = true) atol = 1e-10
         @test ae(:dist, spec("DU"; g0 = 1.0), -10, 0, -1) == :classical     # fixed start, cases DU, DT
         @test ae(:dist, spec("DG"), -10, 0, -2) == :classical
         # x = 0, the points of the coefficient statistic: c0 > 0 the classical engine, c0 < 0 in case DK for c > -5 the general

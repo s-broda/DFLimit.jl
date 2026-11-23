@@ -114,8 +114,13 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
             return :general
         end
         !fixed && !stat && c0 != 0 && c < -100 && return :general            # 2.4 to 3.3 times faster
-        # the fixed start of case DK: 1.04 to 4.3 times faster (beyond, the classical engine is up to 1.5 times faster)
-        fixed && cas == "DK" && c <= 1 && ((c * S.g0)^2 / 2 <= 400 || (S.g0 <= 0.5 && c >= -100)) && return :general
+        # the fixed start of case DK: 1.04 to 4.3 times faster (beyond, the classical engine is up to 1.5 times faster),
+        # except with c0 < 0 near the unit root (c > -1): there the outer hyperbola of the general engine does not resolve
+        # the upper tail, and its one evaluation was off by 2.7e-6 at the 99.99% point (c = 0.5, c0 = -5, g0 = 1) and 2.9e-2
+        # beyond (mean + 6 sd at c0 = -10, where at mean + 4 sd it gave 1.23 and the range check refused), 6.7e-6 at c = 0
+        # with g0 = 1.5 (November 2026, `scratch/rules/probe_dkfixed6.jl`); the classical engine's line integral, its
+        # checked computation and the conditional integral agree to 1e-12 there
+        fixed && cas == "DK" && c <= 1 && !(c0 < 0 && c > -1) && ((c * S.g0)^2 / 2 <= 400 || (S.g0 <= 0.5 && c >= -100)) && return :general
         return :classical
     elseif f === :icdf
         # the quantiles at c0 = 0: the general engine's search, which evaluates F and f in one pass on one path, where it is
