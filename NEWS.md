@@ -19,6 +19,20 @@
   1)` raised an error).  These points (c0 < 0, c > -1) now take the classical engine, whose line integral agrees with its
   checked computation and with the conditional integral to 1e-12 there.  The general engine itself takes a finer outer
   step there (see the rules of one evaluation below).
+- **Thinner rules of one evaluation of the general engine's paths.** `dist_cdf`, `dist_pdf` and `dist_quantile` (and the
+  classical functions where the rule takes the general engine) take the outer hyperbola with 1.5 times the step and the
+  U-shapes with 16 nodes per panel and 32 on the tails of the rays (24 and 40 before; 32 and 48 for 48 and 64 with a
+  fixed start), 0.50 times the time of one evaluation (median; 0.30 to 0.87), and near the unit root with c0 < 0 the
+  present step (or a finer one) with the thin inner rule, by regions of the start, the deterministic terms, c and c0
+  (`DFDet.path_region`, `DFDet.PATH_RULES`; the README, "The rules of one evaluation"), measured against a reference
+  with half the step and twice the nodes to within max(1e-9, twice the present rule's own error) in F and max(1e-8,
+  twice its own) of the largest density in f.  The values move by up to 7.6e-10 in F and 4e-9 of the peak in f (a dense
+  grid of x, 736 configurations); beyond the range measured (c > 2 with a fixed start, c > 5, c < -60 with c0 other than
+  0 and c) the rule is the present one.  With a fixed start, no deterministic terms, c0 < 0 and c > -1 the outer step is
+  finer than before: the present one was off by up to 0.86 in the upper tail (c = 0.5, g0 = 1, c0 = -20), now within
+  7e-12 of the classical engine, at 2 to 11 times the cost.  New keyword `rule` (:auto; :present the rule of before,
+  also taken by `verified = true`; :thin, :inner, :outer, :fine, :finestep); `hfac` is `nothing` (by the rule) unless
+  given.
 - **The branches fixed at each point.** The classical engine's P(t), M_0(t) and the labels of the roots of the line and
   contour integrals (`DFExact.tparts`) and the argument of log P(t) in the provider of the general engine's line integral
   are fixed at each point, after Bao and Kan (the factors whose arguments are known; the pivots of the precision matrix,

@@ -212,6 +212,40 @@ c = 16 and gives 1e44 in case DT, and the general engine's line exceeds its boun
 the oscillation with c0 (it was off by 1.1e-3 at c = 10, c0 = 9). Every distribution function (`ltratio_cdf`, `coef_cdf`,
 `dist_cdf`, `DFDet.coef_cdf`) ends with a check of its values: below -1e-8 or above 1 + 1e-8 an error that names the call.
 
+### The rules of one evaluation
+
+One evaluation of the general engine's inversion on paths (`dist_cdf`, `dist_pdf`, `dist_quantile` and, through them, the
+classical functions where the rule `autoengine` takes the general engine) takes a thinner rule than before November 2026
+where it holds (`DFDet.PATH_RULES`, `DFDet.path_region`; keyword `rule`, :auto by default): the outer hyperbola with 1.5
+times the step and the U-shapes with 16 nodes per panel and 32 on the tails of their rays for 24 and 40 (32 and 48 for 48
+and 64 with a fixed start), 0.50 times the time of one evaluation (the median over 564 configurations, 0.30 to 0.87; the thin inner rule on the present
+hyperbola 0.73). The regions, a rule in (the start, whether
+the design has deterministic terms, c, c0) that the C engine and the MATLAB programs can take over:
+
+| region | rule | why |
+|---|---|---|
+| c > -1, c0 < 0, zero or stationary start | the thin inner rule on the present hyperbola | the thinner outer step lost 1.3e-8 of the peak of the density (case DK at c = 0, c0 = -5) |
+| c > -1, c0 < 0, fixed start, deterministic terms | the thin inner rule on the present hyperbola with half its step | the thinner outer step lost up to 3.1e-6 (case DU at c = 2, c0 = -5) |
+| c > -1, c0 < 0, fixed start, no deterministic terms | the present inner rule on the present hyperbola, the step min(1/2, 2.5/(g0 \|c0\|)) times its own where it is flatter than 70 degrees (2 to 11 times the cost) | the present step was off by up to 0.86 in the upper tail (c = 0.5, g0 = 1, c0 = -20; 1.8e-3 at c0 = -5), this one within 7e-12 of the classical engine (g0 from 0.5 to 2, c from -0.5 to 1, c0 from -1 to -20) |
+| c > -1, c0 = 0, fixed start, no deterministic terms | the thin inner rule on the present hyperbola | the thinner outer step lost 1.4e-8 of the peak of the density at mean + 5.75 sd (c = 0.5) |
+| c > 2 with a fixed start, c > 5; c < -60 with c0 other than 0 and c | the present rule | beyond the range of the sweep (at c = 5 with a fixed start the thin rule differed from the present one by 5.6e-6 of the peak of the density, Perron's model C with two breaks; at c = -480, case DK, c0 = 2, by 7.7e-9) |
+| elsewhere | the thin rule | |
+
+On the vertical line (above the unit root, where no hyperbola keeps the positive roots right of the origin) the line keeps
+its panels and only the inner rule thins. `rule = :present` gives the rule of before, `verified = true` takes it (and its
+variants), and `hfac`, `n`, `ntail` override the rule. A sweep of 822 configurations (no deterministic terms, an
+intercept, linear and quadratic trends, Perron's model B with one break and model C with two, the linear trend
+GLS-detrended at -13.5 and detrending first; zero, fixed (g0 = 1) and stationary starts; c from 2 to -60 and c0 in {0, 2,
+-2, 5, -5, c}; F and f at the 1e-5 to 1 - 1e-5 points; `scratch/rules/sweep1.jl` of the branch kan-integration) set the
+regions, and a dense one checked them (`scratch/rules/dense3.jl`: 736 configurations, x from the mean - 6 sd to the mean + 6 sd in steps of 0.5 sd, c from 2 to -60 and at 5 and -480; the rule within 7.6e-10 of the present rule in F and 4e-9 of the peak in f wherever it is not the present one or a finer one). The criterion: within max(1e-9, twice the
+present rule's own error) in F and max(1e-8 of the largest density, twice its own) in f, against a reference with half the
+outer step and twice the inner nodes. A first thin rule with 12 and 24 nodes held at the sweep's points but lost up to
+9e-8 of the peak of the density between them near the unit root (case DK at c = 0.5 near the mode), which 16 and 32 nodes
+do not. Far from the unit root the reference is not the more accurate: in case DK at c = -60, c0 = 2 the present rule is
+within 1.7e-10 of the classical engine's checked computation, the reference 6.7e-10. On the line with c0 > 0 at x < 0 (two
+roots of the parabola) the line keeps its Gauss-Legendre rule and its warning, and the present rule is off by up to 2.7e-5
+there (case DK at c = 5, c0 = 2), as is the thin one.
+
 ## The devices of Bao and Kan
 
 The half-plane statistics of the six classical cases, the coefficient statistic (`coef_cdf`, `coef_pdf`, `coef_icdf`,

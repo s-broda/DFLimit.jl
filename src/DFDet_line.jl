@@ -292,7 +292,7 @@ takes the paths silently.
 """
 function line_select(method::Symbol, D::Determ, c::Real, start::Symbol, gamma0::Real, gls, phi, hfac, c0::Float64, kw)
     other = String[string(k) for k in keys(kw) if k !== :c0]
-    phi === nothing || push!(other, "phi"); hfac == 1 || push!(other, "hfac")
+    phi === nothing || push!(other, "phi"); (hfac === nothing || hfac == 1) || push!(other, "hfac")
     why = !isempty(other) ? "the options $(join(other, ", ")) belong to the inversion on paths" :
           !(isfinite(c) && isfinite(c0)) ? "c and c0 must be finite" : nothing
     (method === :auto && why === nothing && !line_auto(Float64(c), c0)) && return nothing     # (before the provider is built)
@@ -319,15 +319,21 @@ bounds of the engine (PathTooLarge, raised before anything is evaluated) method 
 the two differ by more than vtol, the checked inversion on paths (`verify_eval`) is returned, with a warning.
 """
 function line_dist(method::Symbol, D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac,
-                   verified::Bool, vtol::Float64; kw...)
+                   verified::Bool, vtol::Float64; rule::Symbol = :auto, kw...)
     method === :paths && return nothing
     method in (:auto, :line) || throw(ArgumentError(LINE_METHOD_MSG))
     c0 = Float64(get(kw, :c0, 0.0))
     lm = line_select(method, D, c, start, gamma0, gls, phi, hfac, c0, kw)
     lm === nothing && return nothing
     fn = which == 1 ? "dist_cdf" : "dist_pdf"
-    paths(xp) = (CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac);
-                 v = contour_eval(line_refined(CP, xp; c0), xp; c0)[which]; which == 2 && tangency!(v, CP.Mo, xp, c0); v)
+    # (the paths at the points the line integral leaves to them, by the rule of one evaluation; with verified = true, the
+    # check below, by the present rule)
+    function paths(xp)
+        Mo = startmodel(D, c, start, gamma0, gls)
+        hf, n, nt, rl = path_rule(rule, verified, Mo, c, c0, hfac, kw)
+        CP = rule_path(Mo, c, phi, hf, rl, c0)
+        v = contour_eval(line_refined(CP, xp; c0), xp; c0, n, ntail = nt)[which]; which == 2 && tangency!(v, CP.Mo, xp, c0); v
+    end
     nonfinite(xs, which == 1) do x
         v = similar(x); fb = Int[]
         for k in eachindex(x)
@@ -345,7 +351,7 @@ function line_dist(method::Symbol, D::Determ, xs::AbstractVector, c::Real, which
             fin = [k for k in eachindex(x) if isfinite(v[k]) || isfinite(vp[k])]
             d = maximum(k -> abs(v[k] - vp[k]), fin; init = 0.0)
             if !(d <= vtol)
-                CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac)
+                CP = cpath_cached(startmodel(D, c, start, gamma0, gls), c; phi, hfac = something(hfac, 1.0))
                 v = verify_eval((CPv, o) -> contour_eval(line_refined(CPv, x; c0), x; o..., c0)[which], CP, vtol)
                 which == 2 && tangency!(v, CP.Mo, x, c0)
                 @warn "verified: the line integral and the inversion on paths differ by $(round(d, sigdigits = 2)) (above $vtol); the checked inversion on paths is returned" D.name start c c0
