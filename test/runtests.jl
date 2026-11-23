@@ -472,6 +472,7 @@ end
         @test occursin("c = 16.0, c0 = 2.0, x = 1.0e7", m) && occursin("is computed for c <= 14.0 only", m)
     end
     @test occursin("is computed for c <= 14.0 only", errmsg(() -> ltratio_pdf(1e7, "DK", 16; c0 = 2)))
+    @test occursin("is computed for c <= 14.0 only", errmsg(() -> ltratio_cdf(1e7, "DK", 16; c0 = -2, verified = true)))   # (the rule's :double)
     @test ltratio_cdf(0.5, "DK", 16; c0 = 16) ≈ ltratio_cdf(0.5, "DK", 16; c0 = 16, method = :single)   # (c0 = c: the line integral)
     # cases DU, DT keep one evaluation where the checked conditional integral flags (the general engine agrees)
     @test ltratio_cdf(3304.0, "DU", 10; c0 = 0) ≈ ltratio_cdf(3304.0, "DU", 10; c0 = 0, engine = :general) atol = 1e-10

@@ -2220,6 +2220,9 @@ function ltratio_dist_(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.
     ctr = [k for k in fin if mth(k) == :contour]
     dbl = [k for k in fin if mth(k) == :double]
     sgl = setdiff(fin, dbl, ctr)
+    # (case DK far above the unit root above c = 14: refused before anything is computed, whichever representation the
+    # rule names, with verified = true too; dk_far_check)
+    method == :auto && Float64(c) > DKFAR_CMAX && foreach(k -> dk_far(model, stat, g0, Float64(c), c0, xs[k]) && dk_far_check(kind, Float64(c), c0, xs[k]), fin)
     single(k) = kind == 2 ? cdf(xs[k], model; c = Float64(c), c0, g0, start, kw...) : density(xs[k], model; c = Float64(c), c0, g0, start, kw...)
     # the line integral at a point of sgl; where its paths exceed the bounds of the engine (PathTooLarge, raised before its
     # inner integrals are evaluated), with method = :auto the conditional integral with its checks (route_double), with
