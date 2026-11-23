@@ -1,20 +1,22 @@
 """
     DFKan
 
-Prototypes of the devices of Bao and Kan ("Exact finite-sample distribution and moments of the least squares estimator
-in first-order autoregressions: O(1) algorithms", and its MATLAB programs) for this package:
+The numerical devices of Yong Bao and Raymond Kan, from their paper "Exact Finite-Sample Distribution and Moments of the
+Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms" and its MATLAB programs, for the limits of this
+package.  The method of every function here is theirs; the code is a port to the limit pair (U, V) of the package:
 
   * the joint characteristic function of the limit pair in closed forms that are free of cancellation on both sides of
     the unit root, with the branch of the square root settled at each point from factors whose arguments are known
     (no tracking along a grid), evaluated in Taylor-mode arithmetic (`Jet`), so that derivatives of any order come out
     of the same assembly (`logcf`);
   * the single inversion for statistics that reject on a half-plane (the coefficient statistic, the linear form U - aV,
-    the power envelope): adaptive quadrature on [0, tbar] and the tail completed by repeated integration by parts, the
-    derivatives read off a jet (`ratio_cdf`, `ratio_pdf`, `ratio_icdf`, `ratio_mom`; `coef_cdf`, `coef_pdf`,
-    `coef_icdf`, `coef_mom`, `lin_cdf`, `envelope`);
+    the power envelope): adaptive quadrature over decades and the tail completed by repeated integration by parts, the
+    derivatives read off a jet (`half_cdf`, `ratio_cdf`, `ratio_pdf`, `ratio_icdf`, `ratio_mom`), each value with an
+    error estimate; the package's `coef_cdf`, `coef_pdf`, `coef_icdf`, `coef_mom`, `ltratio_lincdf`, `power_envelope`
+    and `ltratio_mom` take these for the six classical cases (src/merged.jl, the functions `coef_cdf1` and so on here);
   * the branch of P(t), M_0(t) and the labels of the roots of the line integral at a single point t (`tparts_point`,
     file DFKan_branch.jl), and of the general engine's determinant (`DetCF`, file DFKan_det.jl);
-  * the moments of the t-ratio at a local null value from one jet per node (`tratio_mom`), and the distribution
+  * the moments of the t-ratio at a local null value from one jet per node (`tratio_mom1`), and the distribution
     function of the t-ratio at zero in closed form (`ray_cdf`).
 
 The pair is (U, V) of the package: the t-ratio is (U - c0 V)/sqrt(V) and the coefficient statistic (U - c0 V)/V.  Bao

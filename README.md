@@ -31,6 +31,7 @@ the classical cases come from the multithreaded Julia engine of the paper, `DFEx
 | `ltratio_icdf(p, cas, c = 0; c0, g0, method, tol)` | quantiles (asymptotic critical values) |
 | `ltratio_mom(p, cas, c = 0; c0, g0)` | moments E[t^j], j = 1..p |
 | `coef_cdf(y, cas, c = 0; c0, ...)`, `coef_icdf(p, cas, c = 0; tol, ...)` | the coefficient statistic n(phi^ - phi0) |
+| `coef_pdf(y, cas, c = 0; c0, g0)`, `coef_mom(p, cas, c = 0; c0, g0)` | its density and moments |
 | `adfmax_cdf(x, cas, c = 0)`, `adfmax_pdf`, `adfmax_icdf(p, cas, c = 0; tol, x0)` | the ADFmax statistic (cases DU, DT, SU, ST) |
 | `ltratio_region(bnd, cas = "DK", c = 0)` | P{U <= g(V)} for a line, the parabola of the t-ratio, the WAP boundary or a function g |
 | `ltratio_lincdf(b, a, cas, c = 0; cbar, N, umax)` | the distribution of U - aV (a = NaN: of V), case DK or DG |
@@ -196,6 +197,37 @@ the edge of its support (4.4e-7), and the parts at the root of the
 parabola on the vertical line, which now go to Filon's rule (the linear form was off by up to 4e-3 above the unit root
 and by 1e-4 with GLS detrending at small |cbar|, the t-ratio with c0 < 0 by 8.5e-5 and its density by 1e-2). On the
 line ADFmax and parabolas with two roots (c0 > 0 with x < 0) keep the Gauss-Legendre rule and its warning.
+
+## The devices of Bao and Kan
+
+The half-plane statistics of the six classical cases, the coefficient statistic (`coef_cdf`, `coef_pdf`, `coef_icdf`,
+`coef_mom`), the linear form U - aV (`ltratio_lincdf`) and the power envelope (`power_envelope`), are computed by default
+with the numerical devices of Yong Bao and Raymond Kan, "Exact Finite-Sample Distribution and Moments of the Least
+Squares Estimator in First-Order Autoregressions: O(1) Algorithms", ported to the limits of this package in the module
+`DFLimit.DFKan` (`src/DFKan*.jl`). The joint characteristic function of the limit pair comes in closed forms that are free
+of cancellation on both sides of the unit root, with the branch of the square root fixed at each point from factors whose
+arguments are known, and in Taylor-mode arithmetic (jets), so that its derivatives come out of the same assembly. A
+statistic that rejects on a half-plane is then one inversion along a ray, by adaptive quadrature over decades with the tail
+beyond S = 400/|w| (w the slope of the dominant phase) completed by repeated integration by parts, the derivatives of the
+slowly varying factor read off a jet of order eight. Every value comes with an error estimate: `err = true` returns
+`(values, errors)`, `tol` (1e-12) is the absolute tolerance, and a warning names the values whose estimate exceeds it.
+`method = :engine` is the computation of before (the engines, by the rule of `autoengine`; the t-ratio at x = 0 for the
+coefficient statistic), which reproduces those values, and engine = :classical or :general, the engines' own keywords and
+case DG take it as well; `method = :inversion` forces the single inversion; `verified = true` recomputes by the engines'
+checked computation the values whose estimate exceeds the tolerance.
+
+| function | the single inversion by default | largest difference from the engines | which is right where they differ | warm time (ms), single inversion against `method = :engine` |
+|---|---|---|---|---|
+| `coef_cdf`, `coef_icdf` | the six cases with zero, fixed and stationary starts, -550 <= c <= 20 | 2.4e-11 in cases SK, SU, ST; in cases DK, DU, DT 3.1e-10 (c = -550), 1.8e-9 (case DU, c = -1e-3, the 1% point) and 4e-9 at c = 20, where the law lies within 1e-6 of y = c and the rounding of y moves F (1,836 points at nine quantiles; at each the single inversion with the tolerances 1e-10 and 1e-12 agrees to 1e-15) | case DU, c = -60, g0 = 1.5: the engines' one evaluation off by up to 1.5e-6, the single inversion within 4.3e-12 of their checked computation | 0.04 to 0.3 against 0.3 to 59 (30 to 1600 times faster; 0.8 times in the upper tail of case DK, where the line integral has no root); quantiles 1.6 to 2.5 against 55 to 144 |
+| `coef_pdf`, `coef_mom` | the same cases (new functions) | the density within 2.1e-13 of the general engine's (`DFDet.coef_pdf`); the first two moments within 1.3e-12 of the integrals of the density | | 0.05 to 1 |
+| `ltratio_lincdf` | case DK with a zero start for -100 <= c <= 4, the six cases through their designs (fixed start included) for -100 <= c <= 2, a != 0 | 5.5e-11 against the classical code (2.2e-11 at the tolerance 1e-12), 1e-12 against the general engine | with a fixed start above the unit root the general engine's one evaluation is off by up to 6e-2 (case DK, c = 1, a = -7, the 99% point) and 2.9e-3 (case DU, c = 2): the single inversion agrees with its checked computation and with the plain quadrature without the tail to 1e-14 | 0.08 to 0.5 against 4.8 to 12 (11 to 165 times faster) |
+| `power_envelope` | case DK (DU), c <= -1e-4 | 2.7e-12 against the general engine (critical value to 1e-10) from c = -1e-4 to -500 | the classical bisection of the critical value to 1e-9 is off by up to 1.1e-9 | 1.2 to 13 against 35 to 161 (10 to 40 times faster) |
+
+At a = 0 (the law of U alone, whose transform decays like a power, with the edge of its support where the tail start runs
+away) the linear form stays with the engines' closed form; at c = 7 in case DK the classical code differs from the single
+inversion by 2e-8 at the 99.9% point with a = 2, which no third computation settled, so the default there is unchanged.
+Times are warm BenchmarkTools minima on four threads of a shared Apple M4 (November 2026, `scratch/int` of the branch
+kan-integration), against `method = :engine` in the same session.
 
 ## Example
 

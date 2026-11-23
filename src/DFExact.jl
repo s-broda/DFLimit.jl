@@ -2140,6 +2140,33 @@ function route(f::Symbol, engine::Symbol, args...; kw...)
     (engine === :classical || ROUTE[] === nothing) && return nothing
     ROUTE[](f, engine, args...; kw...)
 end
+"""
+The single inversion of Bao and Kan ("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in
+First-Order Autoregressions: O(1) Algorithms"; the module DFLimit.DFKan) for the statistics that reject on a half-plane
+and for the moments: the router returns its values where `method` takes it (method = :auto with engine = :auto in the
+cases and the region where it is checked, method = :inversion or :jets always), or nothing, and this engine computes
+(method = :engine, the representations of the engines, engine = :classical or :general, case DG).  Without a router
+(this file included alone) nothing, except that method = :inversion and :jets raise an error.
+"""
+function route_inv(f::Symbol, engine::Symbol, args...; method::Symbol = :auto, kw...)
+    engine in (:auto, :classical, :general) || throw(ArgumentError("engine must be :auto, :classical or :general"))
+    if ROUTE[] === nothing
+        method in (:inversion, :jets) && throw(ArgumentError("method = :$method (the devices of Bao and Kan) needs the package DFLimit"))
+        return nothing
+    end
+    ROUTE[](f, engine, args...; method, kw...)
+end
+"""the methods of the functions with the single inversion: :auto, :inversion, :engine, and the representations of the
+t-ratio where `extra` (the coefficient statistic, through the t-ratio's distribution function at zero)"""
+function inv_method(fn::String, method::Symbol, extra::Bool)
+    method in (:auto, :inversion, :engine) && return method
+    extra && method in (:single, :line, :double, :conditional, :contour) && return method
+    throw(ArgumentError("$fn: method must be :auto, :inversion (the single inversion of Bao and Kan) or :engine (the engines' computation)" *
+                        (extra ? ", or a representation of the t-ratio (:single or :line, :double or :conditional, :contour)" : "")))
+end
+"""the values v without the error estimates (err = false), or with NaN for them (err = true: the engines' computation
+has no error estimate per value)"""
+noerr(v, err::Bool) = err ? (v, v isa Number ? NaN : fill(NaN, size(v))) : v
 
 function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, verified::Bool = false,
                       engine::Symbol = :auto, kw...)
@@ -2388,20 +2415,38 @@ function ltratio_icdf_(p, cas::AbstractString, c::Real, model::Int; tol::Real, c
 end
 
 """
-    ltratio_mom(p, cas, c = 0; c0 = 0, g0 = 0) -> m
+    ltratio_mom(p, cas, c = 0; c0 = 0, g0 = 0, method = :auto, engine = :auto, verified = false, tol = 1e-10, err = false) -> m
 
 m[j] = E[t^j], j = 1..p, for the limit (U - c0 V)/sqrt(V) of the t-ratio under phi = 1 + c/n (the moments of the
-limit in the Supplementary Material; `moments`).
+limit in the Supplementary Material): E t^j = Gamma(j/2)^{-1} int_0^inf s^{j/2-1} m_j(s) ds, m_j(s) the j-th derivative
+of the moment generating function along its affine path.
+
+By default (method = :auto with engine = :auto, where it is checked; see the README) the derivative comes from one
+Taylor-mode jet of order j at each node of an adaptive quadrature in log s, the method of Bao and Kan ("Exact
+Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms";
+`DFLimit.DFKan.tratio_mom1`), with the closed-form transform of the six cases (any c0 and fixed start), 0.3 to 1.3 ms
+for four moments; `tol` is the relative tolerance of its quadrature, `err = true` returns `(m, errors)`, and a
+warning names the moments whose error estimate exceeds `tol` times their size.  `method = :jets` forces it, `method =
+:engine` is the computation of before (the derivatives as Cauchy integrals on a circle, by the classical engine,
+`moments`, or the general engine, by the rule of `autoengine`), which reproduces those values; engine = :classical or
+:general and further options take that computation too.  verified = true recomputes the moments by the engines where an
+error estimate exceeds the tolerance.
 
     ltratio_mom(4, "DU")[2]                         # 3.0559953450 (Nabeya, 1999)
 """
-function ltratio_mom(p::Int, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, engine::Symbol = :auto, kw...)
+function ltratio_mom(p::Int, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, engine::Symbol = :auto,
+                     verified::Bool = false, tol::Real = 1e-10, err::Bool = false, kw...)
     p >= 1 || throw(ArgumentError("p must be a positive integer"))
-    engine === :general && return route(:mom, engine, p, cas, c; c0, g0, kw...)
+    method in (:auto, :jets, :engine) || throw(ArgumentError("ltratio_mom: method must be :auto, :jets (one jet per node, after Bao and Kan) or :engine (the engines' circles)"))
+    if engine === :general
+        method === :jets && throw(ArgumentError("ltratio_mom: method = :jets (the jets of Bao and Kan) does not apply with engine = :general"))
+        return noerr(route(:mom, engine, p, cas, c; c0, g0, kw...), err)
+    end
     model, stat, c0, g0, _ = ltratio_args(cas, c; c0, g0)
     model == 4 && throw(ArgumentError("the moments are not available for case DG"))
-    r = route(:mom, engine, p, cas, c; c0, g0, kw...); r === nothing || return r
-    moments(model; c = Float64(c), c0, g0, start = stat ? :stationary : :zero, pmax = p, kw...)
+    r = route_inv(:mom_inv, engine, p, cas, c; c0, g0, method, verified, tol = Float64(tol), err, kw...); r === nothing || return r
+    r = route(:mom, engine, p, cas, c; c0, g0, kw...); r === nothing || return noerr(r, err)
+    noerr(moments(model; c = Float64(c), c0, g0, start = stat ? :stationary : :zero, pmax = p, kw...), err)
 end
 
 # =====================================================================================
@@ -5576,22 +5621,38 @@ is the same) or "DG" (the GLS-detrended trend case of Elliott, Rothenberg and St
 point-optimal test of Elliott, Rothenberg and Stock against cbar < 0 rejects for U - aV < b: in case DK with a = cbar/2
 (its log likelihood ratio is cbar U - cbar^2 V/2), in case DG, with the data detrended at cbar, with
 a = cbar^2/(2 (cbar - 1)) (it rejects for small cbar^2 V + (1 - cbar) J(1)^2, J(1)^2 = 2U + 1); see `power_envelope`.
-a = NaN gives P(V <= b) (case DK).  By the inversion formula of Gil-Pelaez (`tr_gilpelaez`) where its transform has decayed
-by the end of its grid and c <= 0, to about 1e-10; otherwise (|a| below about 0.3 to 3, depending on c, which includes
-a = 0, the law of U alone, and c > 0) by a conditional integral: in case DK that of the region {U <= aV + b}
-(`ltratio_region`), in case DG the conditional integral given U (`lincond`), to about 1e-10 and in [0, 1].  c must be at
-least -550; in case DG at most about 3.5, and for a = NaN about 7 (an ArgumentError beyond).  As LTRATIO_LINCDF of the
-MATLAB programs.
+a = NaN gives P(V <= b) (case DK).
+
+In case DK the default (method = :auto with engine = :auto, a finite) is the single inversion of the joint
+characteristic function along the ray of the half-plane, the method of Bao and Kan ("Exact Finite-Sample Distribution
+and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms"; `DFLimit.DFKan`), with the
+tail beyond S = 400/|w| (w = 1/2 + b) completed by integration by parts, where it is checked (see the README); `tol` is
+its absolute tolerance, `err = true` returns `(P, errors)`, and a warning names the points at which the error estimate
+exceeds the tolerance.  `method = :inversion` forces it, `method = :engine` is the computation of before (it reproduces
+those values): by the inversion formula of Gil-Pelaez (`tr_gilpelaez`) where its transform has decayed by the end of its
+grid and c <= 0, to about 1e-10; otherwise (|a| below about 0.3 to 3, depending on c, which includes a = 0, the law of U
+alone, and c > 0) by a conditional integral: in case DK that of the region {U <= aV + b} (`ltratio_region`), in case DG
+the conditional integral given U (`lincond`), to about 1e-10 and in [0, 1]; or the general engine, by the rule of
+`autoengine`.  Case DG, a = NaN, the keywords cbar, N, umax and engine = :classical or :general take that computation.
+verified = true recomputes the values whose error estimate exceeds the tolerance by the engines' computation.  c must
+be at least -550; in case DG at most about 3.5, and for a = NaN about 7 (an ArgumentError beyond).  As LTRATIO_LINCDF of
+the MATLAB programs.
 
     ltratio_lincdf(-0.2639, -3.5, "DK", 0)          # 0.05: the size of the point-optimal test at cbar = -7
 """
-function ltratio_lincdf(b, a::Real, cas::AbstractString, c::Real = 0; engine::Symbol = :auto, kw...)
-    engine === :general && return route(:lincdf, engine, b, a, cas, c; kw...)
+function ltratio_lincdf(b, a::Real, cas::AbstractString, c::Real = 0; method::Symbol = :auto, engine::Symbol = :auto, verified::Bool = false,
+                        tol::Real = 1e-12, err::Bool = false, kw...)
+    method = inv_method("ltratio_lincdf", method, false)
+    if engine === :general
+        method === :inversion && throw(ArgumentError("ltratio_lincdf: method = :inversion (the single inversion of Bao and Kan) does not apply with engine = :general"))
+        return noerr(route(:lincdf, engine, b, a, cas, c; kw...), err)
+    end
     uppercase(String(cas)) in ("DK", "DG") || throw(ArgumentError("ltratio_lincdf: the case must be DK or DG"))
     (c isa Real && isfinite(c)) || throw(ArgumentError("ltratio_lincdf: c must be a finite real scalar"))
     c >= CMIN || throw(ArgumentError("ltratio_lincdf: " * CMIN_MSG))
-    r = route(:lincdf, engine, b, a, cas, c; kw...); r === nothing || return r
-    tr_gilpelaez(b, a, cas, c; kw...)[1]
+    r = route_inv(:lincdf_inv, engine, b, a, cas, c; method, verified, tol = Float64(tol), err, kw...); r === nothing || return r
+    r = route(:lincdf, engine, b, a, cas, c; kw...); r === nothing || return noerr(r, err)
+    noerr(tr_gilpelaez(b, a, cas, c; kw...)[1], err)
 end
 
 """
@@ -5603,15 +5664,32 @@ constant case, "DU", where the point-optimal test uses the GLS-demeaned data and
 "DG" (the trend case, the point-optimal test against c with the data GLS-detrended at c).  The test against cbar rejects
 for small U - aV (`ltratio_lincdf`), a = cbar/2 in case DK and a = cbar^2/(2 (cbar - 1)) in case DG (where the limit
 of the invariant statistic of Elliott, Rothenberg and Stock is cbar^2 V + (1 - cbar) J(1)^2, J(1)^2 = 2U + 1): its
-critical value is the alpha-quantile at c = 0 (`ltratio_bisect` on [-50, 50] to 1e-9) and the envelope its power at
-cbar = c; alpha for c >= 0.  To about 1e-10.  As POWER_ENVELOPE of the MATLAB programs.
+critical value is the alpha-quantile at c = 0 and the envelope its power at cbar = c; alpha for c >= 0.
+
+In case DK (and DU) the default (method = :auto with engine = :auto) computes both by the single inversion of the joint
+characteristic function along the ray of the half-plane, the method of Bao and Kan ("Exact Finite-Sample Distribution
+and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms"; `DFLimit.DFKan`), the
+critical value by regula falsi to 1e-12, where it is checked (see the README); `tol` is the tolerance of each
+inversion, `err = true` returns `(P, errors)` (the sum of the two inversions' error estimates), and a warning names the
+points at which that exceeds the tolerance.  `method = :inversion` forces it, `method = :engine` is the computation of
+before (the critical value by `ltratio_bisect` on [-50, 50] to 1e-9 on the inversion of Gil-Pelaez on a grid, or the
+general engine, by the rule of `autoengine`; to about 1e-10), which reproduces those values; case DG, the keywords N,
+umax and engine = :classical or :general take that computation.  verified = true recomputes the values whose error
+estimate exceeds the tolerance by the engines' computation.  As POWER_ENVELOPE of the MATLAB programs.
 
     power_envelope(-7, "DK")                        # 0.4994: at cbar = -7 the envelope has power one half
 """
-function power_envelope(c, cas::AbstractString = "DK"; alpha::Real = 0.05, engine::Symbol = :auto, kw...)
-    engine === :general && return route(:envelope, engine, c, cas; alpha, kw...)
+function power_envelope(c, cas::AbstractString = "DK"; alpha::Real = 0.05, method::Symbol = :auto, engine::Symbol = :auto, verified::Bool = false,
+                        tol::Real = 1e-12, err::Bool = false, kw...)
+    method = inv_method("power_envelope", method, false)
+    if engine === :general
+        method === :inversion && throw(ArgumentError("power_envelope: method = :inversion (the single inversion of Bao and Kan) does not apply with engine = :general"))
+        return noerr(route(:envelope, engine, c, cas; alpha, kw...), err)
+    end
     cas = uppercase(String(cas)); cas == "DU" && (cas = "DK")
     cas in ("DK", "DG") || throw(ArgumentError("power_envelope: the case must be DK (or DU) or DG"))
+    r = route_inv(:envelope_inv, engine, c, cas; alpha, method, verified, tol = Float64(tol), err, kw...); r === nothing || return r
+    err && return noerr(power_envelope(c, cas; alpha, method, engine, kw...), true)
     r = route(:envelope, engine, c, cas; alpha, kw...); r === nothing || return r
     one(ck) = begin
         ck = Float64(ck)
@@ -6159,31 +6237,65 @@ end
 # The coefficient statistic n(phi^ - phi0) => (U - c0 V)/V: P[(U - c0 V)/V <= y] = P[U - (c0 + y)V <= 0], the t-ratio's
 # distribution function at 0 with the local null value c0 + y (rho_cdf of julia/application/power.jl, Fr of ci.jl)
 """
-    coef_cdf(y, cas, c = 0; c0 = 0, opts...) -> F
+    coef_cdf(y, cas, c = 0; c0 = 0, g0 = 0, method = :auto, engine = :auto, verified = false, tol = 1e-12, err = false, opts...) -> F
 
 The limit as n -> inf of P[n(phi^ - phi0) <= y] (y a number or an array) for the least squares estimate phi^ of phi in
 the regression of `ltratio_cdf`, under phi = 1 + c/n, with phi0 = 1 + c0/n (c0 = 0: the coefficient test of Dickey and
-Fuller, rho^ = n(phi^ - 1)).  The limit is (U - c0 V)/V, so that P[(U - c0 V)/V <= y] = P[U - (c0 + y)V <= 0], the
-distribution function of the t-ratio at 0 with the local null value c0 + y: ltratio_cdf(0, cas, c; c0 = c0 + y, opts...),
-in every case and with every start and option of `ltratio_cdf` (method, g0).  As COEF_CDF of the MATLAB programs.
+Fuller, rho^ = n(phi^ - 1)).  The limit is (U - c0 V)/V, so that P[(U - c0 V)/V <= y] = P[U - (c0 + y)V <= 0].
+
+In the cases DK, DU, DT (zero or fixed start g0) and SK, SU, ST the default (method = :auto with engine = :auto) is the
+single inversion of the joint characteristic function along the ray of the half-plane, the method of Bao and Kan
+("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1)
+Algorithms"): adaptive quadrature over decades, the tail completed by integration by parts with the derivatives from
+jets, the closed-form transform with the branch fixed at each point (`DFLimit.DFKan`), one evaluation of 0.02 to 1.5 ms
+a value with an error estimate, up to c = 20 (`DFKan.INV_CMAX`); `tol` is its absolute tolerance, and a warning, once per
+call, names the points at which the estimate exceeds it.  `err = true` returns the error estimates as well, `(F,
+errors)` (NaN for values the single inversion did not compute).  `method = :inversion` forces the single inversion
+(also above c = 20).  `method = :engine` is the computation of before, the distribution function of the t-ratio at 0
+with the local null value c0 + y, ltratio_cdf(0, cas, c; c0 = c0 + y, g0, engine), with its choice of engine and
+representation (it reproduces the values of 0.5.0 and of the merged package before the single inversion); the
+t-ratio's representations (:single or :line, :double or :conditional, :contour), engine = :classical or :general, its
+further options and case DG take that computation too.  verified = true keeps each value of the single inversion whose
+error estimate meets `tol` and recomputes the others by the checked computation of the engines (`ltratio_cdf` with
+verified = true); with method = :engine it is that checked computation.  As COEF_CDF of the MATLAB programs.
 
     coef_cdf(-14.094, "DU", 0)                      # 0.05: the 5% critical value of rho^_mu
 """
-function coef_cdf(y, cas::AbstractString, c::Real = 0; c0::Real = 0.0, kw...)
-    one(yk) = isnan(yk) ? NaN : yk == Inf ? 1.0 : yk == -Inf ? 0.0 : ltratio_cdf(0.0, cas, c; c0 = c0 + yk, kw...)
-    brittle_once(() -> y isa Number ? one(y) : map(one, y))   # (the brittle regimes that c0 + y passes, each warned once)
+function coef_cdf(y, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, engine::Symbol = :auto,
+                  verified::Bool = false, tol::Real = 1e-12, err::Bool = false, kw...)
+    method = inv_method("coef_cdf", method, true)
+    r = route_inv(:coef_cdf, engine, y, cas, c; c0, g0, method, verified, tol = Float64(tol), err, kw...); r === nothing || return r
+    m = method === :engine ? :auto : method
+    one(yk) = isnan(yk) ? NaN : yk == Inf ? 1.0 : yk == -Inf ? 0.0 : ltratio_cdf(0.0, cas, c; c0 = c0 + yk, g0, method = m, engine, verified, kw...)
+    v = brittle_once(() -> y isa Number ? one(y) : map(one, y))   # (the brittle regimes that c0 + y passes, each warned once)
+    noerr(v, err)
 end
 """
-    coef_icdf(p, cas, c = 0; tol = 1e-9, c0 = 0, opts...) -> y
+    coef_icdf(p, cas, c = 0; tol = 1e-9, c0 = 0, g0 = 0, method = :auto, engine = :auto, verified = false, err = false, opts...) -> y
 
 The p-quantiles (p a number or an array in (0, 1)) of the limit of n(phi^ - phi0) (`coef_cdf`), by the Illinois variant
-of regula falsi on a bracket grown from [-40, 10] to the width `tol`, about ten evaluations of `coef_cdf`.  Options as in
-`coef_cdf`.  As COEF_ICDF of the MATLAB programs.
+of regula falsi to the width `tol`.  By default (in the cases and the range of the single inversion of `coef_cdf`, the
+method of Bao and Kan, "Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order
+Autoregressions: O(1) Algorithms") on the single inversion's distribution function (tolerance 1e-12), from the bracket
+E[U - cV]/E[V] -/+ twice the scale of the ratio, 0.3 to 5 ms a value; `err = true` returns (y, errors) with the error
+estimate of the distribution function at the quantile divided by the density there; a warning where the error
+estimate of the distribution function exceeds 1e-12.  `method = :engine` (and the t-ratio's representations, engine =
+:classical or :general, case DG, further options) is the search of before on `coef_cdf` with method = :engine, from a
+bracket grown from [-40, 10], about ten evaluations; `verified = true` that search on the checked computation where the
+single inversion's estimate exceeds its tolerance.  As COEF_ICDF of the MATLAB programs.
 
     coef_icdf(0.05, "DK")                           # -8.039, the 5% critical value of rho^
 """
-function coef_icdf(p, cas::AbstractString, c::Real = 0; tol::Real = 1e-9, kw...)
-    BRITTLE_SEEN[] === nothing && return brittle_once(() -> coef_icdf(p, cas, c; tol, kw...))
+function coef_icdf(p, cas::AbstractString, c::Real = 0; tol::Real = 1e-9, c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto,
+                   engine::Symbol = :auto, verified::Bool = false, err::Bool = false, kw...)
+    method = inv_method("coef_icdf", method, true)
+    r = route_inv(:coef_icdf, engine, p, cas, c; tol = Float64(tol), c0, g0, method, verified, err, kw...); r === nothing || return r
+    m = method === :auto ? :engine : method
+    noerr(coef_icdf_engine(p, cas, c; tol, c0, g0, method = m, engine, verified, kw...), err)
+end
+"""the search of `coef_icdf` on the engines' distribution function (coef_cdf with method = :engine or a representation)"""
+function coef_icdf_engine(p, cas::AbstractString, c::Real; tol::Real, kw...)
+    BRITTLE_SEEN[] === nothing && return brittle_once(() -> coef_icdf_engine(p, cas, c; tol, kw...))
     one(pk) = begin
         0 < pk < 1 || throw(ArgumentError("coef_icdf: p must lie in (0, 1)"))
         f(x) = coef_cdf(x, cas, c; kw...) - pk

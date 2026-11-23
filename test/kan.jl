@@ -1,8 +1,14 @@
-# The prototypes of the devices of Bao and Kan (src/DFKan*.jl)
+# The devices of Bao and Kan ("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order
+# Autoregressions: O(1) Algorithms"; src/DFKan*.jl): the jets, the closed-form transform with the branch at each point,
+# and the package's functions that take them (the coefficient statistic, the linear form, the power envelope and the
+# moments of the t-ratio by the single inversion or from jets).  The tolerances are at least ten times the differences
+# measured in November 2026 (scratch/int of the branch kan-integration).
 using Test, DFLimit, Logging
 const KAN = DFLimit.DFKan
+quietly(f) = with_logger(f, NullLogger())
+errm(f) = try; f(); ""; catch e; sprint(showerror, e); end
 
-@testset "DFKan: devices of Bao and Kan" begin
+@testset "the devices of Bao and Kan" begin
     X = DFLimit.DFExact; G = DFLimit.DFDet
     @testset "jets" begin
         x = KAN.jetvar(Val(6), 0.3)
@@ -58,33 +64,85 @@ const KAN = DFLimit.DFKan
         end
     end
     @testset "the coefficient statistic by the single inversion" begin
-        # quantiles of n(phi^ - phi) from AR1LIM_ICDF of Bao and Kan (MATLAB): (case, c, par-free start g0, p, x)
-        his = (("DK", 0.0, 0.0, 0.05, -8.039128902741016), ("DU", 0.0, 0.0, 0.05, -14.093590831289385), ("DT", 0.0, 0.0, 0.05, -21.711224283138424),
-               ("SU", -5.0, 0.0, 0.5, -3.5578742468854818))
-        for (cas, c, g0, p, x) in his
-            @test abs(KAN.coef_cdf(x + c, cas, c; g0) - p) < 1e-9
-            @test abs(KAN.coef_icdf(p, cas, c; g0) - (x + c)) < 1e-7
+        # the default against the engines' computation (method = :engine)
+        for (cas, c, g0, y) in (("DK", -5.0, 0.0, -9.0), ("DU", -5.0, 1.0, -12.0), ("DT", 1.0, 0.0, -10.0), ("SK", -1.0, 0.0, -3.0), ("SU", -10.0, 0.0, -20.0),
+                                ("ST", -5.0, 0.0, -25.0), ("DU", -5.0, 0.0, -14.0), ("DK", 0.0, 0.0, -8.039), ("DT", -2.0, 0.0, -4.0))
+            @test abs(coef_cdf(y, cas, c; g0) - quietly(() -> coef_cdf(y, cas, c; g0, method = :engine))) < 1e-11       # (measured 8.2e-13)
         end
-        for (cas, c, g0, y) in (("DK", -5.0, 0.0, -9.0), ("DU", -5.0, 1.0, -12.0), ("DT", 1.0, 0.0, -10.0), ("SK", -1.0, 0.0, -3.0), ("SU", -10.0, 0.0, -20.0), ("ST", -5.0, 0.0, -25.0))
-            v = with_logger(() -> coef_cdf(y, cas, c; g0), NullLogger())
-            @test abs(KAN.coef_cdf(y, cas, c; g0) - v) < 1e-9
-            h = 1e-4
-            @test abs(KAN.coef_pdf(y, cas, c; g0) - (KAN.coef_cdf(y + h, cas, c; g0) - KAN.coef_cdf(y - h, cas, c; g0)) / 2h) < 1e-6
+        # quantiles of n(phi^ - phi) from AR1LIM_ICDF of Bao and Kan (their MATLAB programs): (case, c, g0, p, x)
+        for (cas, c, g0, p, x) in (("DK", 0.0, 0.0, 0.05, -8.039128902741016), ("DU", 0.0, 0.0, 0.05, -14.093590831289385), ("DT", 0.0, 0.0, 0.05, -21.711224283138424),
+                                   ("SU", -5.0, 0.0, 0.5, -3.5578742468854818))
+            @test abs(coef_cdf(x + c, cas, c; g0) - p) < 1e-11
+            @test abs(coef_icdf(p, cas, c; g0) - (x + c)) < 1e-9
         end
-        # at the chi-square point (y = -c0) the tail carries the slow decay: the closed form
+        @test abs(coef_icdf(0.05, "DU") - quietly(() -> coef_icdf(0.05, "DU"; method = :engine))) < 1e-9         # (7.6e-11: the search of before stops at a width of 1e-9)
+        # the error estimates, the options and the computation of before
+        P, E = coef_cdf([-14.0, -5.0], "DU", -5; err = true)
+        @test P == coef_cdf([-14.0, -5.0], "DU", -5) && all(0 .< E .< 1e-12)
+        @test coef_cdf(-14.0, "DU", -5; method = :engine) == coef_cdf(-14.0, "DU", -5; engine = :classical) == ltratio_cdf(0.0, "DU", -5; c0 = -14.0)
+        @test coef_cdf(-14.0, "DU", -5; method = :inversion) == coef_cdf(-14.0, "DU", -5)
+        @test coef_cdf(-14.0, trend(0), -5) == coef_cdf(-14.0, "DU", -5)
+        @test isnan(coef_cdf(-14.0, "DU", -5; method = :engine, err = true)[2])
+        @test coef_cdf(-16.59, "DG", -13.5) == coef_cdf(-16.59, "DG", -13.5; method = :engine)          # (case DG: the engines)
+        @test occursin("method = :inversion applies", errm(() -> coef_cdf(-16.59, "DG", -13.5; method = :inversion)))
+        @test occursin("does not apply with engine = :general", errm(() -> coef_cdf(-14.0, "DU", -5; method = :inversion, engine = :general)))
+        @test occursin("method must be", errm(() -> coef_cdf(-14.0, "DU", -5; method = :fast)))
+        @test isequal(coef_cdf([-Inf, NaN, Inf], "DK"), [0.0, NaN, 1.0])
+        # case DU with a fixed start far from the unit root (c = -60, g0 = 1.5): the engines' one evaluation (the contour
+        # integral) is off by up to 1.5e-6 there; the single inversion is within 4.3e-12 of their checked computation (`verified = true`)
+        F = KAN.limcf("DU", -60.0, 1.5)
+        for p in (0.001, 0.05, 0.5, 0.95)
+            y = KAN.ratio_icdf(F, p) - 60.0
+            @test abs(coef_cdf(y, "DU", -60.0; g0 = 1.5) - quietly(() -> coef_cdf(y, "DU", -60.0; g0 = 1.5, method = :engine, verified = true))) < 5e-11
+        end
+        # at the chi-square point (y = -c0) the tail carries the slow decay: the closed form of the distribution function at
+        # zero (AR1LIM_RAY of Bao and Kan)
         for (cas, c) in (("DK", 0.0), ("DK", -5.0), ("DU", 0.0), ("DU", -5.0), ("SK", -2.0), ("SU", -2.0))
-            @test abs(KAN.coef_cdf(0.0, cas, c) - KAN.ray_cdf(cas, c)) < 1e-9
+            @test abs(coef_cdf(0.0, cas, c) - KAN.ray_cdf(cas, c)) < 1e-11
         end
-        @test abs(KAN.ray_cdf("DK", 0.0) - 0.6826894921370859) < 1e-14
-        @test abs(KAN.ray_cdf("DU", 0.0) - 0.95756559) < 1e-8
-        m = KAN.coef_mom(1, "DK", 0.0); @test abs(m[1] + 1.78143) < 1e-5
-        m = KAN.coef_mom(1, "DU", 0.0); @test abs(m[1] + 5.37913) < 1e-5
-        @test abs(KAN.lin_cdf(0.3, -2.5, "DK", -5.0) - ltratio_lincdf(0.3, -2.5, "DK", -5.0; engine = :classical)) < 1e-9
-        @test abs(KAN.envelope(-7.0) - power_envelope(-7.0)) < 1e-8
+        # the density against the general engine (the kernel 2 v^3 of its contour integral) and against differences
+        for (cas, c, g0, y) in (("DK", -5.0, 0.0, -9.0), ("DU", -5.0, 1.0, -12.0), ("DT", 1.0, 0.0, -10.0), ("SK", -1.0, 0.0, -3.0), ("SU", -10.0, 0.0, -20.0), ("ST", -5.0, 0.0, -25.0))
+            f = coef_pdf(y, cas, c; g0)
+            @test abs(f - quietly(() -> coef_pdf(y, cas, c; g0, method = :engine))) < 5e-12          # (2.1e-13)
+            h = 1e-4
+            @test abs(f - (coef_cdf(y + h, cas, c; g0) - coef_cdf(y - h, cas, c; g0)) / 2h) < 1e-7
+        end
+        @test coef_pdf(-8.039, trend(-1)) == coef_pdf(-8.039, "DK")
+        # the moments: the mean of n(phi^ - 1) at the unit root (-1.7814 without deterministic terms, -5.3791 with an
+        # intercept), and the first two moments against the integrals of the density
+        @test abs(coef_mom(1, "DK")[1] + 1.78143) < 1e-5 && abs(coef_mom(1, "DU")[1] + 5.37913) < 1e-5
+        for (cas, c) in (("DK", -5.0), ("SU", -10.0))
+            m = coef_mom(2, cas, c)
+            # (on [-300, 100]: far out the density is rounding noise of 1e-15 and below, which y^2 weighs up)
+            m1 = KAN.quadgk(y -> y * coef_pdf(y, cas, c), -300.0, 100.0; rtol = 1e-11)[1]
+            m2 = KAN.quadgk(y -> y^2 * coef_pdf(y, cas, c), -300.0, 100.0; rtol = 1e-11)[1]
+            @test abs(m1 / m[1] - 1) < 2e-11 && abs(m2 / m[2] - 1) < 2e-11        # (1.3e-12)
+        end
+        @test coef_mom(2, trend(0), -5) == coef_mom(2, "DU", -5)
+        @test occursin("cases DK, DU, DT, SK, SU, ST", errm(() -> coef_mom(1, "DG")))
+    end
+    @testset "the linear form and the power envelope by the single inversion" begin
+        for (b, a, c) in ((-0.2639, -3.5, 0.0), (0.3, -2.5, -5.0), (-0.1, 1.0, -13.5), (5.0, -3.5, 2.0))
+            @test abs(ltratio_lincdf(b, a, "DK", c) - ltratio_lincdf(b, a, "DK", c; method = :engine)) < 1e-10          # (5.4e-12)
+        end
+        # the other classical cases through their designs (the general engine before)
+        for (D, g0, st) in ((trend(0), 0.0, nothing), (trend(1), 0.0, nothing), (trend(0), 0.0, :stationary), (trend(-1), 1.5, nothing))
+            @test abs(ltratio_lincdf(-0.2639, -3.5, D, -5; g0, start = st) - ltratio_lincdf(-0.2639, -3.5, D, -5; g0, start = st, method = :engine)) < 1e-10          # (5.4e-12)
+        end
+        # a = 0 (the law of U alone, whose transform decays like a power): the engines' closed form
+        @test ltratio_lincdf(-0.3, 0.0, "DK", -5.0) == ltratio_lincdf(-0.3, 0.0, "DK", -5.0; method = :engine)
+        P, E = ltratio_lincdf([-0.3, 0.1], -3.5, "DK", 0; err = true)
+        @test all(E .< 1e-12)
+        # the envelope against the general engine's (the critical value to 1e-10)
+        for c in (-7.0, -13.5, -1.0, -0.01, -1e-4)
+            @test abs(power_envelope(c) - power_envelope(c; engine = :general)) < 1e-11       # (7.4e-13)
+        end
+        @test power_envelope([-7.0, 0.0])[2] == 0.05
+        @test power_envelope(-13.5, "DG") == power_envelope(-13.5, "DG"; method = :engine)
     end
     @testset "moments of the t-ratio from jets" begin
         for (cas, c, c0) in (("DK", 0.0, 0.0), ("DU", -5.0, 0.0), ("DT", -5.0, -5.0), ("SU", -3.0, 0.0))
-            a = KAN.tratio_mom(4, cas, c; c0); b = with_logger(() -> ltratio_mom(4, cas, c; c0), NullLogger())
+            a = ltratio_mom(4, cas, c; c0); b = quietly(() -> ltratio_mom(4, cas, c; c0, method = :engine))
             @test maximum(abs.(a .- b) ./ abs.(b)) < 1e-8
         end
     end

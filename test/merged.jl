@@ -33,7 +33,7 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:dist, spec("DU"), -5, 2, 0) == :classical && ae(:dist, spec("DK"), 0, 2, 0) == :classical && ae(:dist, spec("DT"), -80, 2, 0) == :classical
         @test ae(:dist, spec("DK"), 0, -3, 0) == :general && ae(:dist, spec("DK"), -5, -3, 0) == :classical && ae(:dist, spec("DU"), -2, -3, 0) == :classical
         @test ae(:dist, spec("DU"), -300, 2, 0) == :general && ae(:dist, spec("DU"), 2, 1, 0) == :classical      # (beyond: the rule of the t-ratio)
-        @test coef_cdf([-5.0, 1.0], "DK", 0) == [ltratio_cdf(0.0, "DK", 0; c0 = -5.0, engine = :general), ltratio_cdf(0.0, "DK", 0; c0 = 1.0, engine = :classical)]
+        @test coef_cdf([-5.0, 1.0], "DK", 0; method = :engine) == [ltratio_cdf(0.0, "DK", 0; c0 = -5.0, engine = :general), ltratio_cdf(0.0, "DK", 0; c0 = 1.0, engine = :classical)]
         # the other functions
         @test ae(:icdf, spec("DT"), -5, 0, 0) == :general && ae(:icdf, spec("ST"), -10, 0, 0) == :general && ae(:icdf, spec("ST"), -0.1, 0, 0) == :classical
         @test ae(:mom, spec("SU"), -0.1, 0, 0) == :classical && ae(:mom, spec("SK"), -0.01, -0.01, 0) == :general && ae(:mom, spec("ST"), -2, 0, 0) == :general
@@ -67,7 +67,7 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ltratio_icdf(0.05, "DT", -5) == ltratio_icdf(0.05, "DT", -5; engine = :general)
         @test ltratio_icdf(0.05, "DK") == ltratio_icdf(0.05, "DK"; engine = :classical)
         @test ltratio_lincdf([0.1, 0.3], NaN, "DK", -5) == ltratio_lincdf([0.1, 0.3], NaN, "DK", -5; engine = :general)
-        @test ltratio_lincdf(-0.2639, -3.5, "DK", 0) == ltratio_lincdf(-0.2639, -3.5, "DK", 0; engine = :classical)
+        @test ltratio_lincdf(-0.2639, -3.5, "DK", 0; method = :engine) == ltratio_lincdf(-0.2639, -3.5, "DK", 0; engine = :classical)
         @test ltratio_lincdf([-0.5, 0.0], -7.3, "DG", -1) == ltratio_lincdf([-0.5, 0.0], -7.3, "DG", -1; engine = :general)
         @test maximum(abs, ltratio_lincdf([-0.5, 0.0], -7.3, "DG", -1; engine = :general) - ltratio_lincdf([-0.5, 0.0], -7.3, "DG", -1; engine = :classical)) < 1e-10
         @test adfmax_cdf([-3.0, -2.4], "SU", -10) == adfmax_cdf([-3.0, -2.4], "SU", -10; engine = :general)
@@ -147,7 +147,8 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ltratio_region(bl, trend(-1), -5; g0 = 1.5) == Fl && abs(Fl - ltratio_region(bl, "DK", -5)) > 0.1
         @test occursin("case DK only", errm(() -> ltratio_region(bl, trend(-1), -5; g0 = 1.5, engine = :classical)))
         # the linear form likewise
-        @test ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5) == Fl
+        @test ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5, method = :engine) == Fl
+        @test abs(ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5) - Fl) < 1e-10      # (the single inversion of Bao and Kan: 5.4e-12)
         @test occursin("cases DK and DG only", errm(() -> ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5, engine = :classical)))
     end
 end

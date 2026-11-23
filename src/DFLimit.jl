@@ -46,15 +46,18 @@ using .DFDet: pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_qua
 export pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_quantile, lm_power, mza_cdf, mza_quantile, msb_cdf, msb_quantile
 Base.include(DFDet, joinpath(@__DIR__, "DFDet_line.jl"))   # the line integral for the designs of rank one or two
 
-# one interface over the two engines, and the choice between them (autoengine)
+# The devices of Bao and Kan ("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order
+# Autoregressions: O(1) Algorithms"): the closed-form characteristic function with the branch fixed at each point, jets,
+# the single inversion with tail completion; the module DFLimit.DFKan, which the interface below calls for the
+# half-plane statistics and the moments of the classical cases (nothing of it is exported)
+include("DFKan.jl")
+
+# one interface over the two engines and the single inversion, and the choice between the engines (autoengine)
 using SpecialFunctions: erfinv
 include("merged.jl")
+export coef_mom
 DFExact.ROUTE[] = router
 __init__() = (DFExact.ROUTE[] = router; nothing)
-
-# Prototypes of the devices of Bao and Kan (the characteristic function with the branch fixed at each point, jets, the
-# single inversion with tail completion): the module DFLimit.DFKan, nothing of it exported
-include("DFKan.jl")
 
 # A precompile workload: without it the first call of each function waits for compilation, about 6 s for most of them
 # on an Apple M4 (1.4 to 8.7 s), with it a fraction of a second; it adds about 20 s to the precompilation (4.5 s to 22

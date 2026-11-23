@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **The single inversion of Bao and Kan for the half-plane statistics.** The coefficient statistic (`coef_cdf`,
+  `coef_icdf`), the linear form (`ltratio_lincdf`) and the power envelope (`power_envelope`) of the six classical cases are
+  computed by default by one inversion of the closed-form joint characteristic function along the ray of the half-plane,
+  with the tail completed by integration by parts from jets, the method of Bao and Kan ("Exact Finite-Sample Distribution
+  and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms"; the module `DFLimit.DFKan`),
+  10 to 1600 times faster than before (see the README, "The devices of Bao and Kan"). New: `coef_pdf(y, cas, c)` (the density, also for designs) and `coef_mom(p, cas, c)` (the
+  moments) of the coefficient statistic; the keywords `method` (`:auto`, `:inversion`, `:engine`), `tol` and `err` (the
+  error estimates) of these functions. `method = :engine` reproduces the values of before. The values move by at most
+  2.4e-11 to 1.8e-9 (the coefficient statistic; 4e-9 at c = 20, the rounding of y), 5.5e-11 (the linear form) and 2.7e-12
+  against the general engine's envelope, except
+  where the engines' one evaluation was wrong: the coefficient statistic of case DU with a fixed start far from the unit
+  root (off by 1.5e-6 at c = -60, g0 = 1.5) and the linear form with a fixed start above the unit root (by up to 6e-2,
+  through a design); the classical envelope's bisection to 1e-9 is replaced by a critical value to 1e-12. The linear form
+  of the classical cases other than DK (through their designs) takes the single inversion too.
 - **Two engines in one package.** The general engine of the paper on general deterministic terms (any regressors that
   are piecewise polynomial or smooth functions of r = t/n with known break dates; the inversion formula on paths around
   the singularities of the joint moment generating function) is now part of the package, as the submodule

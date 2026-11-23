@@ -123,10 +123,11 @@ function tail_pdf(F, r::Float64, w::Float64, S::Float64, rho::Float64, ::Val{N})
 end
 
 """
-    ratio_pdf(F, r; tol = 1e-10) -> (f, err, evals)
+    ratio_pdf(F, r; tol = 1e-10) -> (f, err, evals, fs)
 
 The density of A/B at r (Geary): (1/pi) int_0^inf Im[d/dt2 phi(t1, t2) at t2 = -r t1] dt1, the derivative from a jet of
-order one in t2, the tail beyond S = 400/w0 by `tail_pdf`.  The tolerance refers to the scale E[B]/sd(A) of the density.
+order one in t2, the tail beyond S = 400/w0 by `tail_pdf`.  The tolerance refers to the scale fs = max(1, E[B]/sd(A)) of
+the density (the absolute tolerance is tol fs).
 """
 function ratio_pdf(F, r::Real; tol::Float64 = 1e-10, K::Int = 8)
     r = Float64(r)
@@ -147,7 +148,7 @@ function ratio_pdf(F, r::Real; tol::Float64 = 1e-10, K::Int = 8)
         S *= 2
     end
     I, e, nev = decades(f, S / sc, tol * fs, max(tol, 1e-14))
-    (I + T) / pi, (e + et) / pi, nev
+    (I + T) / pi, (e + et) / pi, nev, fs
 end
 
 """the root of g on a bracket grown from [lo, hi] (g increasing), by the Illinois variant of regula falsi, to the width xtol"""
@@ -221,69 +222,120 @@ function mom_one(F, ::Val{N}, x0::Float64, power::Float64, Ev::Float64, tol::Flo
 end
 
 # ---------------------------------------------------------------------------------------------------------------------
-# The package's statistics by the single inversion
+# The statistics of the classical cases by the single inversion of Bao and Kan, each value with its error estimate.  The
+# callers are the package's user-level functions (src/merged.jl): coef_cdf, coef_pdf, coef_icdf, coef_mom,
+# ltratio_lincdf, power_envelope (the cases DK, DU, DT with a zero or fixed start, SK, SU, ST) and ltratio_mom.
 # ---------------------------------------------------------------------------------------------------------------------
+"""the default absolute tolerance of each value of the single inversion (the quadrature and the first omitted term of
+its tail)"""
+const TOL = 1e-12
 """
-    coef_cdf(y, cas, c = 0; c0 = 0, g0 = 0, tol = 1e-10) -> F
+the largest c at which the single inversion is the default (`method = :auto`): it was compared with the engines' values
+from c = -550 to c = 20 (November 2026; within 1e-10 of their checked computations, see the README)
+"""
+const INV_CMAX = 20.0
 
-The limit of P[n(phi^ - phi0) <= y], the coefficient statistic (U - c0 V)/V, by the single inversion with the tail
-completed by integration by parts (the method of Bao and Kan): P[U - (c0 + y) V <= 0].  As `DFLimit.coef_cdf`.
 """
-function coef_cdf(y, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, tol::Float64 = 1e-10)
-    F = limcf(cas, c, g0)
-    one(yk) = isnan(yk) ? NaN : yk == Inf ? 1.0 : yk == -Inf ? 0.0 : ratio_cdf(F, yk + c0 - c; tol)[1]
-    y isa Number ? one(y) : map(one, y)
-end
-"""the density of the coefficient statistic (arguments as in `coef_cdf`)"""
-function coef_pdf(y, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, tol::Float64 = 1e-10)
-    F = limcf(cas, c, g0)
-    one(yk) = ratio_pdf(F, yk + c0 - c; tol)[1]
-    y isa Number ? one(y) : map(one, y)
-end
-"""the p-quantiles of the coefficient statistic (arguments as in `coef_cdf`)"""
-function coef_icdf(p, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, tol::Float64 = 1e-10)
-    F = limcf(cas, c, g0)
-    one(pk) = ratio_icdf(F, pk; tol) - (c0 - c)
-    p isa Number ? one(p) : map(one, p)
-end
-"""the moments E[{(U - c0 V)/V}^j], j = 1..k, of the coefficient statistic"""
-coef_mom(k::Int, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, tol::Float64 = 1e-10) =
-    ratio_mom(limcf(cas, c, g0), k, c0 - c; tol)[1]
+    coef_cdf1(F, y, c0, tol) -> (P, err)
+
+P[(U - c0 V)/V <= y] = P[A/B <= y + c0 - c], the coefficient statistic n(phi^ - phi0), by the single inversion of Bao and
+Kan (`ratio_cdf`), with its error estimate; 0, 1 and NaN at -Inf, Inf and NaN.
 """
-    tratio_mom(k, cas, c = 0; c0 = 0, g0 = 0) -> m
+function coef_cdf1(F::LimCF, y::Float64, c0::Float64, tol::Float64)
+    isnan(y) && return NaN, 0.0
+    isinf(y) && return (y > 0 ? 1.0 : 0.0), 0.0
+    P, e, _ = ratio_cdf(F, y + c0 - F.c; tol)
+    clamp(P, 0.0, 1.0), e
+end
+"""
+    coef_pdf1(F, y, c0, tol) -> (f, err, ftol)
+
+The density of the coefficient statistic at y by the single inversion of Bao and Kan (`ratio_pdf`), its error estimate
+and the absolute tolerance that `tol` amounts to for it (tol times the scale E[V]/sd(U) of the density, at least tol).
+"""
+function coef_pdf1(F::LimCF, y::Float64, c0::Float64, tol::Float64)
+    isfinite(y) || return (isnan(y) ? NaN : 0.0), 0.0, tol
+    f, e, _, fs = ratio_pdf(F, y + c0 - F.c; tol)
+    max(f, 0.0), e, tol * fs
+end
+"""
+    coef_icdf1(F, p, c0, xtol, tol) -> (y, err of F at y)
+
+The p-quantile of the coefficient statistic: the Illinois variant of regula falsi on the single inversion's distribution
+function (tolerance tol), from the bracket E[A]/E[B] -/+ twice the scale sd(A)/E[B] + |E[A]|/E[B] of the ratio, to the
+width xtol; with the error estimate of the distribution function at its last evaluation.
+"""
+function coef_icdf1(F::LimCF, p::Float64, c0::Float64, xtol::Float64, tol::Float64)
+    Eu, Ev, _, Vu = ratio_scale(F)
+    sd0 = sqrt(Vu) / Ev + abs(Eu) / Ev; m0 = Eu / Ev
+    elast = Ref(0.0)
+    g(x) = begin P, e, _ = ratio_cdf(F, x; tol); elast[] = e; P - p end
+    r = illinois(g, m0 - 2sd0, m0 + 2sd0, xtol)
+    r - (c0 - F.c), elast[]
+end
+"""the moments E[{(U - c0 V)/V}^j], j = 1..k, of the coefficient statistic, from jets (`ratio_mom`) -> (m, err)"""
+coef_mom1(F::LimCF, k::Int, c0::Float64, tol::Float64) = ratio_mom(F, k, c0 - F.c; tol)
+"""
+    tratio_mom1(F, k, c0, tol) -> (m, err)
 
 The moments E[t^j], j = 1..k, of the t-ratio (U - c0 V)/sqrt(V) at the local null value c0: one-dimensional integrals
-whose integrand takes the j-th derivative of the moment generating function along its affine path from one jet per node.
-As `DFLimit.ltratio_mom`.
+whose integrand takes the j-th derivative of the moment generating function along its affine path from one jet per node
+(`ratio_mom` with power 1/2), after Bao and Kan.
 """
-tratio_mom(k::Int, cas::AbstractString, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, tol::Float64 = 1e-10) =
-    ratio_mom(limcf(cas, c, g0), k, c0 - c; power = 0.5, tol)[1]
+tratio_mom1(F::LimCF, k::Int, c0::Float64, tol::Float64) = ratio_mom(F, k, c0 - F.c; power = 0.5, tol)
+"""
+    lin_cdf1(F, b, a, tol) -> (P, err)
 
+P(U - aV <= b) = P[A + (c - a) B <= b] by the single inversion of Bao and Kan (`half_cdf`) with its error estimate; 0, 1
+and NaN at b = -Inf, Inf, NaN.
 """
-    lin_cdf(b, a, cas, c = 0; g0 = 0, tol = 1e-10) -> P
-
-P(U - aV <= b) by the single inversion.  As `DFLimit.ltratio_lincdf` (cases DK, DU, DT, SK, SU, ST; a finite).
-"""
-function lin_cdf(b, a::Real, cas::AbstractString, c::Real = 0; g0::Real = 0.0, tol::Float64 = 1e-10)
-    F = limcf(cas, c, g0)
-    one(bk) = half_cdf(F, 1.0, Float64(c - a), Float64(bk); tol)[1]
-    b isa Number ? one(b) : map(one, b)
+function lin_cdf1(F::LimCF, b::Float64, a::Float64, tol::Float64)
+    isnan(b) && return NaN, 0.0
+    isinf(b) && return (b > 0 ? 1.0 : 0.0), 0.0
+    P, e, _ = half_cdf(F, 1.0, F.c - a, b; tol)
+    clamp(P, 0.0, 1.0), e
 end
-
 """
-    envelope(c, cas = "DK"; alpha = 0.05, tol = 1e-10) -> power
+    envelope1(c, alpha, tol) -> (power, err)
 
-The asymptotic power envelope at c < 0 without deterministic terms or with an intercept (the same envelope): the power
-at c of the test that rejects for small U - (c/2) V, its critical value from the same inversion at the unit root.
+The asymptotic power envelope of Elliott, Rothenberg and Stock at c < 0 without deterministic terms (and with an
+intercept, the same curve): the power at c of the test that rejects for small U - (c/2) V, its critical value the
+alpha-quantile of U - (c/2) V at the unit root, both by the single inversion of Bao and Kan; the critical value by the
+Illinois variant of regula falsi to 1e-12 from the bracket [-0.45, 0.5] (grown in steps of one).  err is the sum of the
+error estimates of the two inversions at the end.  alpha at c >= 0, 1 at c = -Inf, NaN at NaN.
 """
-function envelope(c::Real, cas::AbstractString = "DK"; alpha::Real = 0.05, tol::Float64 = 1e-10)
-    uppercase(cas) in ("DK", "DU") || throw(ArgumentError("envelope: cases DK and DU (the same envelope)"))
-    c < 0 || return Float64(alpha)
+function envelope1(c::Float64, alpha::Float64, tol::Float64)
+    isnan(c) && return NaN, 0.0
+    c < 0 || return alpha, 0.0
+    c == -Inf && return 1.0, 0.0
     a = c / 2
-    F0 = limcf("DK", 0.0); Fc = limcf("DK", c)
-    b = illinois(x -> half_cdf(F0, 1.0, -a, x; tol)[1] - alpha, -0.45, 0.5, 1e-12; grow = 1.0)
-    half_cdf(Fc, 1.0, Float64(c - a), b; tol)[1]
+    F0 = LimCF("DK", 0.0); Fc = LimCF("DK", c)
+    e0 = Ref(0.0)
+    b = illinois(x -> begin P, e, _ = half_cdf(F0, 1.0, -a, x; tol); e0[] = e; P - alpha end, -0.45, 0.5, 1e-12; grow = 1.0)
+    P, e, _ = half_cdf(Fc, 1.0, c - a, b; tol)
+    clamp(P, 0.0, 1.0), e + e0[]
 end
+"""
+    lin_ok(cas, c, g0, a, b) -> Bool
+
+The region in which the single inversion is the default for the linear form P(U - aV <= b) (`lin_cdf1`): a != 0, and
+-100 <= c <= 4 in case DK with a zero start, -100 <= c <= 2 in the other cases (the region compared with the engines in
+November 2026: within 5.5e-11 of the classical code in case DK with a zero start, within 1e-12 of the general engine in the
+others, and right where the general engine's one evaluation was off, by up to 6e-2 in case DK and 2.9e-3 in case DU with
+a fixed start in the upper tail above the unit root, as its checked computation and the plain quadrature without the tail
+confirm).  At a = 0 (the law of U alone) the transform decays like a power, and b near the edge -(1 + g0^2)/2 of the support
+makes the start S = 400/|w| of the tail run away (1 s and an error estimate of 3e-8 at the 0.1% point); the engines have
+the closed form there.  At c = 7 in case DK the classical code (the region's conditional integral) differs from the
+single inversion by 2e-8 at the 99.9% point with a = 2, which no third computation settled.
+"""
+lin_ok(cas::AbstractString, c::Float64, g0::Float64, a::Float64, b::Float64) =
+    a != 0 && -100 <= c <= ((cas == "DK" && g0 == 0) ? 4.0 : 2.0)
+"""whether the moments of the t-ratio from jets (`tratio_mom1`) are the default (`ltratio_mom` with method = :auto)"""
+mom_ok(cas::String, c::Float64, c0::Float64, g0::Float64) = false
+"""whether the single inversion is the default for the power envelope at c (`envelope1`): c <= -1e-4 (within 2.7e-12 of the
+general engine's envelope from c = -1e-4 to -500, November 2026; closer to zero the weight a = c/2 puts the critical value
+at the edge of the support of U - aV), and c >= 0 or NaN (the level, NaN)"""
+envelope_ok(c::Float64) = !(c < 0) || c <= -1e-4
 
 # ---------------------------------------------------------------------------------------------------------------------
 # The distribution function of the t-ratio at zero in closed form (AR1LIM_RAY of Bao and Kan)
