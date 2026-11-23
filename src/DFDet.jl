@@ -2126,7 +2126,7 @@ into parts of length at most 30/Omega (Omega the largest over the roots at the p
 above e^{-40}; a Gauss-Legendre rule of 24 nodes integrates e^{i Omega w} over 30/Omega to about 1e-18); the roots
 are continued along the new nodes.  Without the cut the panels doubling in w carried up to 25 oscillations, and the upper
 tail at c = 5 (x = 194, F = 0.991) was off by 2.3e-4.  The number of nodes grows with xmax like xmax (about 2 xmax at c = 5).
-With a local null value c0 != 0 (c0s, the values of the kernels with a slope) the kernel is e^{-(t + c0 s_k) v^2 - s_k X(v)}
+With a local null value c0 > 0 (c0s, the values of the kernels with a slope) the kernel is e^{-(t + c0 s_k) v^2 - s_k X(v)}
 and the rate is that of its stationary value (comment below), faster by about 1/|1 - c0/c| in case DK.
 Returns CP itself when no panel needs cutting.  amax: the values |A| of the kernels (default the shift a of the model, the
 A of the t-ratio), each with its own damping; the parabola terms of the linear form U - aV <= b have A = a + b, and their
@@ -2165,9 +2165,12 @@ function line_refine(CP::CPath, xmax::Float64; nq::Int = linenq(CP), amax = CP.M
             # DK, alpha ~ t (1 - c0/c) and the rate is that of c0 = 0 times 1/|1 - c0/c| (at c = 10, c0 = 9 the panels cut
             # to the rate of c0 = 0 left the distribution function off by 1.1e-3 at x = 1000 and 3.8e-3 at x = 3000).  The
             # largest |x| <= xmax at which the term is not negligible from log|M_V| + Re phi_s; the cut is to the larger
-            # of this rate and that of c0 = 0
+            # of this rate and that of c0 = 0.  Only c0 > 0: with c0 < 0, alpha ~ t (1 + |c0|/c) and the rate is below that
+            # of c0 = 0, which the cut above covers (taken for c0 < 0 too, the stationary values at the roots of a fixed
+            # start gave rates far above the oscillation: the line of case DU at c = 10, g0 = 1, c0 = -2 grew to 1e6 nodes
+            # at x = 132, against 2544)
             for c0 in c0s
-                (c0 != 0 && xmax > 0) || continue
+                (c0 > 0 && xmax > 0) || continue
                 for r in view(CP.R, :, j), am in amax
                     rp = imag(r) / wj
                     al = CP.t[j] + c0 * r
@@ -2209,7 +2212,8 @@ function line_refined(CP::CPath, xs::AbstractVector{Float64}; amax = CP.Mo.a, c0
     # (keyed by the contents of the path, not its address, which a freed path can pass on to a new one)
     key = isempty(ab) ? hash((CP.t, CP.c, CP.Mo.start, CP.Mo.g0, dkey(CP.Mo.P.D), CP.Mo.P.cbar, xb)) :
                         hash((CP.t, CP.c, CP.Mo.start, CP.Mo.g0, dkey(CP.Mo.P.D), CP.Mo.P.cbar, xb, ab))
-    (xb > 0 && any(!=(0), c0s)) && (key = hash((key, c0s)))
+    c0s = filter(>(0), c0s)                                    # (only c0 > 0 refines further, line_refine)
+    (xb > 0 && !isempty(c0s)) && (key = hash((key, c0s)))
     ab = [CP.Mo.a; ab]
     hit = lock(CPLOCK) do; get(LINECACHE, key, nothing); end
     hit === nothing || return hit

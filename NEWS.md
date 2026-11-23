@@ -178,8 +178,8 @@
   general engine cut its vertical line to the oscillation of the outer integrand as if c0 were 0 (`line_refine`): with
   c0 != 0 the stationary value of the exponent, (s_k x)^2/(4 (t + c0 s_k)), oscillates faster, by 1/|1 - c0/c| in case DK,
   and the distribution function was off by 1.1e-3 at c = 10, c0 = 9, x = 1000, 3.8e-3 at x = 3000, and 1.0000000112 at
-  x = 1e4 (`engine = :general`); the line is now cut to the larger of the two rates (`line_refined(CP, xs; c0)`), within
-  2e-13 of the reference. Every distribution function of the two engines (`ltratio_cdf`, `coef_cdf`, `dist_cdf`,
+  x = 1e4 (`engine = :general`); for c0 > 0 the line is now cut to the larger of the two rates (`line_refined(CP, xs;
+  c0)`), within 2e-13 of the reference (with c0 < 0 the rate is below that of c0 = 0, and the cut is unchanged). Every distribution function of the two engines (`ltratio_cdf`, `coef_cdf`, `dist_cdf`,
   `DFDet.coef_cdf`) ends with a check of its values (`cdf_range_check`): a value below -1e-8 or above 1 + 1e-8 raises an
   error that names the call, its arguments, the point and the value; where the representations hold their errors are far
   below 1e-8, so such a value is a computation that failed (the general engine in case DK with c0 > 0 at x < -sqrt(2 c0)
