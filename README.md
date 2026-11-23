@@ -105,7 +105,12 @@ string. Where the general engine computes (a design the classical engine does no
 inversion on paths around the roots), see "Which engine"; for a design that is a classical case `method = :line` is the
 classical line integral and `method = :paths` the general engine's paths, so that `ltratio_cdf(x, trend(2), c; method =
 :paths)` and `ltratio_icdf(p, trend(0), c; method = :paths)` force the paths and `ltratio_cdf(x, "DU", c; engine =
-:general, method = :line)` the general engine's line integral. The general engine is checked from c = -480 to 10.
+:general, method = :line)` the general engine's line integral. The general engine is checked from c = -480 to 10, and
+above the unit root, for the coefficient statistic, the moments and the t-ratio centred at the true value (c0 = c), up to c = 16 with
+deterministic terms (10 with them and a fixed start) and up to c = 20 without them (`DFLimit.DFDet.gen_cmax`): beyond, one
+root of its transform is of the
+order 2c e^{-2c} and the others are no longer resolved in double precision, and every function of the general engine
+raises an `ArgumentError` that names the statistic, c and the bound; the rule takes the classical engine there.
 
 The general engine's own functions are exported as well: `dist_cdf(D, xs, c; c0, start, gamma0, gls, method)`, `dist_pdf`,
 `dist_quantile`, `dist_moments`, `coef_pdf`, `coef_quantile`, `coef_cdf_gp`, `lin_cdf`, `lin_pdf`, `lin_quantile`,
@@ -172,6 +177,7 @@ the line integral was added).
 | ADFmax, stationary start, c <= -0.1 | general | 110 to 196 | 50 to 58 | 3e-12 | 2.2 to 3.4 times faster; next to zero (c = -1e-4) it is off by 2e-9 |
 | ADFmax, zero start | classical | 22, 34 | 50, 52 | 2.6e-12 | 1.6 to 2.3 times faster |
 | regions (`ltratio_region`) | classical | 1.1, 1.4 | 3.4, 3.8 | 1e-12 | 2.7 to 3.1 times faster, and the only engine for the WAP boundary and a function g |
+| above the range of the general engine (c > 16 with deterministic terms, c > 10 with them and a fixed start, c > 20 without) | classical | | | | the general engine refuses there |
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
 
 Where the classical engine computes, its values are those of 0.5.0 bit for bit; where the rule takes the general engine
