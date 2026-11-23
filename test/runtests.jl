@@ -131,6 +131,29 @@ end
     @test ltratio_cdf(x, "DU", -2; method = :line) ≈ ltratio_cdf(x, "DU", -2; method = :conditional) atol = 1e-10
 end
 
+# the rules of one evaluation of the classical engine's contour integral (ctr_rule) and conditional integral (cond_rule),
+# November 2026: their regions, and their values within the criterion of the rule of before (rule = :present; 96 nodes)
+@testset "the rules of one evaluation of the contour and conditional integrals" begin
+    L = D.CTR_LEVELS[1]
+    @test D.ctr_rule(2.0, 0.0, 1.0) == (32, 1.0) && D.ctr_rule(-1.0, 2.0, 1.5) == (32, 1.5)
+    @test D.ctr_rule(-5.0, 2.0, 1.0) == (L, 1.5) && D.ctr_rule(-5.0, -2.0, 1.0) == (32, 1.5) && D.ctr_rule(-13.5, -2.0, 1.0) == (L, 1.5)
+    @test D.ctr_rule(-30.0, 2.0, 1.5) == (L, 1.0)                            # |c g0| > 20: the rule of before
+    for (m, c, c0, g0, xs) in ((2, -2.0, 0.0, 1.5, [-3.0, -1.6, 0.0]), (3, -5.0, 2.0, 1.0, [-4.0, -2.9, -1.5]))
+        F1 = D.tr_contour(xs, m, c; c0, g0, warn = false)[1]; F0 = D.tr_contour(xs, m, c; c0, g0, warn = false, rule = :present)[1]
+        f1 = D.tr_contour(xs, m, c; c0, g0, pdf = true, warn = false)[1]; f0 = D.tr_contour(xs, m, c; c0, g0, pdf = true, warn = false, rule = :present)[1]
+        @test maximum(abs, F1 .- F0) < 1e-9 && maximum(abs, f1 .- f0) < 1e-8
+    end
+    @test D.cond_rule(2, -5.0, -2.0, 0.0, false) == (Nv = 48, Nl = 48) && D.cond_rule(2, -13.5, -2.0, 0.0, false).Nv == 96
+    @test D.cond_rule(1, -5.0, -2.0, 0.0, false).Nv == 96 && D.cond_rule(1, -20.0, -2.0, 0.0, false).Nv == 48
+    @test D.cond_rule(1, -1.0, -2.0, 0.0, true).Nv == 64 && D.cond_rule(2, -5.0, -5.0, 0.0, true).Nv == 48
+    @test D.cond_rule(2, 2.0, -2.0, 1.5, false).Nv == 96 && D.cond_rule(2, 3.0, -2.0, 0.0, false).Nv == 96 && D.cond_rule(2, 2.0, -2.0, 0.0, false).Nv == 48
+    for (m, c, c0, st, xs) in ((2, -5.0, -2.0, :zero, [-3.5, -2.2, -0.8]), (2, -5.0, -5.0, :stationary, [-3.0, -1.5, 0.0]), (1, -20.0, -2.0, :zero, [-4.0, -2.8, -1.5]))
+        F1 = D.tr_limdist(xs, m, c; c0, start = st, warn = false)[1]; F0 = D.tr_limdist(xs, m, c; c0, start = st, warn = false, Nv = 96, Nl = 96)[1]
+        f1 = D.tr_limdist(xs, m, c; c0, start = st, pdf = true, warn = false)[1]; f0 = D.tr_limdist(xs, m, c; c0, start = st, pdf = true, warn = false, Nv = 96, Nl = 96)[1]
+        @test maximum(abs, F1 .- F0) < 1e-9 && maximum(abs, f1 .- f0) < 1e-8
+    end
+end
+
 # the default (one evaluation) and verified = true (the checked computation before November 2026: stored values of that
 # engine); the warnings of the brittle regimes where they should fire, once per call, and not elsewhere
 @testset "one evaluation and verified" begin
@@ -196,7 +219,8 @@ end
     @test ltratio_cdf(0, "DK", 2; c0 = 2) ≈ 0.650436 atol = 1e-6               # Larsson's table (section 9)
     @test D.cdf(0.0, 2; c = 10.0, c0 = 5.0) ≈ 0.000302655553129 atol = 1e-11   # a one-dimensional inversion (section 9)
     @test ltratio_cdf(-2, "DU", -5; g0 = 1.5) ≈ 0.864977240077167 atol = 1e-11  # the MATLAB programs (section 11)
-    @test ltratio_cdf(-3.0, "DT", -5; g0 = 2) ≈ 0.2889970388707237 atol = 1e-11 # c/test/fixed_ref.txt (section 16)
+    # (the contour integral's thinner rule of one evaluation since November 2026: 1.3e-11 from the stored value)
+    @test ltratio_cdf(-3.0, "DT", -5; g0 = 2) ≈ 0.2889970388707237 atol = 2e-10 # c/test/fixed_ref.txt (section 16)
     let c = -5.0, g0 = 1.5, v = (exp(-10) - 1) / (-10), m = 1.5 * exp(-5), r = sqrt(1 + 1.5^2)   # P[J(1)^2 <= 1 + g0^2]
         @test ltratio_cdf(0.0, "DK", c; g0) ≈ (erf((r - m) / sqrt(2v)) + erf((r + m) / sqrt(2v))) / 2 atol = 1e-11
     end

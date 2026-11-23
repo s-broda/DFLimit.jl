@@ -32,6 +32,16 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:dist, spec("DK"; g0 = 1.0), 0.5, -5, 25) == :classical && ae(:dist, spec("DK"; g0 = 1.0), -2, -5, 10) == :general
         @test ltratio_cdf(25.173, "DK", 0.5; c0 = -5.0, g0 = 1.0) ≈ ltratio_cdf(25.173, "DK", 0.5; c0 = -5.0, g0 = 1.0, engine = :classical, verified = true) atol = 1e-10
         @test ae(:dist, spec("DU"; g0 = 1.0), -10, 0, -1) == :classical     # fixed start, cases DU, DT
+        # (far from the unit root the general engine: c0 > 0 below c = -20, or below c = -10 where |c g0| > 20, and any c0
+        # below c = -20 where |c g0| > 60; the classical contour integral's one evaluation was off there by up to 2.2e-2 of
+        # the peak of the density and 3.9e-5 in F, its checked computation by 8.4e-6 in the density)
+        @test ae(:dist, spec("DU"; g0 = 0.5), -30, 2, -3) == :general && ae(:dist, spec("DU"; g0 = 0.5), -15, 2, -3) == :classical
+        @test ae(:dist, spec("DU"; g0 = 1.5), -13.5, 2, -3) == :general && ae(:dist, spec("DT"; g0 = 1.0), -13.5, 2, -3) == :classical
+        @test ae(:dist, spec("DU"; g0 = 1.5), -60, -2, -3) == :general && ae(:dist, spec("DT"; g0 = 1.0), -60, -2, -3) == :classical
+        let x = -9.1684, h = 2e-3      # the density is the derivative of F (Richardson's central difference; 8e-12 measured)
+            Fh = ltratio_cdf(x .+ h .* [-2, -1, 1, 2], "DU", -60; c0 = 2.0, g0 = 1.5)
+            @test abs(ltratio_pdf(x, "DU", -60; c0 = 2.0, g0 = 1.5) - (8 * (Fh[3] - Fh[2]) - (Fh[4] - Fh[1])) / (12h)) < 1e-8
+        end
         @test ae(:dist, spec("DG"), -10, 0, -2) == :classical
         # x = 0, the points of the coefficient statistic: c0 > 0 the classical engine, c0 < 0 in case DK for c > -5 the general
         @test ae(:dist, spec("DU"), -5, 2, 0) == :classical && ae(:dist, spec("DK"), 0, 2, 0) == :classical && ae(:dist, spec("DT"), -80, 2, 0) == :classical
@@ -155,4 +165,5 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test abs(ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5) - Fl) < 1e-10      # (the single inversion of Bao and Kan: 5.4e-12)
         @test occursin("cases DK and DG only", errm(() -> ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5, engine = :classical)))
     end
+
 end

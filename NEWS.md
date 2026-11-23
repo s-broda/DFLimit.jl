@@ -55,6 +55,28 @@
   quantile searches keep the transform values along the ray across the search (`DFDet.MemoCF`). The values move by at
   most 1.8e-11 (the 5% point of the point-optimal statistic with an intercept, where the grid's Newton search stops)
   below the unit root and by up to 5e-10 above it (c = 3), where the grid is the less accurate one.
+- **Thinner rules of one evaluation of the classical contour integral** (a fixed start in cases DU, DT;
+  `DFExact.ctr_rule`): 32 nodes per panel and ray of the U-shapes for 64 and 1.5 times the outer step near the unit root
+  (0.42 times the time, median), 32 nodes on the present step above the unit root (0.59 times), 64 nodes on the longer
+  step with c0 > 0 below c = -2.5 and below c = -10, the present rule where |c g0| > 20; within 6.2e-11 of the checked
+  computation in F on a dense grid of x (129 configurations), every configuration within max(1e-9, twice the present
+  rule's own error) in F and max(1e-8, twice its own) of the peak in f. `tr_contour` takes the keyword `rule` (:auto,
+  :present); `verified = true` is unchanged.
+- **Thinner rules of one evaluation of the classical conditional integral** (`DFExact.cond_rule`): 48 nodes on the path
+  of each inner inversion and of the integral over l for 96 with a stationary start for c <= -2, with a zero start in
+  cases DU, DT for c >= -5 and in case DK for c <= -13.5, and 64 with a stationary start for c > -2 (0.60 times the time
+  with a stationary start, 0.81 and 0.87 in cases DU, DT with a zero start; medians); every configuration of a dense
+  grid of x (150: the six cases, c from 2 to -100, c0 in {2, -2, -5, c}) within the criterion against the rule with 192
+  nodes and the outer tolerance 1e-14. A fixed start keeps 96 nodes. The options Nv, Nl of `tr_limdist` override the
+  rule; `verified = true` is unchanged.
+- **The fixed start of cases DU, DT far from the unit root goes to the general engine** (`autoengine`): with c0 > 0
+  below c = -20 (below c = -10 where |c g0| > 20) and with any c0 below c = -20 where |c g0| > 60.  The classical
+  contour integral's one evaluation was off there, in the density by up to 5e-6 of the peak (case DU, c = -30, g0 =
+  0.5, c0 = 2), 4.2e-3 (c = -75, c0 = 5) and 2.2e-2 (g0 = 1.5, c = -60, c0 = 5), in the distribution function by up to
+  3.9e-5 (case DU, g0 = 1.5, c = -60, c0 = -2) and 6.3e-6 (g0 = 0.9, c = -100); its checked computation by up to 8.4e-6
+  of the peak in the density.  The general engine's density there is the derivative of the distribution function on
+  which the two engines agree (to 1e-10 of the peak), at 0.23 to 0.9 times the time down to c = -45 and up to 5 times
+  below c = -75.  The classical engine warns of the brittle one evaluation where |c g0| > 60 below c = -20 too.
 - **The moments of the t-ratio from jets.** `ltratio_mom` takes the derivatives of the moment generating function from
   one Taylor-mode jet per node of an adaptive quadrature (after Bao and Kan) by default in the six classical cases, for any
   c0 and fixed start up to c = 20: 16 to 290 times faster (0.3 to 1.3 ms for four moments), within 1.4e-11 relative of

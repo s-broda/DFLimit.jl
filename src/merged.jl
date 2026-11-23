@@ -121,6 +121,16 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         # with g0 = 1.5 (November 2026, `scratch/rules/probe_dkfixed6.jl`); the classical engine's line integral, its
         # checked computation and the conditional integral agree to 1e-12 there
         fixed && cas == "DK" && c <= 1 && !(c0 < 0 && c > -1) && ((c * S.g0)^2 / 2 <= 400 || (S.g0 <= 0.5 && c >= -100)) && return :general
+        # the fixed start of cases DU, DT far from the unit root: with c0 > 0 below c = -20 (and below c = -10 where |c g0| >
+        # 20), and with any c0 below c = -20 where |c g0| > 60, the classical contour integral's one evaluation was off, in
+        # the density by up to 5e-6 of its peak (case DU at c = -30, g0 = 0.5, c0 = 2), 4.2e-3 (c = -75, c0 = 5) and 2.2e-2
+        # (g0 = 1.5, c = -60, c0 = 5), in the distribution function by 3.9e-5 (case DU, g0 = 1.5, c = -60, c0 = -2) and
+        # 6.3e-6 (g0 = 0.9, c = -100), and its checked computation in the density by up to 8.4e-6 of the peak; the general
+        # engine's density there is the derivative of the distribution function on which the two engines agree (to 1e-10
+        # of the peak; Richardson's central difference), its F within 1e-10 of the classical checked one.  It takes 0.23 to
+        # 0.9 times the time of the classical one evaluation down to c = -45, up to 1.8 times at c = -60 and 1.2 to 5 times
+        # below c = -75 (November 2026, `scratch/rules/probe_ctr_far2.jl` to `probe_ctr_far6.jl`)
+        fixed && cas in ("DU", "DT") && c < -10 && ((c0 > 0 && (c < -20 || abs(c * S.g0) > 20)) || (c < -20 && abs(c * S.g0) > 60)) && return :general
         return :classical
     elseif f === :icdf
         # the quantiles at c0 = 0: the general engine's search, which evaluates F and f in one pass on one path, where it is

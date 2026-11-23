@@ -2445,7 +2445,9 @@ function brittle_once(f)
 end
 """the message of brittle_warn for the methods used (a set of :single, :double, :contour), or nothing.  The boundaries lie
 where the one evaluation stops being good to about 1e-5 absolute, with a margin (November 2026): the contour integral with
-c0 > 0 below c = -15 (6e-6 at c = -27, c0 = 2.3, (c g0)^2/2 = 146); the conditional integral with a zero start and c0 > 0
+c0 > 0 below c = -15 (6e-6 at c = -27, c0 = 2.3, (c g0)^2/2 = 146; in the density up to 2e-2 at c = -60, g0 = 1.5, c0 = 5
+in case DU) and with any c0 below c = -20 where |c g0| > 60 (in case DU 3.9e-5 at c = -60, g0 = 1.5, c0 = -2, and 6.3e-6
+at c = -100, g0 = 0.9); the conditional integral with a zero start and c0 > 0
 for c < 0 (1.5e-2 at c = -40, c0 = 2 in case DK, 2e-5 at c = -5, c0 = 0.5 in case DU), in case DK with c0 != 0 for c > -5
 (1.2e-2 at c = 2, c0 = -10), with a zero start below c = -100 (3e-3 at c = -480) and a stationary start below c = -50, in
 case SK for c > -0.5 (3e-3 at c = -0.01), and with a fixed start below c = -20 in case DK (4e-6 at c = -25, 3e-5 at
@@ -2454,7 +2456,10 @@ function brittle_msg(model::Int, stat::Bool, c::Float64, c0::Float64, g0::Float6
     cas = model == 4 ? "DG" : string(stat ? 'S' : 'D', "KUT"[model])
     hint = "; verified = true checks each value"
     if :contour in used && c0 > 0 && c < -15
-        return "$cas, fixed start, c0 > 0 far from the unit root (c < -15): the contour integral by one evaluation may be off by up to about 1e-5$hint"
+        return "$cas, fixed start, c0 > 0 far from the unit root (c < -15): the contour integral by one evaluation may be off by more than 1e-5$hint"
+    end
+    if :contour in used && c < -20 && abs(c * g0) > 60
+        return "$cas, fixed start far from the unit root with |c g0| > 60: the contour integral by one evaluation may be off by more than 1e-5$hint"
     end
     if :contour in used && c > 1 && c0 < 0
         return "$cas, fixed start, c0 < 0 at c > 1: the contour integral by one evaluation fails in the far upper tail$hint"
@@ -4754,8 +4759,10 @@ function tr_limdist(x::Vector{Float64}, model::Int, c::Float64; c0::Float64 = 0.
                     verified::Bool = false, kw...)
     stat = startflag(start, c)
     stat && g0 != 0 && error("a fixed start g0 applies to the zero-start cases only")
+    # (the rule of one evaluation, `cond_rule`, where the options do not name the nodes and the tolerance)
+    verified || (kw = (; cond_rule(model, c, c0, g0, stat)..., kw...))
     if !stat && g0 == 0
-        F, info = double_zero(x, model, c, c0, pdf; verified, kw...)
+        F, info = double_zero(x, model, c, c0, pdf; verified, (k => v for (k, v) in pairs(kw) if k !== :Nl)...)
     else
         F, info = double_start(x, model, c, c0, g0, stat, pdf; verified, kw...)
     end
@@ -4765,6 +4772,26 @@ function tr_limdist(x::Vector{Float64}, model::Int, c::Float64; c0::Float64 = 0.
     end
     F, info
 end
+
+"""
+    cond_rule(model, c, c0, g0, stat) -> NamedTuple
+
+The rule of one evaluation of the conditional integral (verified = false): the nodes Nv of the path of each inner
+inversion and Nl of the integral over l (the noncentral probability), by regions measured in November 2026 against the
+rule with 192 nodes and the outer tolerance 1e-14 on a dense grid of x (`tr_limdist`; the README, "The rules of one
+evaluation"). Before, 96 nodes everywhere. (Warm calls with 48 nodes: 0.60 times the time with a stationary start, 0.81 to
+0.87 with a zero start; medians.) 48 nodes hold with a stationary start for c <= -2 and with a zero start in cases DU, DT
+for c >= -5 and in case DK for c <= -13.5; 64 with a stationary start for c > -2 (48 lost 7e-8 of the peak of the density
+in case SK at c = -0.5); 96 elsewhere (with a zero start in cases DU, DT 48 nodes lost 1.8e-8 of the peak at c = -13.5 and
+up to 1e-3 far from the unit root), with a fixed start (measured at one configuration only: 48 nodes lost 7e-7 in case DU
+at c = 2, c0 = -2) and above c = 2. The options Nv, Nl of `tr_limdist` override it.
+"""
+function cond_rule(model::Int, c::Float64, c0::Float64, g0::Float64, stat::Bool)
+    n = stat ? (c <= -2 ? 48 : 64) : g0 != 0 ? 96 : model == 1 ? (c <= -13.5 ? 48 : 96) : (c >= -5 ? 48 : 96)
+    c > COND_RULE_CMAX && (n = 96)                                   # (beyond the range measured)
+    (Nv = n, Nl = n)
+end
+const COND_RULE_CMAX = 2.0
 
 # =====================================================================================================================
 # The contour integral representation: a fixed start g0 != 0 in cases DU, DT as a double integral with an explicit
@@ -5213,14 +5240,15 @@ ctr_phi(c::Float64) = (45 + 25 * clamp((-c - 10) / 30, 0.0, 1.0)) * pi / 180
 """the outer contour of model, c (variant 1: evaluation A, angle ctr_phi(c); variant 2: evaluation B, angle ctr_phi(c) +
 CTR_DPHI): the nodes u_k = k h, the per-point data along it (branches continued on CTR_SUB points per step) and the
 derivative t'(u_k); cached per (model, c, variant)"""
-const CTRPATH = Dict{Tuple{Int,Float64,Int,Float64},Any}()
+const CTRPATH = Dict{Tuple{Int,Float64,Int,Float64,Float64},Any}()
 const CTRLOCK = ReentrantLock()
-"""the hyperbola at the asymptotic angle phi: (tau, a, b, h, K, the points on CTR_SUB points per step)"""
-function ctr_hyp(model::Int, c::Float64, phi::Float64)
+"""the hyperbola at the asymptotic angle phi: (tau, a, b, h, K, the points on CTR_SUB points per step); hfac multiplies the
+step h"""
+function ctr_hyp(model::Int, c::Float64, phi::Float64, hfac::Float64 = 1.0)
     tau = model == 1 ? default_tau(1, c, 1.0) : default_tau(model, c); ts = tstar(model, c)
     y = min(0.5, 0.9 * (pi / 2 - phi))
     b = 0.9 * min(tau, ts - tau) / sin(y); a = b / tan(phi)
-    h = 2pi * y / (37 + 37 * tan(phi) * y)
+    h = hfac * 2pi * y / (37 + 37 * tan(phi) * y)
     # (case DK down to c = -550: up to 10 c^2, the scale on which the transform of V decays)
     K = ceil(Int, asinh((model == 1 ? max(CTR_RMAX, 10c^2) : CTR_RMAX) / hypot(a, b)) / h)
     ud = [k * h / CTR_SUB for k in 0:CTR_SUB*K]
@@ -5251,11 +5279,11 @@ function ctr_phi1(c::Float64, g0::Float64)
     iB = findfirst(>=(ok[1] + 5), ok)
     ok[1] * pi / 180, (iB === nothing ? min(ok[1] + 5, 89.0) : ok[iB]) * pi / 180
 end
-function ctr_path(model::Int, c::Float64, variant::Int = 1, g0::Float64 = 0.0)
+function ctr_path(model::Int, c::Float64, variant::Int = 1, g0::Float64 = 0.0, hfac::Float64 = 1.0)
     gk = model == 1 ? g0 : 0.0
-    lock(CTRLOCK) do; cacheget!(CTRPATH, (model, c, variant, gk)) do
+    lock(CTRLOCK) do; cacheget!(CTRPATH, (model, c, variant, gk, hfac)) do
         phi = model == 1 ? ctr_phi1(c, g0)[variant] : ctr_phi(c) + (variant == 2 ? CTR_DPHI : 0.0)
-        tau, a, b, h, K, tt = ctr_hyp(model, c, phi)
+        tau, a, b, h, K, tt = ctr_hyp(model, c, phi, hfac)
         P, s1e, s2e, _ = tparts(model, c, tt)                       # (engine labels: s1e the root with Re < 0 at tau)
         T = Vector{CtrT}(undef, K + 1); dt = Vector{ComplexF64}(undef, K + 1)
         for k in 0:K
@@ -5274,8 +5302,8 @@ function ctr_path(model::Int, c::Float64, variant::Int = 1, g0::Float64 = 0.0)
 end
 """one evaluation of the contour integral (variant 1: A, 2: B) at the first level: the outer nodes processed in chunks of
 32 until a chunk whose terms all stay below 1e-18; returns the per-node data for further levels"""
-function ctr_eval(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g0::Float64, variant::Int)
-    C = ctr_path(model, c, variant, g0)
+function ctr_eval(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g0::Float64, variant::Int; n1 = nothing, hfac::Float64 = 1.0)
+    C = ctr_path(model, c, variant, g0, hfac)
     # case DK: X~(v) = c0 v^2 + x v + x0, x0 = (1 + g0^2)/2, as sc X with X = (c0/sc) v^2 + (x/sc) v + 1/2, sc = 2 x0
     sc = model == 1 ? 1 + g0 * g0 : 1.0; c0s = c0 / sc; qs = x / sc
     plus, minus = ctr_pieces(qs, c0s)
@@ -5292,7 +5320,7 @@ function ctr_eval(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g0
             pl = ctr_active(plus, real(d.t)); mi = ctr_active(minus, real(d.t))
             lay[k] = (pl, mi, ctr_layout(kind, d, qs, c0s, c, g0, sc, pl, mi, pen))
             wt = kind == 1 ? C.dt[k] : C.dt[k] / d.t
-            I, mx = ctr_inner_n(kind, d, qs, c0s, c, g0, sc, pl, mi, (variant == 2 ? CTR_LEVELS_B : CTR_LEVELS)[1], lay[k][3]...)
+            I, mx = ctr_inner_n(kind, d, qs, c0s, c, g0, sc, pl, mi, n1 === nothing ? (variant == 2 ? CTR_LEVELS_B : CTR_LEVELS)[1] : n1, lay[k][3]...)
             G[k, 1] = imag(I * wt); gm[k] = mx * abs(wt)
             0
         end, zeros(Int, k2 - k1 + 1), k2 - k1 + 1)
@@ -5322,9 +5350,12 @@ inner paths with different rules agree: an error in the placement of one of them
 finer rule on the same paths would reproduce) does not pass, nor does an under-resolution that both paths share (which
 two evaluations with the same rule could reproduce: the density at the near-double root DT, c = -7.53, c0 = 1.84,
 x = -1.92 was off by 8e-10 in A and B at 64 nodes alike)."""
-function ctr_value(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g0::Float64; verified::Bool = true)
+function ctr_value(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g0::Float64; verified::Bool = true, n1 = nothing, hfac::Float64 = 1.0)
+    if !verified                                                     # (one evaluation: A at level 1)
+        A = ctr_eval(kind, x, model, c, c0, g0, 1; n1, hfac)
+        return ctr_sum(A, 1), NaN, isfinite(ctr_sum(A, 1)) ? 0 : 2, A.done, 1
+    end
     A = ctr_eval(kind, x, model, c, c0, g0, 1)
-    verified || return ctr_sum(A, 1), NaN, isfinite(ctr_sum(A, 1)) ? 0 : 2, A.done, 1      # (one evaluation: A at level 1)
     B = ctr_eval(kind, x, model, c, c0, g0, 2)
     canc = 10 * eps() * (sum(A.w[k] * A.gm[k] for k in 1:A.done) + sum(B.w[k] * B.gm[k] for k in 1:B.done))
     l = 1; err = abs(ctr_sum(A, 1) - ctr_sum(B, 1)) + canc
@@ -5338,6 +5369,26 @@ function ctr_value(kind::Int, x::Float64, model::Int, c::Float64, c0::Float64, g
 end
 
 """
+    ctr_rule(c, c0, g0) -> (n, hfac)
+
+The rule of one evaluation of the contour integral (verified = false): n Gauss-Legendre nodes per panel and per ray of the
+U-shapes and the factor hfac of the outer step, by regions of c, c0 and c g0 measured in November 2026 against the checked
+computation on a dense grid of x (cases DU, DT, g0 from 0.5 to 3, c from 2 to -60, c0 in {0, 2, -2, -5, c}; the README, "The
+rules of one evaluation").  Before, n = 64 and hfac = 1 everywhere (rule = :present).  The outer step 1.5 times as long
+holds for |c g0| <= 20 and c <= 1 (above the unit root it lost 1.5e-2 in case DU at c = 2, g0 = 1.5; at c g0 = -40.5 in
+case DT 3.9e-8, at -90 2.4e-2); 32 nodes hold near the unit root (with c0 > 0 down to c = -2.5: in case DU at c = -5, g0 =
+1.5, c0 = 2 they lost 2.1e-9 in F) and down to c = -10 (from c = -13.5 on they lost up to 3e-4 of the peak of the density).
+Case DK (whose automatic method is the line integral) keeps the rule of before.
+"""
+function ctr_rule(c::Float64, c0::Float64, g0::Float64)
+    c > 1 && return (32, 1.0)
+    abs(c * g0) > CTR_RULE_CG0 && return (CTR_LEVELS[1], 1.0)
+    n = (c >= -2.5 || (c >= -10 && c0 <= 0)) ? 32 : CTR_LEVELS[1]
+    (n, 1.5)
+end
+const CTR_RULE_CG0 = 20.0
+
+"""
     tr_contour(x, model, c; c0 = 0.0, g0, pdf = false, warn = true, verified = false) -> (F, info)
 
 The limiting distribution function (or density, pdf = true) by the contour integral representation (a double integral
@@ -5349,8 +5400,14 @@ plus the cancellation; see `ctr_value`), info.status is 0 where the estimate is 
 status gives a warning.  info.nodes counts the outer nodes of both evaluations.
 """
 function tr_contour(x::Vector{Float64}, model::Int, c::Float64; c0::Float64 = 0.0, g0::Float64 = 0.0, pdf::Bool = false, warn::Bool = true,
-                    verified::Bool = false)
+                    verified::Bool = false, n1 = nothing, hfac = nothing, rule::Symbol = :auto)
     (model in (1, 2, 3)) && g0 != 0 || error("the contour integral applies to a fixed start g0 != 0 in cases DK, DU, DT (models 1, 2, 3)")
+    rule in (:auto, :present) || throw(ArgumentError("rule must be :auto or :present (the rule of one evaluation of the contour integral, ctr_rule)"))
+    if !verified                                                      # (the rule of one evaluation, `ctr_rule`)
+        nr, hr = (rule === :auto && model != 1) ? ctr_rule(c, c0, g0) : (CTR_LEVELS[1], 1.0)     # (case DK: not measured)
+        n1 === nothing && (n1 = nr); hfac === nothing && (hfac = hr)
+    end
+    hfac = hfac === nothing ? 1.0 : Float64(hfac)
     t0 = time()
     n = length(x); F = zeros(n); err = zeros(n); status = zeros(Int, n); nodes = zeros(Int, n)
     for k in 1:n
@@ -5358,7 +5415,7 @@ function tr_contour(x::Vector{Float64}, model::Int, c::Float64; c0::Float64 = 0.
             F[k] = isnan(x[k]) ? NaN : (x[k] > 0 && !pdf) ? 1.0 : 0.0
             continue
         end
-        F[k], err[k], status[k], nodes[k], _ = ctr_value(pdf ? 1 : 2, x[k], model, c, c0, g0; verified)
+        F[k], err[k], status[k], nodes[k], _ = ctr_value(pdf ? 1 : 2, x[k], model, c, c0, g0; verified, n1, hfac)
     end
     if warn && any(!=(0), status)
         iw = findfirst(!=(0), status)

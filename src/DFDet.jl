@@ -3754,7 +3754,7 @@ function path_region(Mo::Model, c::Float64, c0::Float64)
     # the present step itself was off by up to 0.86 in the upper tail (case DK at c = 0.5, g0 = 1, c0 = -20; 1.8e-3 at c0 =
     # -5), where the steps of :finestep are within 1e-11 of the classical engine (`rule_path`), and with deterministic
     # terms :fine within 1e-12; there at c0 = 0 too the thinner step lost 1.4e-8 of the peak at mean + 5.75 sd (c = 0.5)
-    if c > PATH_NEAR_CMIN
+    if c > PATH_UNITROOT_CMIN
         # (beyond the range of the sweep above the unit root, with a fixed start beyond c = 2 and beyond c = 5 with a zero
         # start: the present rule; at c = 5 with a fixed start the thin rule differed from it by up to 5.6e-6 of the
         # peak of the density, Perron's model C with two breaks)
@@ -3768,7 +3768,7 @@ function path_region(Mo::Model, c::Float64, c0::Float64)
     :thin
 end
 """the borders of the regions of `path_region` in c"""
-const PATH_NEAR_CMIN = -1.0
+const PATH_UNITROOT_CMIN = -1.0
 const PATH_THIN_CMAX_FIXED = 2.0
 const PATH_THIN_CMAX = 5.0
 """

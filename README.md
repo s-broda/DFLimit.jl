@@ -162,7 +162,8 @@ the line integral was added).
 | above the unit root, the bulk at c >= 7 | classical | 218 to 916 | 535 to 19775 | 1.4e-14 | 1.6 to 22 times faster |
 | fixed start, case DK, c <= 1, (c g0)^2/2 <= 400 or g0 <= 0.5 with c >= -100, except c0 < 0 with c > -1 | general | 74 to 277 | 39 to 164 | 2.2e-11 | 1.4 to 3.2 times faster |
 | the same with c0 < 0 and c > -1 | classical | | | | the general engine's one evaluation of before November 2026 was off in the upper tail by up to 2.7e-6 at the 99.99% point and 2.9e-2 beyond (c = 0.5, c0 = -5 and -10, g0 = 1), the classical engine within 1e-12 of its checked computation and the conditional integral |
-| fixed start, case DK otherwise, cases DU, DT | classical | 87 to 331 | 82 to 755 | 2.5e-11 | up to 2.3 times faster (the general engine at most 1.1 times), and its warnings of the brittle regimes |
+| fixed start, cases DU, DT, c < -10: c0 > 0 below c = -20 or where \|c g0\| > 20, any c0 below c = -20 where \|c g0\| > 60 | general | | | 1e-10 in F; the density the derivative of F to 1e-10 of the peak | the classical contour integral's one evaluation was off (November 2026): in the density by up to 2.2e-2 of the peak (case DU, c = -60, g0 = 1.5, c0 = 5), in F by 3.9e-5 (c0 = -2); its checked computation in the density by up to 8.4e-6; the general engine 0.23 to 0.9 times the time down to c = -45, up to 5 times below c = -75 |
+| fixed start, case DK otherwise, cases DU, DT otherwise | classical | 87 to 331 | 82 to 755 | 2.5e-11 | up to 2.3 times faster (the general engine at most 1.1 times), and its warnings of the brittle regimes |
 | moments, zero or fixed start, c0 = 0 (c from -480 to 0) | general | 14 to 346 | 8.4 to 15 | 4.2e-14 relative | 1.2 to 28 times faster |
 | moments, stationary start: case SK at c <= -3e-3, cases SU (c0 = 0 only), ST at c <= -1 | general | 42 to 282 | 8.7 to 222 | 1.6e-9 relative (c = c0 = -300) | 1.3 to 30 times faster; far from the unit root with c0 = c neither engine is converged (both move by 1e-8 to 5e-7 relative under finer rules) |
 | moments, stationary start: case SU with c0 != 0, and nearer zero | classical | 45 | 115 | 2e-12 relative | 2.6 times faster in case SU; next to zero the general engine's moments lose accuracy in cases SU, ST (1e-10 at c = -0.1 to 4e-7 at c = -3e-3, where they fail) |
@@ -214,13 +215,13 @@ the oscillation with c0 (it was off by 1.1e-3 at c = 10, c0 = 9). Every distribu
 
 ### The rules of one evaluation
 
-One evaluation of the general engine's inversion on paths (`dist_cdf`, `dist_pdf`, `dist_quantile` and, through them, the
-classical functions where the rule `autoengine` takes the general engine) takes a thinner rule than before November 2026
-where it holds (`DFDet.PATH_RULES`, `DFDet.path_region`; keyword `rule`, :auto by default): the outer hyperbola with 1.5
-times the step and the U-shapes with 16 nodes per panel and 32 on the tails of their rays for 24 and 40 (32 and 48 for 48
-and 64 with a fixed start), 0.50 times the time of one evaluation (the median over 564 configurations, 0.30 to 0.87; the thin inner rule on the present
-hyperbola 0.73). The regions, a rule in (the start, whether
-the design has deterministic terms, c, c0) that the C engine and the MATLAB programs can take over:
+One evaluation of the general engine's inversion on paths (`dist_cdf`, `dist_pdf`, `dist_quantile` and, through them,
+the classical functions where the rule `autoengine` takes the general engine) takes a thinner rule than before November
+2026 where it holds (`DFDet.PATH_RULES`, `DFDet.path_region`; keyword `rule`, :auto by default): the outer hyperbola
+with 1.5 times the step and the U-shapes with 16 nodes per panel and 32 on the tails of their rays for 24 and 40 (32 and
+48 for 48 and 64 with a fixed start), 0.50 times the time of one evaluation (the median over 564 configurations, 0.30 to
+0.87; the thin inner rule on the present hyperbola 0.73). The regions, a rule in (the start, whether the design has
+deterministic terms, c, c0) that the C engine and the MATLAB programs can take over:
 
 | region | rule | why |
 |---|---|---|
@@ -231,26 +232,57 @@ the design has deterministic terms, c, c0) that the C engine and the MATLAB prog
 | c > 2 with a fixed start, c > 5; c < -60 with c0 other than 0 and c | the present rule | beyond the range of the sweep (at c = 5 with a fixed start the thin rule differed from the present one by 5.6e-6 of the peak of the density, Perron's model C with two breaks; at c = -480, case DK, c0 = 2, by 7.7e-9) |
 | elsewhere | the thin rule | |
 
-On the vertical line (above the unit root, where no hyperbola keeps the positive roots right of the origin) the line keeps
-its panels and only the inner rule thins. `rule = :present` gives the rule of before, `verified = true` takes it (and its
-variants), and `hfac`, `n`, `ntail` override the rule. A sweep of 822 configurations (no deterministic terms, an
-intercept, linear and quadratic trends, Perron's model B with one break and model C with two, the linear trend
-GLS-detrended at -13.5 and detrending first; zero, fixed (g0 = 1) and stationary starts; c from 2 to -60 and c0 in {0, 2,
--2, 5, -5, c}; F and f at the 1e-5 to 1 - 1e-5 points; `scratch/rules/sweep1.jl` of the branch kan-integration) set the
-regions, and a dense one checked them (`scratch/rules/dense3.jl`: 736 configurations, x from the mean - 6 sd to the mean + 6 sd in steps of 0.5 sd, c from 2 to -60 and at 5 and -480; the rule within 7.6e-10 of the present rule in F and 4e-9 of the peak in f wherever it is not the present one or a finer one). The criterion: within max(1e-9, twice the
-present rule's own error) in F and max(1e-8 of the largest density, twice its own) in f, against a reference with half the
-outer step and twice the inner nodes. A first thin rule with 12 and 24 nodes held at the sweep's points but lost up to
-9e-8 of the peak of the density between them near the unit root (case DK at c = 0.5 near the mode), which 16 and 32 nodes
-do not. Far from the unit root the reference is not the more accurate: in case DK at c = -60, c0 = 2 the present rule is
-within 1.7e-10 of the classical engine's checked computation, the reference 6.7e-10. On the line with c0 > 0 at x < 0 (two
-roots of the parabola) the line keeps its Gauss-Legendre rule and its warning, and the present rule is off by up to 2.7e-5
-there (case DK at c = 5, c0 = 2), as is the thin one.
+On the vertical line (above the unit root, where no hyperbola keeps the positive roots right of the origin) the line
+keeps its panels and only the inner rule thins. `rule = :present` gives the rule of before, `verified = true` takes it
+(and its variants), and `hfac`, `n`, `ntail` override the rule. A sweep of 822 configurations (no deterministic terms,
+an intercept, linear and quadratic trends, Perron's model B with one break and model C with two, the linear trend
+GLS-detrended at -13.5 and detrending first; zero, fixed (g0 = 1) and stationary starts; c from 2 to -60 and c0 in {0,
+2, -2, 5, -5, c}; F and f at the 1e-5 to 1 - 1e-5 points; `scratch/rules/sweep1.jl` of the branch kan-integration) set
+the regions, and a dense one checked them (`scratch/rules/dense3.jl`: 736 configurations, x from the mean - 6 sd to the
+mean + 6 sd in steps of 0.5 sd, c from 2 to -60 and at 5 and -480; the rule within 7.6e-10 of the present rule in F and
+4e-9 of the peak in f wherever it is not the present one or a finer one). The criterion: within max(1e-9, twice the
+present rule's own error) in F and max(1e-8 of the largest density, twice its own) in f, against a reference with half
+the outer step and twice the inner nodes. A first thin rule with 12 and 24 nodes held at the sweep's points but lost up
+to 9e-8 of the peak of the density between them near the unit root (case DK at c = 0.5 near the mode), which 16 and 32
+nodes do not. Far from the unit root the reference is not the more accurate: in case DK at c = -60, c0 = 2 the present
+rule is within 1.7e-10 of the classical engine's checked computation, the reference 6.7e-10. On the line with c0 > 0 at
+x < 0 (two roots of the parabola) the line keeps its Gauss-Legendre rule and its warning, and the present rule is off by
+up to 2.7e-5 there (case DK at c = 5, c0 = 2), as is the thin one.
+
+The classical engine's contour integral (a fixed start in cases DU, DT; `DFExact.ctr_rule`, keyword `rule` of
+`tr_contour`) takes, for one evaluation, 32 nodes per panel and ray of the U-shapes for 64 and the outer step 1.5 times
+as long where they hold: 0.42 times the time near the unit root (median; 0.28 to 0.70), the 32 nodes on the present
+step above the unit root (c > 1, 0.59 times), 64 nodes on the longer step with c0 > 0 below c = -2.5 and everywhere
+below c = -10, and the present rule where |c g0| > 20 (there the longer step lost up to 2.4e-2 in F, case DT at c =
+-30, g0 = 3). Against the checked computation on a dense grid of x (129 configurations: cases DU with g0 0.5 and 1.5,
+DT with 1 and 3, c from 2 to -60, c0 in {0, 2, -2, -5, c}) every configuration holds the criterion, within 6.2e-11 in
+F. Far from the unit root the present rule's own one evaluation was off: with c0 > 0 in the density by up to 5e-6 of
+the peak (case DU at c = -30, g0 = 0.5, c0 = 2), 4.2e-3 (c = -75, c0 = 5) and 2.2e-2 (c = -60, g0 = 1.5, c0 = 5), and
+where |c g0| > 60 with any c0 in the distribution function by up to 3.9e-5 (case DU, c = -60, g0 = 1.5, c0 = -2) and
+6.3e-6 (c = -100, g0 = 0.9); its checked computation was off in the density by up to 8.4e-6 of the peak. The rule of
+the engines (`autoengine`) gives these cells to the general engine: with c0 > 0 below c = -20 (below c = -10 where |c
+g0| > 20), and with any c0 below c = -20 where |c g0| > 60. There the general engine's density is the derivative of the
+distribution function on which the two engines agree (to 1e-10 of the peak, by Richardson's central difference;
+`scratch/rules/probe_ctr_far5.jl`), and it takes 0.23 to 0.9 times the time of the classical one evaluation down to c =
+-45, up to 1.8 times at c = -60 and 1.2 to 5 times below c = -75.
+
+The classical engine's conditional integral (one evaluation, `DFExact.cond_rule`) takes 48 nodes on the path of each
+inner inversion and of the integral over l for 96 with a stationary start for c <= -2, with a zero start in cases DU, DT
+for c >= -5 and in case DK for c <= -13.5 (medians of warm calls, F and f at 13 points: 0.60 times the time with a
+stationary start, 0.81 and 0.87 in cases DU, DT with a zero start, 0.86 in case DK, where the conditional integral takes
+20 to 50 ms), and 64 with a stationary start for c > -2; a fixed start (measured at one configuration only) and c > 2
+keep 96. Against the rule with 192 nodes and the outer tolerance 1e-14 on a dense grid of x (150 configurations: cases
+DK, DU, DT with a zero start, c from 2 to -100, and SK, SU, ST, c from -0.5 to -50, c0 in {2, -2, -5, c}) the regions
+hold the criterion. Elsewhere 48 nodes lost up to 1e-3 far from the unit root with a zero start in cases DU, DT (1.8e-8
+of the peak of the density at c = -13.5), 7e-8 of the peak in case SK at c = -0.5, and 7e-7 with a fixed start (case DU,
+c = 2, c0 = -2, g0 = 0.5). The outer tolerance 1e-10 in place of 1e-12 held as well but gained nothing measurable (0.85
+against 0.90 with a zero start) and is not taken.
 
 ## The devices of Bao and Kan
 
 The half-plane statistics of the six classical cases, the coefficient statistic (`coef_cdf`, `coef_pdf`, `coef_icdf`,
-`coef_mom`), the linear form U - aV (`ltratio_lincdf`) and the power envelope (`power_envelope`), and the moments of the
-t-ratio (`ltratio_mom`) are computed by default with the numerical devices of Yong Bao and Raymond Kan, "Exact Finite-Sample Distribution and Moments of the Least
+`coef_mom`), the linear form U - aV (`ltratio_lincdf`) and the power envelope (`power_envelope`), and the moments of
+the t-ratio (`ltratio_mom`) are computed by default with the numerical devices of Yong Bao and Raymond Kan, "Exact Finite-Sample Distribution and Moments of the Least
 Squares Estimator in First-Order Autoregressions: O(1) Algorithms", ported to the limits of this package in the module
 `DFLimit.DFKan` (`src/DFKan*.jl`). The joint characteristic function of the limit pair comes in closed forms that are free
 of cancellation on both sides of the unit root, with the branch of the square root fixed at each point from factors whose
