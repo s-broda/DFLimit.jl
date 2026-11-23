@@ -203,8 +203,36 @@ function router(f::Symbol, engine::Symbol, args...; kw...)
     f === :lincdf_inv && return inv_lincdf(engine, args...; kw...)
     f === :envelope_inv && return inv_envelope(engine, args...; kw...)
     f === :mom_inv && return inv_mom(engine, args...; kw...)
+    f === :mom_start && return mom_start(args...; kw...)
     throw(ArgumentError("router: unknown function $f"))
 end
+
+"""
+    mom_start(p, cas, c; c0 = 0, g0 = 0) -> m or nothing
+
+The first p moments of the t-ratio of a classical case for the start of a quantile search (`ltratio_icdf`, `gen_icdf`):
+from one jet per node, the method of Bao and Kan (`DFKan.tratio_mom1`, 0.2 to 1 ms for two moments, where the circles of
+the engines take 10 to 150 ms), or nothing outside its region (`DFKan.mom_ok`; case DG) or where its error estimate
+exceeds 1e-6 relative; the search then starts from the engines' circles.  The start only places the first step and the
+bracket of the search: the quantile is the root of F(x) - p to the tolerance of the search either way.
+"""
+function mom_start(p::Int, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0)
+    MOM_START[] || return nothing
+    cs = uppercase(String(cas))
+    (inv_case(cs) && DFKan.mom_ok(cs, Float64(c), Float64(c0), Float64(g0))) || return nothing
+    m, e = try
+        DFKan.tratio_mom1(DFKan.limcf(cs, c, g0), max(p, 2), Float64(c0), 1e-10)
+    catch err
+        DFDet.nofallback(err) && rethrow()
+        return nothing
+    end
+    sc = [max(abs(m[j]), abs(m[2])^(j / 2)) for j in eachindex(m)]
+    all(j -> isfinite(m[j]) && e[j] <= 1e-6 * sc[j], 1:p) || return nothing
+    m[1:p]
+end
+"""whether the quantile searches start from the moments from jets (`mom_start`; false: from the engines' circles, as before
+November 2026, kept for checking)"""
+const MOM_START = Ref(true)
 
 # ---------- the single inversion of Bao and Kan (DFKan) for the half-plane statistics of the six classical cases ----------
 # The method of Yong Bao and Raymond Kan, "Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in
@@ -402,13 +430,17 @@ function route_dist(engine::Symbol, kind::Int, x, cas::AbstractString, c::Real; 
     engine === :auto && (method !== :auto || verified || !isempty(kw)) && return nothing
     merged_dist(kind, x, S, c; c0, engine, method, verified, kw...)
 end
-"""the general engine's p-quantiles of S, started at the normal approximation from its moments where it has them"""
+"""the general engine's p-quantiles of S, started at the normal approximation from the moments: from jets in the six
+classical cases (`mom_start`), otherwise from the engines' moments where they have them"""
 function gen_icdf(p, S::Spec, c::Real; tol::Real = 1e-10, c0::Real = 0.0, method::Symbol = :auto, kw...)
     x0 = -2.0; sd = 1.0
     # (the start from the moments of the engine the rule takes for them; a design without moments starts at -2)
     m = nothing
-    if S.case !== nothing && S.case != "DG" && classical_valid(S, c, c0, :auto) &&
-       autoengine(:mom, S, Float64(c), Float64(c0), 0.0) === :classical
+    # (the six classical cases: the moments from jets, `mom_start`, where they hold; otherwise the engine of the rule)
+    cv = S.case !== nothing && S.case != "DG" && classical_valid(S, c, c0, :auto)
+    cv && (m = mom_start(2, S.case, c; c0, g0 = S.g0))
+    if m !== nothing
+    elseif cv && autoengine(:mom, S, Float64(c), Float64(c0), 0.0) === :classical
         m = DX.ltratio_mom(2, S.case, c; c0, g0 = S.g0, engine = :classical)
     elseif S.D.detrend != :first
         # (where the moments fail, the start at -2; an interrupt or an exhausted memory reaches the caller)

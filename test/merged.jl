@@ -166,4 +166,17 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test occursin("cases DK and DG only", errm(() -> ltratio_lincdf(-0.2639, -3.5, trend(-1), -5; g0 = 1.5, engine = :classical)))
     end
 
+    @testset "the quantile searches: the start from the moments from jets (mom_start)" begin
+        # the quantiles of before to the search tolerance (2.4e-11 measured)
+        m = MD.mom_start(2, "DU", -5.0; c0 = -2.0)
+        @test m !== nothing && maximum(abs.(m ./ ltratio_mom(2, "DU", -5; c0 = -2.0, method = :engine) .- 1)) < 1e-9
+        @test MD.mom_start(2, "DG", -5.0) === nothing && MD.mom_start(2, "DU", 25.0) === nothing
+        for (cas, c, c0) in (("DU", -5.0, 0.0), ("DT", -5.0, -2.0), ("DK", -5.0, 2.0))
+            q1 = ltratio_icdf([0.05, 0.5], cas, c; c0)
+            MD.MOM_START[] = false
+            q0 = try; ltratio_icdf([0.05, 0.5], cas, c; c0); finally; MD.MOM_START[] = true; end
+            @test maximum(abs, q1 .- q0) < 1e-9
+        end
+    end
+
 end

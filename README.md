@@ -282,22 +282,25 @@ against 0.90 with a zero start) and is not taken.
 
 The half-plane statistics of the six classical cases, the coefficient statistic (`coef_cdf`, `coef_pdf`, `coef_icdf`,
 `coef_mom`), the linear form U - aV (`ltratio_lincdf`) and the power envelope (`power_envelope`), and the moments of
-the t-ratio (`ltratio_mom`) are computed by default with the numerical devices of Yong Bao and Raymond Kan, "Exact Finite-Sample Distribution and Moments of the Least
-Squares Estimator in First-Order Autoregressions: O(1) Algorithms", ported to the limits of this package in the module
-`DFLimit.DFKan` (`src/DFKan*.jl`). The joint characteristic function of the limit pair comes in closed forms that are free
-of cancellation on both sides of the unit root, with the branch of the square root fixed at each point from factors whose
-arguments are known, and in Taylor-mode arithmetic (jets), so that its derivatives come out of the same assembly. A
-statistic that rejects on a half-plane is then one inversion along a ray, by adaptive quadrature over decades with the tail
-beyond S = 400/|w| (w the slope of the dominant phase) completed by repeated integration by parts, the derivatives of the
-slowly varying factor read off a jet of order eight. The moments of the t-ratio are one-dimensional integrals over s
-of the j-th derivative of the moment generating function along its affine path, which one jet of order j gives at each
-node of an adaptive quadrature in log s (`method = :jets`; before, Cauchy integrals on a circle). Every value comes with
-an error estimate: `err = true` returns
-`(values, errors)`, `tol` (1e-12) is the absolute tolerance, and a warning names the values whose estimate exceeds it.
-`method = :engine` is the computation of before (the engines, by the rule of `autoengine`; the t-ratio at x = 0 for the
-coefficient statistic), which reproduces those values, and engine = :classical or :general, the engines' own keywords and
-case DG take it as well; `method = :inversion` forces the single inversion; `verified = true` recomputes by the engines'
-checked computation the values whose estimate exceeds the tolerance.
+the t-ratio (`ltratio_mom`) are computed by default with the numerical devices of Yong Bao and Raymond Kan, "Exact
+Finite-Sample Distribution and Moments of the Least Squares Estimator in First-Order Autoregressions: O(1)
+Algorithms", ported to the limits of this package in the module `DFLimit.DFKan` (`src/DFKan*.jl`). The joint
+characteristic function of the limit pair comes in closed forms that are free of cancellation on both sides of the
+unit root, with the branch of the square root fixed at each point from factors whose arguments are known, and in
+Taylor-mode arithmetic (jets), so that its derivatives come out of the same assembly. A statistic that rejects on a
+half-plane is then one inversion along a ray, by adaptive quadrature over decades with the tail beyond S = 400/|w| (w
+the slope of the dominant phase) completed by repeated integration by parts, the derivatives of the slowly varying
+factor read off a jet of order eight. The moments of the t-ratio are one-dimensional integrals over s of the j-th
+derivative of the moment generating function along its affine path, which one jet of order j gives at each node of an
+adaptive quadrature in log s (`method = :jets`; before, Cauchy integrals on a circle); the quantile searches of the
+t-ratio (`ltratio_icdf`, also where the rule gives them to the general engine) start from the normal approximation
+with these moments (`DFLimit.mom_start`; before, the engines' circles; `DFLimit.MOM_START[] = false` restores that).
+Every value comes with an error estimate: `err = true` returns `(values, errors)`, `tol` (1e-12) is the absolute
+tolerance, and a warning names the values whose estimate exceeds it. `method = :engine` is the computation of before
+(the engines, by the rule of `autoengine`; the t-ratio at x = 0 for the coefficient statistic), which reproduces those
+values, and engine = :classical or :general, the engines' own keywords and case DG take it as well; `method =
+:inversion` forces the single inversion; `verified = true` recomputes by the engines' checked computation the values
+whose estimate exceeds the tolerance.
 
 | function | the single inversion by default | largest difference from the engines | which is right where they differ | warm time (ms), single inversion against `method = :engine` |
 |---|---|---|---|---|
@@ -305,6 +308,7 @@ checked computation the values whose estimate exceeds the tolerance.
 | `coef_pdf`, `coef_mom` | the same cases (new functions) | the density within 2.1e-13 of the general engine's (`DFDet.coef_pdf`); the first two moments within 1.3e-12 of the integrals of the density | | 0.05 to 1 |
 | `ltratio_lincdf` | case DK with a zero start for -100 <= c <= 4, the six cases through their designs (fixed start included) for -100 <= c <= 2, a != 0 | 5.5e-11 against the classical code (2.2e-11 at the tolerance 1e-12), 1e-12 against the general engine | with a fixed start above the unit root the general engine's one evaluation is off by up to 6e-2 (case DK, c = 1, a = -7, the 99% point) and 2.9e-3 (case DU, c = 2): the single inversion agrees with its checked computation and with the plain quadrature without the tail to 1e-14 | 0.08 to 0.5 against 4.8 to 12 (11 to 165 times faster) |
 | `ltratio_mom` (jets) | the six cases, any c0 and fixed start, c <= 20 | 1.4e-11 relative near the unit root (8.2e-12 to 1.4e-11 at c = 0, -3, -5), 3.2e-10 against the stored values far from it at c0 = 0, 1e-8 to 1.3e-7 with c0 = c far from it (2e-7 at c = c0 = -480 with a stationary start) | with c0 = c far from the unit root the engines' circles are not converged: they move towards the jets under refinement, and at c = c0 = -60 the integral of x^j times the density is within 1.5e-9 of the jets and 5.2e-9 of the circles; with a fixed start above the unit root the engines' one evaluation is off by up to 0.65 relative (case DK, c = 2, c0 = -2, g0 = 1), and their circles with four times the nodes and a quarter of the step agree with the jets to 3.4e-13; at c = 10, 20 with c0 = c by up to 33 relative (case DT) | 0.3 to 1.3 against 12 to 158 for four moments (16 to 290 times faster) |
+| `ltratio_icdf` (the start) | the six cases with zero, fixed and stationary starts, c <= 20 | 2.4e-11 (the search tolerance 1e-10), except case DK with c0 = 2 far from the unit root: 4.3e-10 at c = -20 and 5.5e-9 at c = -60, where the distribution function the search inverts is known to about 1e-9 | | whole calls (four quantiles) 0.27 to 1.0 times as long (median 0.85; case DK at c = 0: 46 to 13.8 ms) |
 | `power_envelope` | case DK (DU), c <= -1e-4 | 2.7e-12 against the general engine (critical value to 1e-10) from c = -1e-4 to -500 | the classical bisection of the critical value to 1e-9 is off by up to 1.1e-9 | 1.2 to 13 against 35 to 161 (10 to 40 times faster) |
 
 The general engine has the same inversion for the statistics of a design whose transform it evaluates point by point:

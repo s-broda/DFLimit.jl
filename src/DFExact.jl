@@ -2526,7 +2526,8 @@ ltratio_pdf(x, cas::AbstractString, c::Real = 0; kw...) = ltratio_dist(1, x, cas
     ltratio_icdf(p, cas, c = 0; tol = 1e-10, c0 = 0, g0 = 0, method = :auto)
 
 The limit of the p-quantile of the t-ratio, p in (0, 1) (an array), by Newton's method on `ltratio_cdf` with `ltratio_pdf`
-as the derivative, safeguarded by bisection, started at the normal approximation from the first two moments.
+as the derivative, safeguarded by bisection, started at the normal approximation from the first two moments (from jets, the
+method of Bao and Kan, where the package's router has them: `DFLimit.mom_start`; otherwise from the circles of this engine).
 
     ltratio_icdf([0.01, 0.05, 0.10], "DU")          # the asymptotic critical values of tau_mu
 """
@@ -2542,7 +2543,10 @@ function ltratio_icdf_(p, cas::AbstractString, c::Real, model::Int; tol::Real, c
     if model == 4                                                     # (no moments for case DG: a rough start, the search is safeguarded)
         mu = -1.9 + 0.1min(c, 0.0); sd = 0.8
     else
-        m = ltratio_mom(2, cas, c; c0, g0, engine = :classical)       # (the start: this engine's moments, whichever engine evaluates)
+        # (the start: the moments from jets of Bao and Kan where the router has them, `mom_start`, 0.2 to 1 ms; otherwise
+        # this engine's circles, 10 to 150 ms; whichever engine evaluates)
+        m = ROUTE[] === nothing ? nothing : ROUTE[](:mom_start, :auto, 2, cas, c; c0, g0)
+        m === nothing && (m = ltratio_mom(2, cas, c; c0, g0, engine = :classical))
         mu = m[1]; sd = sqrt(max(m[2] - m[1]^2, 1e-6))
     end
     one(pk) = begin

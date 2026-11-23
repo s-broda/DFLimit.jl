@@ -77,6 +77,13 @@
   of the peak in the density.  The general engine's density there is the derivative of the distribution function on
   which the two engines agree (to 1e-10 of the peak), at 0.23 to 0.9 times the time down to c = -45 and up to 5 times
   below c = -75.  The classical engine warns of the brittle one evaluation where |c g0| > 60 below c = -20 too.
+- **The quantile searches start from the moments from jets.** `ltratio_icdf` (the classical Newton search, and the
+  general engine's search where the rule gives it the quantiles) starts at the normal approximation with the first two
+  moments from jets (`DFLimit.mom_start`, after Bao and Kan, 0.2 to 1 ms) in place of the circles of the engines (10 to
+  150 ms): whole calls of four quantiles take 0.27 to 1.0 times as long (median 0.85; case DK at c = 0 13.8 ms for 46).
+  The quantiles are those of before to 2.4e-11 (the search tolerance is 1e-10), except in case DK with c0 = 2 far from
+  the unit root (4.3e-10 at c = -20, 5.5e-9 at c = -60), where the distribution function that the search inverts is
+  itself known to about 1e-9. `DFLimit.MOM_START[] = false` restores the start of before.
 - **The moments of the t-ratio from jets.** `ltratio_mom` takes the derivatives of the moment generating function from
   one Taylor-mode jet per node of an adaptive quadrature (after Bao and Kan) by default in the six classical cases, for any
   c0 and fixed start up to c = 20: 16 to 290 times faster (0.3 to 1.3 ms for four moments), within 1.4e-11 relative of
