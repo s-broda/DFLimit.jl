@@ -119,6 +119,23 @@ errm(f) = try; f(); ""; catch e; sprint(showerror, e); end
         @test coef_mom(2, trend(0), -5) == coef_mom(2, "DU", -5)
         @test occursin("cases DK, DU, DT, SK, SU, ST", errm(() -> coef_mom(1, "DG")))
     end
+    @testset "anchors: the t-ratio's distribution function at zero in closed form" begin
+        # Bao and Kan's chi-square representation (their AR1LIM_RAY): P[U <= 0], the t-ratio at x = 0 with c0 = 0, is a
+        # normal integral of noncentral chi-square laws in cases DK, DU (zero or fixed start), SK, SU; for any design with a
+        # zero or stationary start and least squares detrending, U + 1/2 is a sum of weighted chi-square(1) variables with
+        # the reciprocal roots at t = 0 as weights, one inversion (`DFDet.zero_cdf`).  Within 1.9e-12 and 4.2e-12 of the
+        # classical engine's and the general engine's distribution function at zero (November 2026)
+        for (cas, c, g0) in (("DK", 2.0, 0.0), ("DK", 2.0, 1.0), ("DK", 0.0, 0.0), ("DK", 0.0, 1.0), ("DK", -0.1, 1.0), ("DK", -5.0, 0.0), ("DK", -5.0, 1.0), ("DK", -50.0, 0.0),
+                             ("DU", 2.0, 0.0), ("DU", 2.0, 1.0), ("DU", 0.0, 0.0), ("DU", -0.1, 1.0), ("DU", -5.0, 0.0), ("DU", -5.0, 1.0), ("DU", -50.0, 0.0), ("DU", -50.0, 1.0),
+                             ("SK", -0.1, 0.0), ("SK", -5.0, 0.0), ("SK", -50.0, 0.0), ("SU", -0.1, 0.0), ("SU", -5.0, 0.0), ("SU", -50.0, 0.0))
+            @test abs(quietly(() -> ltratio_cdf(0.0, cas, c; g0)) - KAN.ray_cdf(cas, c; g0)) < 2e-11
+        end
+        for (D, st) in ((trend(1), :zero), (trend(2), :zero), (perron(:A, 0.5), :zero), (perron(:C, 0.5), :zero), (perron(:C, [0.3, 0.7]), :zero),
+                        (trend(1), :stationary), (perron(:B, 0.5), :stationary)), c in (2.0, 0.0, -5.0, -13.5, -30.0)
+            (st == :stationary && c >= 0) && continue
+            @test abs(quietly(() -> dist_cdf(D, [0.0], c; start = st)[1]) - G.zero_cdf(D, c; start = st)[1]) < 5e-11
+        end
+    end
     @testset "the linear form and the power envelope by the single inversion" begin
         for (b, a, c) in ((-0.2639, -3.5, 0.0), (0.3, -2.5, -5.0), (-0.1, 1.0, -13.5), (5.0, -3.5, 2.0))
             @test abs(ltratio_lincdf(b, a, "DK", c) - ltratio_lincdf(b, a, "DK", c; method = :engine)) < 1e-10          # (5.4e-12)
