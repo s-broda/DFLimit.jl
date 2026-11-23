@@ -137,49 +137,115 @@ function ptquantile(G::QGrid, p::Real; q0::Real = 6.0)
     q
 end
 """
-    pt_cdf(D, qs, cbar, c = 0; N = 60000, umax = 4000) -> P
+    pt_method(method, N, umax) -> (:inversion or :grid, N, umax)
+
+The computation of the point-optimal functions: method = :auto (the default) and :inversion the single inversion of Bao
+and Kan with the branch of the transform from the pivots and the tail completed by integration by parts (`pt_cdf1`,
+src/DFKan_det.jl); method = :grid, or N or umax given, the inversion of Gil-Pelaez on the fixed grid of N steps up to umax
+(60000 and 4000 by default; `qgrid`, `ptF`), the computation of before, with its refusals.
+"""
+function pt_method(method::Symbol, N, umax, c::Real = 0.0)
+    method in (:auto, :inversion, :grid) || throw(ArgumentError("the point-optimal statistic: method must be :auto, :inversion (the single inversion of Bao and Kan) or :grid (the fixed grid of Gil-Pelaez)"))
+    grid = method === :grid || (method === :auto && (N !== nothing || umax !== nothing || !(c <= PT_INV_CMAX)))
+    (method === :inversion && (N !== nothing || umax !== nothing)) && throw(ArgumentError("the point-optimal statistic: N and umax belong to method = :grid"))
+    grid ? (:grid, N === nothing ? 60000 : Int(N), umax === nothing ? 4000.0 : Float64(umax)) : (:inversion, 0, 0.0)
+end
+"""
+the largest c at which the single inversion is the default of the point-optimal functions (method = :auto): compared in
+November 2026 with the contour integral of the general engine on the point-optimal statistic's quadratic form (an
+independent evaluation, the paths around the roots) for an intercept at cbar = -7, a linear trend at -13.5, Perron's
+model B at -17.8 and a quadratic trend at -20, c from -30 to 7, the 1 to 99% points: within 3.3e-12, where the grid is off
+by up to 6e-8 or refuses above the unit root (at c = 4, 5 with an intercept and a linear trend).  Beyond c = 4 the
+evaluation can slow down by orders of magnitude (11 s a value for Perron's model B at c = 5, 7 s for a linear trend at c =
+7, against 1 to 65 ms up to c = 4), and the fixed grid of before, with its refusal, is kept there.
+"""
+const PT_INV_CMAX = 4.0
+"""the transform of the point-optimal statistic at c for the single inversion (the checks of `qgrid`)"""
+function pt_transform(D::Determ, cbar::Real, c::Real)
+    isfinite(c) || throw(ArgumentError("the point-optimal statistic: c must be a finite real scalar"))
+    ptcf(prep_pt(D, Float64(cbar)), Float64(c))
+end
+"""the values of f(F, q) at the points qs (F the transform of the point-optimal statistic), with the error estimates and
+the warning where they exceed the tolerance"""
+function pt_values(f, fn::String, F::DetCF, cbar::Real, qs::AbstractVector, tol::Float64, err::Bool)
+    R = [f(F, Float64(cbar), Float64(q), tol) for q in qs]
+    P = first.(R); E = last.(R)
+    bad = count(e -> !(e <= tol), E)
+    bad > 0 && @warn "$fn: the error estimate of the single inversion exceeds the tolerance $tol at $bad of $(length(E)) points (largest $(maximum(E))); method = :grid gives the inversion on the fixed grid"
+    err ? (P, E) : P
+end
+"""
+    pt_cdf(D, qs, cbar, c = 0; method = :auto, tol = 1e-12, err = false, N, umax) -> P
 
 The limit of P(P_T <= q) at the points qs, P_T the point-optimal statistic of Elliott, Rothenberg and Stock against cbar
-(`prep_pt`) for the design D, under phi = 1 + c/n, zero start, by the inversion formula of Gil-Pelaez (one inversion of
-the characteristic function of the quadratic form Q).  Refused where the grid of the inversion does not resolve the
+(`prep_pt`) for the design D, under phi = 1 + c/n, zero start: one inversion of the characteristic function of the
+quadratic form Q.  By default the single inversion of Bao and Kan ("Exact Finite-Sample Distribution and Moments of the
+Least Squares Estimator in First-Order Autoregressions: O(1) Algorithms"): adaptive quadrature over decades with the
+branch of the square root of the determinant from the pivots of the precision matrix at each point, and the tail
+completed by integration by parts (`pt_cdf1`), for every c and q; `tol` is its absolute tolerance, `err = true` returns
+`(P, errors)`, and a warning names the points at which the estimate exceeds the tolerance; up to c = PT_INV_CMAX (4),
+beyond which the grid of before computes.  `method = :grid` (or N, umax given) is the inversion of Gil-Pelaez on the fixed
+grid of before, refused where the grid does not resolve the
 transform (`PT_EDGE`: far above the unit root, with a linear trend at cbar = -13.5 from about c = 3.7) and at points q
 beyond its range (`ptF`: |q| > 1000 with the default grid).
 """
-function pt_cdf(D::Determ, qs::AbstractVector, cbar::Real, c::Real = 0.0; N::Int = 60000, umax::Real = 4000.0)
-    G = qgrid(prep_pt(D, Float64(cbar)), Float64(cbar), Float64(c); N, umax = Float64(umax))
-    [ptF(G, Float64(q))[1] for q in qs]
+function pt_cdf(D::Determ, qs::AbstractVector, cbar::Real, c::Real = 0.0; method::Symbol = :auto, N = nothing, umax = nothing, tol::Real = BK.TOL, err::Bool = false)
+    m, Ng, ug = pt_method(method, N, umax, c)
+    if m === :grid
+        G = qgrid(prep_pt(D, Float64(cbar)), Float64(cbar), Float64(c); N = Ng, umax = ug)
+        v = [ptF(G, Float64(q))[1] for q in qs]
+        return err ? (v, fill(NaN, length(v))) : v
+    end
+    pt_values(pt_cdf1, "pt_cdf", pt_transform(D, cbar, c), cbar, qs, Float64(tol), err)
 end
-"""the limiting density of the point-optimal statistic at qs (arguments as in `pt_cdf`)"""
-function pt_pdf(D::Determ, qs::AbstractVector, cbar::Real, c::Real = 0.0; N::Int = 60000, umax::Real = 4000.0)
-    G = qgrid(prep_pt(D, Float64(cbar)), Float64(cbar), Float64(c); N, umax = Float64(umax))
-    [ptF(G, Float64(q))[2] for q in qs]
+"""the limiting density of the point-optimal statistic at qs (arguments as in `pt_cdf`; the single inversion by default,
+the density of a quadratic form by one integral of the real part of its transform, `pt_pdf1`)"""
+function pt_pdf(D::Determ, qs::AbstractVector, cbar::Real, c::Real = 0.0; method::Symbol = :auto, N = nothing, umax = nothing, tol::Real = BK.TOL, err::Bool = false)
+    m, Ng, ug = pt_method(method, N, umax, c)
+    if m === :grid
+        G = qgrid(prep_pt(D, Float64(cbar)), Float64(cbar), Float64(c); N = Ng, umax = ug)
+        v = [ptF(G, Float64(q))[2] for q in qs]
+        return err ? (v, fill(NaN, length(v))) : v
+    end
+    pt_values(pt_pdf1, "pt_pdf", pt_transform(D, cbar, c), cbar, qs, Float64(tol), err)
 end
 """
-    pt_quantile(D, p, cbar; N = 60000, umax = 4000) -> q
+    pt_quantile(D, p, cbar; method = :auto, tol = 1e-12, N, umax) -> q
 
 The p-quantile at c = 0 of the limit of the point-optimal statistic against cbar: the critical value of the level-p test
-(it rejects for small values).
+(it rejects for small values).  By default regula falsi on the single inversion of Bao and Kan, with the transform values
+along the ray kept across the search (`pt_quantile1`); method = :grid Newton's method on the fixed grid (`ptquantile`).
 """
-function pt_quantile(D::Determ, p::Real, cbar::Real; N::Int = 60000, umax::Real = 4000.0)
+function pt_quantile(D::Determ, p::Real, cbar::Real; method::Symbol = :auto, N = nothing, umax = nothing, tol::Real = BK.TOL)
     0 < p < 1 || throw(ArgumentError("pt_quantile: p must lie in (0, 1)"))
-    ptquantile(qgrid(prep_pt(D, Float64(cbar)), Float64(cbar), 0.0; N, umax = Float64(umax)), p)
+    m, Ng, ug = pt_method(method, N, umax)
+    m === :grid && return ptquantile(qgrid(prep_pt(D, Float64(cbar)), Float64(cbar), 0.0; N = Ng, umax = ug), p)
+    pt_quantile1(pt_transform(D, cbar, 0.0), Float64(cbar), Float64(p), Float64(tol))[1]
 end
 """
-    pt_power(D, cbar, c; level = 0.05) -> (b, power)
+    pt_power(D, cbar, c; level = 0.05, method = :auto, tol = 1e-12, N, umax) -> (b, power)
 
-The critical value b of the level-`level` point-optimal test against cbar and its limiting power at c.
+The critical value b of the level-`level` point-optimal test against cbar and its limiting power at c (the single inversion
+by default, as `pt_cdf` and `pt_quantile`).
 """
-function pt_power(D::Determ, cbar::Real, c::Real; level::Real = 0.05, N::Int = 60000, umax::Real = 4000.0)
+function pt_power(D::Determ, cbar::Real, c::Real; level::Real = 0.05, method::Symbol = :auto, N = nothing, umax = nothing, tol::Real = BK.TOL)
     0 < level < 1 || throw(ArgumentError("pt_power: the level must lie in (0, 1)"))
+    m, Ng, ug = pt_method(method, N, umax, c)
     P = prep_pt(D, Float64(cbar))
-    b = ptquantile(qgrid(P, Float64(cbar), 0.0; N, umax = Float64(umax)), level)
-    b, ptF(qgrid(P, Float64(cbar), Float64(c); N, umax = Float64(umax)), b)[1]
+    if m === :grid
+        b = ptquantile(qgrid(P, Float64(cbar), 0.0; N = Ng, umax = ug), level)
+        return b, ptF(qgrid(P, Float64(cbar), Float64(c); N = Ng, umax = ug), b)[1]
+    end
+    isfinite(c) || throw(ArgumentError("the point-optimal statistic: c must be a finite real scalar"))
+    b = pt_quantile1(ptcf(P, 0.0), Float64(cbar), Float64(level), Float64(tol))[1]
+    b, pt_cdf1(ptcf(P, Float64(c)), Float64(cbar), b, Float64(tol))[1]
 end
 """
-    pt_envelope(D, cs; level = 0.05) -> P
+    pt_envelope(D, cs; level = 0.05, method = :auto, ...) -> P
 
 The Gaussian power envelope for the design D at each c in cs: the power at c of the point-optimal test against cbar = c
-(level for c >= 0).  For no deterministic terms, an intercept and a linear trend it is `power_envelope` (to 1e-8).
+(level for c >= 0).  For no deterministic terms, an intercept and a linear trend it is `power_envelope` (to 1e-8).  By
+default by the single inversion of Bao and Kan (`pt_power`); method = :grid (or N, umax) the fixed grid of before.
 """
 function pt_envelope(D::Determ, cs::AbstractVector; level::Real = 0.05, kw...)
     0 < level < 1 || throw(ArgumentError("pt_envelope: the level must lie in (0, 1)"))

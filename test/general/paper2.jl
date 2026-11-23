@@ -62,10 +62,12 @@ const GE = DFLimit.DFDet
     @test_throws ArgumentError lm_cdf(trend(1), [-0.1], 12.0)
     @test_throws ArgumentError lm_power(trend(1), [-5.0, 12.0])
     # the point-optimal statistic where the grid of the inversion of Gil-Pelaez does not resolve the transform (F from -0.1
-    # to 3.4 at c = 5), and at points beyond the range of the grid (F = 3 at q = 1e5 at c = 0): an error; with the N the
-    # error asks for, c = 5 within Monte Carlo error of the simulated limit (P(Q <= 73.28) = 0.05, 1e6 replications, n = 4000)
+    # to 3.4 at c = 5, above c = 4, where the grid stays the default), and at points beyond the range of the grid (F = 3 at
+    # q = 1e5 at c = 0; the single inversion, the default at c = 0, has no such range): an error; with the N the error asks
+    # for, c = 5 within Monte Carlo error of the simulated limit (P(Q <= 73.28) = 0.05, 1e6 replications, n = 4000)
     @test_throws ArgumentError pt_cdf(trend(1), [100.0], -13.5, 5.0)
     @test abs(pt_cdf(trend(1), [73.28], -13.5, 5.0; N = 1_000_000)[1] - 0.05) < 1e-3
-    @test_throws ArgumentError pt_cdf(trend(1), [1e5], -13.5, 0.0)
+    @test_throws ArgumentError pt_cdf(trend(1), [1e5], -13.5, 0.0; method = :grid)
+    @test 0 <= 1 - pt_cdf(trend(1), [1e5], -13.5, 0.0)[1] < 1e-12
     @test pt_cdf(trend(1), [1e3, Inf, -Inf], -13.5, 0.0) ≈ [1.0, 1.0, 0.0] atol = 1e-9
 end

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The point-optimal statistic and `coef_cdf_gp` by the single inversion.** `pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`,
+  `pt_envelope` (and `power_envelope` of designs beyond the classical cases) up to c = 4, and `coef_cdf_gp` (zero or
+  stationary start) up to c = 5, take the single inversion of Bao and Kan with the branch of the square root of the
+  determinant from the pivots of the precision matrix at each point (`DFDet.DetCF`, `src/DFKan_det.jl`) in place of the
+  fixed grid of 60,000 points: 5 to 60 times faster (pt_cdf 1.2 to 65 ms against 77 to 640, quantiles and envelopes 13 to
+  86 ms against 63 to 880), within 3.3e-12 of the contour integral on the statistic's quadratic form, and without the
+  grid's refusals at c = 4 (an intercept, a linear trend) and for |q| > 1000. `method = :grid`, or N, umax, gives the grid
+  of before (`coef_cdf_gp` with a fixed start keeps it); the grid's function of before is `DFDet.coef_cdf_grid`. The
+  quantile searches keep the transform values along the ray across the search (`DFDet.MemoCF`). The values move by at
+  most 1.8e-11 (the 5% point of the point-optimal statistic with an intercept, where the grid's Newton search stops)
+  below the unit root and by up to 5e-10 above it (c = 3), where the grid is the less accurate one.
 - **The moments of the t-ratio from jets.** `ltratio_mom` takes the derivatives of the moment generating function from
   one Taylor-mode jet per node of an adaptive quadrature (after Bao and Kan) by default in the six classical cases, for any
   c0 and fixed start up to c = 20: 16 to 290 times faster (0.3 to 1.3 ms for four moments), within 1.4e-11 relative of

@@ -176,28 +176,47 @@ errm(f) = try; f(); ""; catch e; sprint(showerror, e); end
     @testset "the general engine's determinant from the pivots" begin
         for (D, cas, start) in ((trend(-1), "DK", :zero), (trend(0), "DU", :zero), (trend(1), "DT", :zero), (trend(0), "SU", :stationary), (trend(1), "ST", :stationary)), c in (-4.0, 0.0)
             (start == :stationary && c >= 0) && continue
-            F1 = KAN.limcf(cas, c); F2 = KAN.DetCF(G.startmodel(D, c, start, 0.0, nothing), c)
+            F1 = KAN.limcf(cas, c); F2 = G.DetCF(G.startmodel(D, c, start, 0.0, nothing), c)
             for (t1, t2) in ((0.3, -0.2), (4.0, 30.0), (-25.0, 700.0), (60.0, -2000.0))
                 @test isapprox(KAN.logcf(F2, t1, t2), KAN.logcf(F1, t1, t2); atol = 1e-8)
             end
         end
         D = perron(:C, 0.5)
-        @test abs(KAN.gcoef_cdf(D, -15.0, -5.0)[1] - G.coef_cdf(D, [-15.0], -5.0)[1]) < 1e-9
-        @test abs(KAN.gcoef_cdf(trend(1), -20.0, 0.0; gls = -13.5)[1] - G.coef_cdf(trend(1), [-20.0], 0.0; gls = -13.5)[1]) < 1e-9
-        @test abs(KAN.pt_cdf(trend(1), 5.0, -13.5, 0.0)[1] - G.pt_cdf(trend(1), [5.0], -13.5, 0.0)[1]) < 1e-9
-        @test abs(KAN.zero_cdf(D, -5.0)[1] - dist_cdf(D, [0.0], -5.0)[1]) < 1e-9
+        @test abs(coef_cdf_gp(D, [-15.0], -5.0)[1] - G.coef_cdf(D, [-15.0], -5.0)[1]) < 1e-9
+        @test abs(coef_cdf_gp(trend(1), [-20.0], 0.0; gls = -13.5)[1] - G.coef_cdf(trend(1), [-20.0], 0.0; gls = -13.5)[1]) < 1e-9
+        @test abs(pt_cdf(trend(1), [5.0], -13.5, 0.0)[1] - pt_cdf(trend(1), [5.0], -13.5, 0.0; method = :grid)[1]) < 1e-12
+        # the point-optimal statistic by the single inversion against the contour integral of the general engine on its
+        # quadratic form (the paths around the roots: an independent evaluation), within 3.3e-12 from c = -30 to 4, also where
+        # the grid refuses (c = 4 with an intercept and a linear trend) and beyond its range of q
+        ptc(D, q, cbar, c, which) = (P = G.prep_pt(D, cbar); CP = G.cpath(G.model(P), c);
+                                     G.contour_eval_specs(G.line_refined(CP, Float64[]; amax = [abs(CP.Mo.a + q - 0.5)]), [[G.XSpec(-cbar^2, 0.0, CP.Mo.a + q - 0.5; dA = 1.0)]])[which][1])
+        for (D, cbar, c, q) in ((trend(0), -7.0, 0.0, 18.1014815), (trend(1), -13.5, 4.0, 969.3008382), (perron(:B, 0.5), -17.8, 2.0, 16.5697), (trend(0), -7.0, 4.0, 2223.714162),
+                                (trend(1), -13.5, -30.0, 1.5))
+            @test abs(pt_cdf(D, [q], cbar, c)[1] - ptc(D, q, cbar, c, 1)) < 5e-11
+            @test abs(pt_pdf(D, [q], cbar, c)[1] - ptc(D, q, cbar, c, 2)) < 5e-10
+        end
+        @test occursin("does not resolve", errm(() -> pt_cdf(trend(1), [969.3008382], -13.5, 4.0; method = :grid)))
+        @test abs(pt_quantile(trend(1), 0.05, -13.5) - pt_quantile(trend(1), 0.05, -13.5; method = :grid)) < 1e-10
+        @test abs(pt_envelope(trend(0), [-7.0])[1] - pt_envelope(trend(0), [-7.0]; method = :grid)[1]) < 1e-10
+        P, E = pt_cdf(trend(1), [5.0, 10.0], -13.5, 0.0; err = true); @test all(E .< 1e-12) && P == pt_cdf(trend(1), [5.0, 10.0], -13.5, 0.0)
+        # coef_cdf_gp by the single inversion against the contour integral (within 6e-14 from c = -30 to 5)
+        for (D, c, y, kw) in ((trend(0), -5.0, -13.83853904, (;)), (trend(2), 0.0, -20.0, (;)), (perron(:C, [0.3, 0.7]), -13.5, -15.0, (;)), (trend(1), -13.5, -20.0, (start = :stationary,)), (trend(0), 5.0, 9.942147816, (;)))
+            @test abs(coef_cdf_gp(D, [y], c; kw...)[1] - G.coef_cdf(D, [y], c; kw...)[1]) < 1e-11
+        end
+        @test coef_cdf_gp(trend(0), [-14.0], -5.0; method = :grid) == G.coef_cdf_grid(trend(0), [-14.0], -5.0)
+        @test abs(G.zero_cdf(D, -5.0)[1] - dist_cdf(D, [0.0], -5.0)[1]) < 1e-9
         # the line integral's provider: the branch at each point against the continuation
         v0 = dist_cdf(trend(2), [-2.5], -5.0; method = :line)[1]
-        G.empty_caches!(); KAN.line_pointwise!(true)
+        G.empty_caches!(); G.line_pointwise!(true)
         try
             @test isapprox(dist_cdf(trend(2), [-2.5], -5.0; method = :line)[1], v0; atol = 1e-13)
         finally
-            KAN.line_pointwise!(false); G.empty_caches!()
+            G.line_pointwise!(false); G.empty_caches!()
         end
         # the outer contour: roots and log P at single nodes against the continuation along the path
         Mo = G.startmodel(D, -5.0, :zero, 0.0, nothing); CP = G.cpath(Mo, -5.0)
         for k in (2, 17, length(CP.t) ÷ 2, length(CP.t))
-            lP, pos, neg = KAN.contour_parts(Mo.P, -5.0, CP.t[k])
+            lP, pos, neg = G.contour_parts(Mo.P, -5.0, CP.t[k])
             @test abs(lP - CP.lP[k]) < 1e-8
             @test length(pos) == Mo.rp && length(neg) == Mo.rm
         end

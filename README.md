@@ -227,6 +227,24 @@ checked computation the values whose estimate exceeds the tolerance.
 | `ltratio_mom` (jets) | the six cases, any c0 and fixed start, c <= 20 | 1.4e-11 relative near the unit root (8.2e-12 to 1.4e-11 at c = 0, -3, -5), 3.2e-10 against the stored values far from it at c0 = 0, 1e-8 to 1.3e-7 with c0 = c far from it (2e-7 at c = c0 = -480 with a stationary start) | with c0 = c far from the unit root the engines' circles are not converged: they move towards the jets under refinement, and at c = c0 = -60 the integral of x^j times the density is within 1.5e-9 of the jets and 5.2e-9 of the circles; with a fixed start above the unit root the engines' one evaluation is off by up to 0.65 relative (case DK, c = 2, c0 = -2, g0 = 1), and their circles with four times the nodes and a quarter of the step agree with the jets to 3.4e-13; at c = 10, 20 with c0 = c by up to 33 relative (case DT) | 0.3 to 1.3 against 12 to 158 for four moments (16 to 290 times faster) |
 | `power_envelope` | case DK (DU), c <= -1e-4 | 2.7e-12 against the general engine (critical value to 1e-10) from c = -1e-4 to -500 | the classical bisection of the critical value to 1e-9 is off by up to 1.1e-9 | 1.2 to 13 against 35 to 161 (10 to 40 times faster) |
 
+The general engine has the same inversion for the statistics of a design whose transform it evaluates point by point:
+the point-optimal statistic (`pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`, `pt_envelope`, and through them
+`power_envelope` for designs beyond the classical cases) and `coef_cdf_gp` (the coefficient statistic by Gil-Pelaez, the
+independent check of the contour integral), with the branch of the square root of the determinant fixed at each point
+from the pivots of the precision matrix, Bao and Kan's lemma on accretive matrices (`DFDet.DetCF`, `src/DFKan_det.jl`),
+in place of its continuation along the fixed grid of 60,000 points. `method = :grid` (or the keywords N, umax) gives the
+grid of before with its refusals. The point-optimal statistic agrees with the contour integral of the general engine on
+its quadratic form (the paths around the roots, an independent evaluation) to 3.3e-12 from c = -30 to 4 (an intercept at
+cbar = -7, a linear trend at -13.5, Perron's model B at -17.8, a quadratic trend at -20; the 1 to 99% points), where the
+grid is off by up to 3.8e-10 at c = 3 and refuses at c = 4 and 5; the single inversion takes 1.2 to 65 ms a value against
+77 to 640 ms for the grid. Above c = 4 it can take seconds a value (11 s for Perron's model B at c = 5), and the grid with
+its refusal stays the default there; the single inversion has no limit on q (the grid refused |q| > 1000). The quantile
+searches keep the transform values along the ray (5% points 13 to 77 ms against 63 to 478, envelopes 15 to 86 ms against
+126 to 876). `coef_cdf_gp` agrees with the contour integral (`DFDet.coef_cdf`) to 9.6e-13 from c = -30 to 5 for polynomial
+trends, Perron's model C with one and two breaks and a stationary start (2.5e-11 with GLS detrending, where the grid and the
+contour integral differ by 1.6e-10), in 3 to 58 ms a value against 120 to 160 for the grid; above c = 5 (7 s a value at c =
+10) and with a fixed start the grid stays.
+
 At a = 0 (the law of U alone, whose transform decays like a power, with the edge of its support where the tail start runs
 away) the linear form stays with the engines' closed form; at c = 7 in case DK the classical code differs from the single
 inversion by 2e-8 at the 99.9% point with a = 2, which no third computation settled, so the default there is unchanged.
