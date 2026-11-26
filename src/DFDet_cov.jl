@@ -40,7 +40,7 @@ squares); zero at the unit root whatever rho and R.  c is the local-to-unity par
 Hansen's c with the opposite sign).  With `dist_cdf(D, x, c; rho, c0 = cadf_c0(c, rho, R))` and the other t-ratio
 functions the limit of the statistic, rho tau_{c0} + sqrt(1 - rho^2) Z.
 
-    cadf_c0(-5, sqrt(0.5))                 # 5.0: -c (1 - rho^2)/rho^2 when R = rho
+    cadf_c0(-5, sqrt(0.5))                 # 5.0 to rounding: -c (1 - rho^2)/rho^2 when R = rho
 """
 function cadf_c0(c::Real, rho::Real, R::Real = abs(rho))
     (isfinite(rho) && -1 <= rho <= 1 && rho != 0) || throw(ArgumentError("cadf_c0: rho must lie in [-1, 1] and not be 0"))
@@ -57,7 +57,7 @@ alternative beta = b sigma_u/(sigma_v n): c0 = c - b/rho (the companion paper's 
 With `dist_cdf(trend(0), x, c; rho, c0 = predictive_c0(c, rho, b))` and the other t-ratio functions the limit of the
 statistic (an intercept in the regression: the design trend(0)), rho tau_{c0} + sqrt(1 - rho^2) Z.
 
-    ltratio_cdf(1.645, trend(0), 0; rho = -0.95, c0 = predictive_c0(0, -0.95))   # 0.5787: the right-tailed 5% test rejects 42%
+    ltratio_cdf(1.645, trend(0), 0; rho = -0.95, c0 = predictive_c0(0, -0.95))   # 0.5788: the right-tailed 5% test rejects 42%
 """
 function predictive_c0(c::Real, rho::Real, b::Real = 0.0)
     (isfinite(rho) && -1 <= rho <= 1 && rho != 0) || throw(ArgumentError("predictive_c0: rho must lie in [-1, 1] and not be 0"))
