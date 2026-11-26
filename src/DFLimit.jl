@@ -60,6 +60,18 @@ using .DFDet: pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_qua
 export pt_cdf, pt_pdf, pt_quantile, pt_power, pt_envelope, lm_cdf, lm_quantile, lm_power, mza_cdf, mza_quantile, msb_cdf, msb_quantile
 Base.include(DFDet, joinpath(@__DIR__, "DFDet_line.jl"))   # the line integral for the designs of rank one or two
 
+# The three extensions of the limit (in the module DFDet, on its machinery: the outer contour of a transform model, the
+# inner integrals, the rules of one evaluation): volatility and persistence regimes (the keyword vol of the t-ratio
+# functions), a normal component (rho: the covariate-augmented t-ratio and the predictive regression), and the statistics
+# of a pair of complex unit roots at a harmonic frequency (hegy_*)
+Base.include(DFDet, joinpath(@__DIR__, "DFDet_vol.jl"))
+Base.include(DFDet, joinpath(@__DIR__, "DFDet_cov.jl"))
+Base.include(DFDet, joinpath(@__DIR__, "DFDet_seas.jl"))
+using .DFDet: VolPath, volpath, cadf_c0, predictive_c0, hegy_t3_cdf, hegy_t3_pdf, hegy_t3_quantile, hegy_t4_cdf, hegy_t4_pdf,
+              hegy_t4_quantile, hegy_f_cdf, hegy_f_quantile
+export VolPath, volpath, cadf_c0, predictive_c0, hegy_t3_cdf, hegy_t3_pdf, hegy_t3_quantile, hegy_t4_cdf, hegy_t4_pdf,
+       hegy_t4_quantile, hegy_f_cdf, hegy_f_quantile
+
 # one interface over the two engines and the single inversion, and the choice between the engines (autoengine)
 using SpecialFunctions: erfinv
 include("merged.jl")

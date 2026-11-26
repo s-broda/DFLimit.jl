@@ -1009,7 +1009,18 @@ and V is unchanged (from w = d(1) J(1) - d(0) J(0) - int d' J - sum_i Delta_i J(
   `fixparts`).  kappa is exactly 0 or 1/2 (`fixed_shift`): 0 when the span of d contains a continuous phi with phi(0) != 0
   and phi' in the span (the constant, for instance: a = 1/2), 1/2 otherwise (no deterministic terms: a = (1 + g0^2)/2).
 """
-struct Model
+abstract type TransformModel end
+"""
+    TransformModel
+
+A model whose transform the outer contour follows (`cpath`, `rootpath_sparse`, `linecpath`, `fixed_phi`): the engine's
+`Model` (the Ornstein-Uhlenbeck process with a constant c) or the volatility model `VolModel` (c and the innovation
+standard deviation piecewise constant).  It supplies `MWork(M)`, `mgfparts(M, c, t, W) -> (theta, log D_V, mu, fx)`,
+`tstar(M, c)`, `dense_la(M)`, the fields r, rp, rm and start, and `inner_model(M)`, the zero-start `Model` whose shift and
+root counts the inner integrals on the paths use (the `Mo` of the `CPath`).
+"""
+TransformModel
+struct Model <: TransformModel
     P::Prep
     start::Symbol
     g0::Float64
@@ -1054,6 +1065,8 @@ function model(P::Prep, start::Symbol = :zero, g0::Real = 0.0)
     throw(ArgumentError("start must be :zero, :fixed or :stationary"))
 end
 model(D::Determ, args...) = model(prep(D), args...)
+"""the model whose shift and root counts the inner integrals of a path of M use (the `Mo` of its `CPath`): M itself"""
+inner_model(Mo::Model) = Mo
 
 """the data of the fixed start at one t: log Mt = log Mt_0 + g0^2 (cf + E1(s)), E1(s) = s [p1' (I - sH)^{-1} w1 +
 p2' (I - sH)^{-1} w2] (r-vectors, H the r x r matrix whose eigenvalues are the 1/s_k)"""
@@ -1529,9 +1542,10 @@ The two largest eigenvalues of the covariance operator of the residual Jt = J - 
 lambda_j Z_j^2), by the Nystrom method: Gauss-Legendre with m nodes on each of 8 equal panels of every piece, the kernel
 Cov(J(r), J(u)) = e^{c(r+u)} min(r,u) e_0(2c min(r,u)) projected on the complement of span d in the discrete inner
 product.  The kink of the kernel on the diagonal limits the accuracy to about 1e-6 relative at the default m.  With
-stat = true the stationary start, whose kernel has the further term e^{c(r+u)} (-1/(2c)).
+stat = true the stationary start, whose kernel has the further term e^{c(r+u)} (-1/(2c)).  kern: another covariance
+kernel (r, u) -> Cov(J(r), J(u)) in place of the Ornstein-Uhlenbeck one (the volatility model, `vol_kernel`).
 """
-function eigtop(P::Prep, c::Real; m::Int = 48, stat::Bool = false)
+function eigtop(P::Prep, c::Real; m::Int = 48, stat::Bool = false, kern = nothing)
     z, w = glrule(m)
     rs = Float64[]; ws = Float64[]
     for j in 1:length(P.br)-1
@@ -1542,7 +1556,7 @@ function eigtop(P::Prep, c::Real; m::Int = 48, stat::Bool = false)
     end
     n = length(rs); c = Float64(c)
     v0 = stat ? -1 / (2c) : 0.0
-    Kc(r, u) = oukernel(c, r, u, v0)
+    Kc(r, u) = kern === nothing ? oukernel(c, r, u, v0) : kern(r, u)
     sw = sqrt.(ws)
     Kw = [sw[i] * Kc(rs[i], rs[k]) * sw[k] for i in 1:n, k in 1:n]
     if P.K > 0
@@ -1712,7 +1726,7 @@ first P.rp the group that is positive at ts[1]; log P(t) with P(t)^{-2} = D_V(t)
 its imaginary part continued along the path (the path must be fine enough that it changes by less than pi per step).
 """
 rootpath(P::Prep, c::Float64, ts::Vector{ComplexF64}) = rootpath(model(P), c, ts)[1:3]
-function rootpath(Mo::Model, c::Float64, ts::Vector{ComplexF64})
+function rootpath(Mo::TransformModel, c::Float64, ts::Vector{ComplexF64})
     nt = length(ts); r = Mo.r
     MU = Matrix{ComplexF64}(undef, r, nt); LD = Vector{ComplexF64}(undef, nt)
     FX = Vector{Union{Nothing,FixT}}(nothing, nt)
@@ -1765,7 +1779,7 @@ The roots, their labels and log P at the nodes are then those of `rootpath` (the
 same; checked bit for bit on 18 of 19 designs and starts and on 11 further paths, 8 of them vertical lines, and to 6e-13
 with the double roots of model C with breaks at 0.3 and 0.7 at c = 0).  minpos and maxneg are over the points evaluated.
 """
-function rootpath_sparse(Mo::Model, c::Float64, tt::Vector{ComplexF64}, sub::Int)
+function rootpath_sparse(Mo::TransformModel, c::Float64, tt::Vector{ComplexF64}, sub::Int)
     nt = length(tt); r = Mo.r; rp = Mo.rp
     idx = collect(1:sub:nt); K = length(idx)
     MU = Matrix{ComplexF64}(undef, r, K); LD = Vector{ComplexF64}(undef, K); FX = Vector{Union{Nothing,FixT}}(nothing, K)
@@ -1796,7 +1810,7 @@ function rootpath_sparse(Mo::Model, c::Float64, tt::Vector{ComplexF64}, sub::Int
     end
     # the walk over the nodes; sp holds mu and log D_V at the points between nodes; with dry = true the steps that are not safe
     # are only recorded (and continued with the coarse step), so that their points can be computed beforehand on all threads
-    function walk!(sp::Dict{Int,Tuple{Vector{ComplexF64},ComplexF64}}, dry::Bool, W::MWork)
+    function walk!(sp::Dict{Int,Tuple{Vector{ComplexF64},ComplexF64}}, dry::Bool, W)
         Lprev = L1; dprev = NaN; flagged = Int[]
         mnp = minimum(real, view(R, 1:rp, 1)); mxn = Mo.rm == 0 ? -Inf : maximum(real, view(R, rp+1:r, 1))
         for k in 2:K
@@ -1941,7 +1955,7 @@ M_V(t), close to e^{t E V} with E V of order 1/(2|c|) while |t| << c^2, grows al
 e^{Re(t)/(2|c|)}: on the 45-degree hyperbola the terms reach 1e4 at |t| = 6000 for c = -150, and the distribution function
 was off by 3e-6, at c = -200 by 5e4.
 """
-function fixed_phi(Mo::Model, c::Float64, ts_::Float64, τ::Float64, hfac::Float64, rmax::Float64)
+function fixed_phi(Mo::TransformModel, c::Float64, ts_::Float64, τ::Float64, hfac::Float64, rmax::Float64)
     g2 = Mo.g0^2; nth = Threads.nthreads()
     Ws = [MWork(Mo) for _ in 1:nth]
     for phd in PHI_FIXED
@@ -2017,9 +2031,9 @@ end
 
 As above for the design with its start; phi = nothing: pi/4, except with a fixed start, where `fixed_phi` chooses it.
 """
-cpath(Mo::Model, c::Real; phi = nothing, hfac::Real = 1.0, sub::Int = 8, rmax = nothing, tau = nothing) =
+cpath(Mo::TransformModel, c::Real; phi = nothing, hfac::Real = 1.0, sub::Int = 8, rmax = nothing, tau = nothing) =
     blas1f(() -> cpath_(Mo, Float64(c), phi, Float64(hfac), sub, rmax, tau), dense_la(Mo))
-function cpath_(Mo::Model, c::Float64, phi, hfac::Float64, sub::Int, rmax, tau)
+function cpath_(Mo::TransformModel, c::Float64, phi, hfac::Float64, sub::Int, rmax, tau)
     rmax = rmax === nothing ? default_rmax(c) : Float64(rmax)
     ts_ = tstar(Mo, c)[1]
     τ = tau === nothing ? min(1.0, ts_ / 2) : Float64(tau)
@@ -2047,11 +2061,14 @@ function cpath_(Mo::Model, c::Float64, phi, hfac::Float64, sub::Int, rmax, tau)
         # (and for designs without a proper intercept, as d(r) = 1 + r or a level dummy 1{r <= 0.4}, whose positive roots
         # leave Re s > 0 on the 45-degree hyperbola at every c: at t = 25.6 + 26.4i the smallest real part of the
         # positive group is -83 with d(r) = 1 + r at c = 0)
-        (auto && minpos <= 0 && phi < 88 * pi / 180) || break
+        # (and for the negative group, which can cross the imaginary axis to the right on a flat hyperbola: with an
+        # intercept and a variance that rises ninefold at a tenth of the sample, `VolModel`; the engine's designs keep
+        # it left of the origin, where this condition changes nothing)
+        (auto && (minpos <= 0 || maxneg >= 0) && phi < 88 * pi / 180) || break
         phi = min(phi + 5 * pi / 180, 88 * pi / 180)
     end
     idx = 1:sub:length(tt)
-    if auto && minpos <= 0
+    if auto && (minpos <= 0 || maxneg >= 0)
         # c > 0, or GLS detrending, beyond the steepest hyperbola: the vertical line itself, where Re s_+(t) >= s_+(tau) > 0
         # (GLS detrending at cbar = -2, as the power envelope needs at c = -2, has the positive root at Re s = -8495 far out
         # on the 88-degree hyperbola, and the terms overflowed)
@@ -2059,7 +2076,7 @@ function cpath_(Mo::Model, c::Float64, phi, hfac::Float64, sub::Int, rmax, tau)
     end
     wt = fill(h / pi, K + 1); wt[1] /= 2
     CPath(c, τ, ts_, a, b, h, phi, tt[idx], [complex(a * sinh(k * h), b * cosh(k * h)) for k in 0:K],
-          R, lP, minpos, maxneg, Mo, FX, wt)
+          R, lP, minpos, maxneg, inner_model(Mo), FX, wt)
 end
 
 """
@@ -2071,7 +2088,7 @@ between nodes.  On the line the root groups stay on their sides of the gap at th
 which the hyperbola does not guarantee for c > 0.  (The trapezoidal rule on the hyperbola converges geometrically; this
 rule is slower to converge in w but needs no strip of analyticity.)
 """
-function linecpath(Mo::Model, c::Float64, ts_::Float64, τ::Float64; rmax::Float64 = 1e5, nq::Int = 24, sub::Int = 8, cuts = nothing)
+function linecpath(Mo::TransformModel, c::Float64, ts_::Float64, τ::Float64; rmax::Float64 = 1e5, nq::Int = 24, sub::Int = 8, cuts = nothing)
     z, w = glrule(nq)
     if cuts === nothing
         cuts = [0.0]; hh = min(τ, 1.0) / 4
@@ -2099,7 +2116,7 @@ function linecpath(Mo::Model, c::Float64, ts_::Float64, τ::Float64; rmax::Float
         maxneg = Mo.rm == 0 ? -Inf : maximum(real, R[Mo.rp+1:end, :])
         R = R[:, nodeidx]; lP = lP[nodeidx]; FX = FX[nodeidx]
     end
-    CPath(c, τ, ts_, 0.0, 1.0, NaN, pi / 2, tt[nodeidx], fill(complex(0.0, 1.0), length(ws)), R, lP, minpos, maxneg, Mo, FX, wq)
+    CPath(c, τ, ts_, 0.0, 1.0, NaN, pi / 2, tt[nodeidx], fill(complex(0.0, 1.0), length(ws)), R, lP, minpos, maxneg, inner_model(Mo), FX, wq)
 end
 
 """the number of nodes per panel of a line path built by `linecpath` with its default panels (those in the first panel)"""
@@ -3632,6 +3649,8 @@ function empty_caches!()
     lock(CPLOCK) do
         empty!(CPCACHE); empty!(CPORDER); empty!(LINECACHE); empty!(LINEORDER); empty!(PREPCACHE); empty!(PREPORDER)
         empty!(LMCACHE); empty!(LMORDER)                        # (the providers of the line integral, DFDet_line.jl)
+        empty!(VOLCACHE); empty!(VOLORDER)                      # (the volatility models and paths, DFDet_vol.jl)
+        empty!(SEASCACHE); empty!(SEASORDER)                    # (the grids of the seasonal transform, DFDet_seas.jl)
     end
     nothing
 end
@@ -3822,24 +3841,40 @@ the start J(0) = 0 (start = :zero), J(0) = gamma0 (:fixed; y_0 = gamma0 sigma sq
 the inversion on paths around the roots.  rule: the rule of one evaluation of the paths (`PATH_RULES`; :auto, the
 default, by `path_region`; :present the rule until November 2026, also taken by verified = true); hfac (the factor of
 the outer step) and the keywords n, ntail (the nodes of the U-shapes) override it.
+
+Two extensions of the limit (`ext_eval`).  vol = volpath(breaks, omega): the innovation standard deviation and, with c a
+vector of one value per regime, the local-to-unity parameter piecewise constant between known dates (zero start, least
+squares detrending, every c <= 0; the inversion on paths of the volatility transform).  rho (default 1): the limit
+rho tau_{c0} + sqrt(1 - rho^2) Z, Z standard normal and independent of tau_{c0} = (U - c0 V)/sqrt(V), the limit of the
+covariate-augmented t-ratio of Hansen (1995) at c0 = `cadf_c0(c, rho, R)` and of the t-ratio of the slope in a predictive
+regression with a regressor local to unity at c0 = `predictive_c0(c, rho, b)`; method then :auto, :lines (the inversion on
+two lines with the normal component in the kernel) or :mixture (the normal average of the t-ratio's distribution
+function); rho in [-1, 1], rho = 1 this function as without it.
 """
-dist_cdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = nothing,
-         verified::Bool = false, vtol::Real = 1e-9, rule::Symbol = :auto, kw...) =
+dist_cdf(D::Determ, xs::AbstractVector, c::Union{Real,AbstractVector{<:Real}} = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
+         phi = nothing, hfac = nothing, verified::Bool = false, vtol::Real = 1e-9, rule::Symbol = :auto, kw...) =
     dist_eval(D, xs, c, 1, start, gamma0, gls, phi, hfac, verified, Float64(vtol); rule, kw...)
 """
     dist_pdf(D, xs, c = 0; c0, start, gamma0, verified = false, kw...) -> f (vector)
 
 Its density.  For a design whose numerator has rank one (no deterministic terms, GLS detrending) with c0 > 0 the density
 is infinite at the tangency x = -sqrt(4 c0 a) of the parabola X(v) (a the shift of Mt: 1/2, or (1 + gamma0^2)/2 with a
-fixed start), and Inf is returned there (as by DFLimit); elsewhere it is continuous.
+fixed start), and Inf is returned there (as by DFLimit); elsewhere it is continuous.  The keywords vol and rho as in
+`dist_cdf`.
 """
-dist_pdf(D::Determ, xs::AbstractVector, c::Real = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = nothing,
-         verified::Bool = false, vtol::Real = 1e-9, rule::Symbol = :auto, kw...) =
+dist_pdf(D::Determ, xs::AbstractVector, c::Union{Real,AbstractVector{<:Real}} = 0.0; start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
+         phi = nothing, hfac = nothing, verified::Bool = false, vtol::Real = 1e-9, rule::Symbol = :auto, kw...) =
     dist_eval(D, xs, c, 2, start, gamma0, gls, phi, hfac, verified, Float64(vtol); rule, kw...)
 """the value of `dist_cdf` (which = 1) or `dist_pdf` (2): the non-finite points set (`nonfinite`), the finite ones by one
-evaluation of the contour integral or, with verified = true, by `verify_eval`; the infinite density at a tangency"""
-function dist_eval(D::Determ, xs::AbstractVector, c::Real, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
-                   method::Symbol = :auto, rule::Symbol = :auto, kw...)
+evaluation of the contour integral or, with verified = true, by `verify_eval`; the infinite density at a tangency; with
+the keywords vol or rho, or c a vector, the extensions (`ext_eval`)"""
+function dist_eval(D::Determ, xs::AbstractVector, c, which::Int, start::Symbol, gamma0::Real, gls, phi, hfac, verified::Bool, vtol::Float64;
+                   method::Symbol = :auto, rule::Symbol = :auto, vol = nothing, rho::Real = 1.0, kw...)
+    if vol !== nothing || rho != 1 || !(c isa Real)
+        v = ext_eval(D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; method, rule, vol, rho, kw...)
+        which == 1 && cdf_range_check("dist_cdf", D, c isa Real ? c : minimum(c), start, gamma0, Float64(get(kw, :c0, 0.0)), "x", xs, v)
+        return v
+    end
     v = dist_eval_(D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; method, rule, kw...)
     which == 1 && cdf_range_check("dist_cdf", D, c, start, gamma0, Float64(get(kw, :c0, 0.0)), "x", xs, v)
     v
@@ -3915,22 +3950,23 @@ and a variant in which every node moves (the hyperbola 7.5 degrees steeper, at m
 the vertical line 32 nodes per panel for 24; the U-shapes at alpha = 0.3 for 0.5 with 16 and 24 more nodes per panel and
 tail).  When they agree to vtol the default values are returned; otherwise a third, finer evaluation (half the step,
 twice the nodes) is returned, with a warning if it and the variant still differ by more than vtol.  About twice the cost
-of the default.
+of the default.  variant(CP, level) builds the outer contours of the variants (`variant_path`, the engine's; the
+volatility model passes its own, `vol_variant`).
 """
-function verify_eval(evalf, CP::CPath, vtol::Float64)
+function verify_eval(evalf, CP::CPath, vtol::Float64; variant = variant_path)
     Mo = CP.Mo; fixed = Mo.start == :fixed
     n0 = fixed ? 48 : 24; nt0 = fixed ? 64 : 40
     v1 = evalf(CP, (alpha = 0.5, n = n0, ntail = nt0))
     v2 = try
-        evalf(variant_path(CP, 1), (alpha = 0.3, n = n0 + 16, ntail = nt0 + 24))
+        evalf(variant(CP, 1), (alpha = 0.3, n = n0 + 16, ntail = nt0 + 24))
     catch e
         # (any error, as in the C engine; those of the node loops arrive wrapped by their threads)
         nofallback(e) && rethrow()
-        evalf(variant_path(CP, 0), (alpha = 0.3, n = n0 + 16, ntail = nt0 + 24))     # (the groups not separated on the steeper hyperbola)
+        evalf(variant(CP, 0), (alpha = 0.3, n = n0 + 16, ntail = nt0 + 24))     # (the groups not separated on the steeper hyperbola)
     end
     d = maximum(abs, v1 .- v2; init = 0.0)
     (d <= vtol || !all(isfinite, v1)) && return v1
-    v3 = evalf(variant_path(CP, 2), (alpha = 0.5, n = 2n0, ntail = 2nt0))
+    v3 = evalf(variant(CP, 2), (alpha = 0.5, n = 2n0, ntail = 2nt0))
     d3 = maximum(abs, v3 .- v2; init = 0.0)
     d3 <= vtol || @warn "verified: two evaluations by different rules differ by $(round(d3, sigdigits = 2)) (above $vtol)" Mo.P.D.name Mo.start CP.c
     v3
@@ -3964,12 +4000,19 @@ end
 The p-quantile by Newton's method on F(x) - p with the density from the same evaluation, from x0, the step limited to 1;
 where that does not converge in 30 steps (or leaves the finite numbers), the safeguarded Newton's method of `newton_safe`
 (a bracket, bisection where a step leaves it).  p may be a vector (one quantile each, from the same x0).  method, rule
-and hfac as in `dist_cdf` (the search by the line integral: `line_quantile`).
+and hfac as in `dist_cdf` (the search by the line integral: `line_quantile`); the keywords vol and rho (and c a vector with
+vol) as in `dist_cdf` (`ext_quantile`).
 """
-function dist_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol::Real = 1e-9, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing,
-                       phi = nothing, hfac = nothing, method::Symbol = :auto, rule::Symbol = :auto, kw...)
+function dist_quantile(D::Determ, p::Real, c::Union{Real,AbstractVector{<:Real}} = 0.0; x0::Real = -2.0, tol::Real = 1e-9, start::Symbol = :zero,
+                       gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = nothing, method::Symbol = :auto, rule::Symbol = :auto,
+                       vol = nothing, rho::Real = 1.0, kw...)
     0 < p < 1 || throw(ArgumentError("dist_quantile: p must lie in (0, 1)"))
     search_args("dist_quantile", "x0", x0, tol)
+    if vol !== nothing || rho != 1 || !(c isa Real)
+        x = ext_quantile(D, p, c; x0, tol, start, gamma0, gls, phi, hfac, method, rule, vol, rho, kw...)
+        x === nothing || return x
+        c = c isa Real ? c : c[1]                                                   # (one regime: the engine itself)
+    end
     check_cmax(D, c, start, gamma0, "the quantiles of the t-ratio (dist_quantile)")
     check_rule(rule)
     lq = line_quantile(method, D, p, c; x0, tol, start, gamma0, gls, phi, hfac, kw...); lq === nothing || return lq
@@ -3988,7 +4031,7 @@ function dist_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol::
     FF(y) = (r = contour_eval(line_refined(CP, [y]; c0), [y]; kw..., n, ntail = nt); (r[1][1], r[2][1]))
     newton_safe(FF, p, x0, 1.0; tol)
 end
-dist_quantile(D::Determ, p::AbstractVector, c::Real = 0.0; kw...) = [dist_quantile(D, pk, c; kw...) for pk in p]
+dist_quantile(D::Determ, p::AbstractVector, c::Union{Real,AbstractVector{<:Real}} = 0.0; kw...) = [dist_quantile(D, pk, c; kw...) for pk in p]
 
 # =====================================================================================================================
 # The coefficient statistic, moments, local power
