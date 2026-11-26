@@ -95,8 +95,9 @@ against Hansen's simulated table) are reproduced to their five and four printed 
 table of the sizes of the predictive regression's t-tests, a normal average of the classical engine's distribution
 function, to its four.
 
-Times on warm calls (four threads of an M4 laptop, November 26, 2026, measured while another job shared the machine):
-the inversion on two lines 25 to 95 ms a value (rho^2 = 0.5 to 0.9; no deterministic terms, an intercept, a linear trend,
-a level break), a 5% quantile 0.1 to 0.8 s, the normal average 0.1 to 0.35 s a value at c0 = 0 and about 4 s with c0 > 0
-(its rule graded toward the kink), the same as the prototype within the scatter of the load (the algorithms are the
-prototype's).
+Times on warm calls (four threads of an M4 laptop on mains power with nothing else running, November 26, 2026): the
+inversion on two lines 16 to 60 ms a value (rho^2 = 0.5 to 0.9; no deterministic terms, an intercept, a linear trend,
+a level break), a 5% quantile 0.08 to 0.5 s, the normal average 0.1 to 0.25 s a value at c0 = 0 and about 3 s with c0 > 0
+(its rule graded toward the kink), the same as the prototype within 1.2 times (the algorithms are the prototype's),
+except the normal average at rho^2 = 0.5, 1.4 times faster without deterministic terms, with an intercept and with a
+trend.

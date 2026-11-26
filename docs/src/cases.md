@@ -11,9 +11,9 @@ the singularities of the moment generating function, with the
 integral over v in closed form and the paths in s and t deformed, a double integral with an explicit integrand; a fixed
 start in cases DU and DT only, and there the choice of `:auto`). By default (`verified = false`) every value is one
 evaluation by one method, with a warning, once per call, where the parameters lie in a regime in which one evaluation is
-known to be brittle; `verified = true` gives the checked computation (error estimates and fallbacks, at 1 to 4.7 times
-the cost of the default, 2.9 to 4.7 with a fixed start, up to 24 times where the default is the general engine's paths,
-case SU at c = c0 = -10, and more in the tails below 1e-3, which it recomputes; November 26, 2026). `x`, `y` and the probabilities `p` may be arrays. The boundary `bnd` of `ltratio_region` is a NamedTuple (or a
+known to be brittle; `verified = true` gives the checked computation (error estimates and fallbacks, at 1 to 4.8 times
+the cost of the default, 2.9 to 4.8 with a fixed start, up to 25 times where the default is the general engine's paths,
+case SU at c = c0 = -10, and more in the tails below 1e-3, which it recomputes; November 26, 2026, on mains power). `x`, `y` and the probabilities `p` may be arrays. The boundary `bnd` of `ltratio_region` is a NamedTuple (or a
 Dict): `(type = "line", a, b)`, `(type = "parabola", x, c0)`, `(type = "wap", k, omega)` or `(type = "fun", g)` with
 `g` a function of a scalar, optionally with `v0` and `brks`.
 

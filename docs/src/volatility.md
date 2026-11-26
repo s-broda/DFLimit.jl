@@ -83,9 +83,9 @@ eight decimals, its quantiles at four, the power under changing persistence), wh
 simulations of the regression and of the limit functional, are reproduced to their printed digits. The rule of one
 evaluation is the engine's (`path_region`); on the 36 cells of the table it is within 4e-12 of the present rule.
 
-Times on warm calls (four threads of an M4 laptop, November 26, 2026, measured while another job shared the machine):
-the outer contour with its roots 4 to 23 ms, one value of F and f 4 to 8 ms, a 5% quantile 22 to 107 ms (no deterministic
+Times on warm calls (four threads of an M4 laptop on mains power with nothing else running, November 26, 2026): the
+outer contour with its roots 3 to 19 ms, one value of F and f 2 to 5 ms, a 5% quantile 9 to 45 ms (no deterministic
 terms, an intercept, a linear trend with the variance tripling at mid-sample; a break in level and slope at 0.4 with the
-variance falling at 0.6), 1.2 to 3.7 times faster than the prototype in the same session: the thin rule of one
+variance falling at 0.6), 1.4 to 3.6 times faster than the prototype in the same session: the thin rule of one
 evaluation, the engine's static arrays for the small matrices of the transform, its continuation of the roots between the
 nodes only where a step is not safe, and t_* from the Nystrom estimate rather than from two discretized regressions.

@@ -1,8 +1,8 @@
 # The measurements behind the choice of engine (DFLimit.autoengine): each cell of the table in the README, "Which engine",
 # by the classical engine (DFLimit.DFExact, engine = :classical) and the general engine (DFLimit.DFDet, engine = :general):
-# the warm time of one call (BenchmarkTools minimum of 2 after a warm-up; the general engine's outer path cached, its
-# time given separately), the largest difference of the two, and where they differ by more than 1e-8 the checked values of
-# both (verified = true) to say which is right.  Writes dev/engine_table.txt.
+# the warm time of one call (the minimum of 7 timed calls after a warm-up, of 3 for calls of a second or more; the general
+# engine's outer path cached, its time given separately), the largest difference of the two, and where they differ by more
+# than 1e-8 the checked values of both (verified = true) to say which is right.  Writes dev/engine_table.txt.
 #
 #   jlcap --project=<an environment with DFLimit and BenchmarkTools> dev/engine_table.jl
 using DFLimit, BenchmarkTools, Printf, Logging, Statistics
@@ -10,12 +10,17 @@ const DX = DFLimit.DFExact; const DG = DFLimit.DFDet
 const OUT = joinpath(@__DIR__, "engine_table.txt")
 io = open(OUT, "w")
 pr(args...) = (print(io, args...); flush(io); print(args...))
-pr(@sprintf("The choice of engine: warm times in ms (BenchmarkTools minimum of 2), %d threads; dF, df the largest differences of the two\n", Threads.nthreads()))
+pr(@sprintf("The choice of engine: warm times in ms (the minimum of 7 timed calls after a warm-up, 3 from 1 s on), %d threads; dF, df the largest\n", Threads.nthreads()))
+pr("differences of the two ")
 pr("engines; auto: the engine of DFLimit.autoengine in the cell; ref: where they differ by more than 1e-8, the distance of each to\n")
 pr("the other's checked value (verified = true).\n\n")
 const MD = DFLimit
 quiet(f) = with_logger(NullLogger()) do; f(); end
-tm(f) = (quiet(f); quiet(() -> @belapsed $f() samples = 2 evals = 1))
+# (a warm-up, one timed call, then BenchmarkTools for the rest of the 7 timed calls, or of 3 where a call takes 1 s or more)
+function tm(f)
+    quiet(f); t1 = quiet(() -> @elapsed f())
+    min(t1, quiet(() -> @belapsed $f() samples = (t1 < 1 ? 6 : 2) evals = 1 seconds = 1e4))
+end
 mean_sd(cas, c; kw...) = (m = ltratio_mom(2, cas, c; kw...); (m[1], sqrt(max(m[2] - m[1]^2, 1e-12))))
 grid(cas, c; ks = (-2, -1, 0, 1, 2), kw...) = (ms = mean_sd(cas, c; kw...); [ms[1] + k * ms[2] for k in ks])
 function row(label, fc, fg; fcv = nothing, fgv = nothing, note = "", auto = :classical)

@@ -57,9 +57,9 @@ the singularities of the moment generating function, with the
 integral over v in closed form and the paths in s and t deformed, a double integral with an explicit integrand; a fixed
 start in cases DU and DT only, and there the choice of `:auto`). By default (`verified = false`) every value is one
 evaluation by one method, with a warning, once per call, where the parameters lie in a regime in which one evaluation is
-known to be brittle; `verified = true` gives the checked computation (error estimates and fallbacks, at 1 to 4.7 times
-the cost of the default, 2.9 to 4.7 with a fixed start, up to 24 times where the default is the general engine's paths,
-case SU at c = c0 = -10, and more in the tails below 1e-3, which it recomputes; November 26, 2026). `x`, `y` and the probabilities `p` may be arrays. The boundary `bnd` of `ltratio_region` is a NamedTuple (or a
+known to be brittle; `verified = true` gives the checked computation (error estimates and fallbacks, at 1 to 4.8 times
+the cost of the default, 2.9 to 4.8 with a fixed start, up to 25 times where the default is the general engine's paths,
+case SU at c = c0 = -10, and more in the tails below 1e-3, which it recomputes; November 26, 2026, on mains power). `x`, `y` and the probabilities `p` may be arrays. The boundary `bnd` of `ltratio_region` is a NamedTuple (or a
 Dict): `(type = "line", a, b)`, `(type = "parabola", x, c0)`, `(type = "wap", k, omega)` or `(type = "fun", g)` with
 `g` a function of a scalar, optionally with `v0` and `brks`.
 
@@ -149,7 +149,7 @@ t-ratio, MZ_alpha (`mza_cdf(D, ys, c; gls)`, `mza_quantile`) and MSB (`msb_cdf(D
 ### Which engine
 
 `dev/engine_table.jl` (`dev/engine_table.txt`) times both engines in each cell (4 threads, the warm time of one call,
-BenchmarkTools minimum of 2; F and f at x = mean + (-2, -1, 0, 1, 2) sd for the t-ratio) and compares their values; where
+the minimum of 7 timed calls after a warm-up, of 3 from 1 s on; F and f at x = mean + (-2, -1, 0, 1, 2) sd for the t-ratio) and compares their values; where
 they differ by more than 1e-8 it compares each with the other's checked computation (`verified = true`). The rule,
 `autoengine` in `src/merged.jl`, takes the faster engine at the same accuracy, and the right one where they disagree.
 It was re-derived on November 26, 2026, after the thinner rules of one evaluation had halved the time of the general
@@ -158,8 +158,8 @@ warm, the minimum of 12 rounds each; two runs, a cell moved only where the other
 both) and from checks of the new choice's one evaluation against the other engine's checked computation on 41 points
 from the 0.01% to the 99.99% point over the cell's region (within 1e-7 in F, in f of the peak and in the quantiles'
 probabilities). The times in the table below are those of `dev/engine_table.txt` (the run of November 26, 2026 on
-mains power, an M4 laptop, four threads, about six minutes for the whole table; the ranges over the table's cells of
-each row).
+mains power with nothing else running, an M4 laptop, four threads, about ten minutes for the whole table; the ranges
+over the table's cells of each row).
 
 Within the general engine, `dist_cdf`, `dist_pdf` and `dist_quantile` (and the classical functions with a design, through
 them) choose between two representations by the keyword `method`: `:auto` (the default, `DFDet.line_auto`) takes the
@@ -173,14 +173,17 @@ the continuous designs that do not vanish at the origin and whose span is closed
 trends of any order, an intercept with sines and cosines), and `detrend_first` of a continuous design that does not
 vanish at the origin, with a zero or a stationary start and least squares detrending (not GLS detrending, a fixed start
 or a design with a jump). It is the classical engine's integrator with P(t) and the two roots supplied by the general
-engine's transform (`src/DFDet_line.jl`). On warm calls at c0 = 0 (November 26, 2026; F and f at five points and the 5%
-quantile, four threads) it is 1.03 to 4.1 times faster than the paths below the unit root (median 1.8). Above the unit
-root the paths are 1.3 to 2.3 times faster than the line integral (and than the classical engine for the intercept and
-the trend) while their outer hyperbola keeps its angle of 45 degrees: for the intercept up to c = 1.5, for the trends,
-the trend detrended first and the intercept with a sine and a cosine up to c = 2 or 2.5, for the quadratic trend up to
-c = 3; beyond, as the hyperbola steepens, the line integral is the faster again (1.5 times for the intercept at c = 2, 2
+engine's transform (`src/DFDet_line.jl`). On warm calls at c0 = 0 (November 26, 2026, on mains power; F and f at five
+points and the 5% quantile, four threads; c = 0, -10, -50) it is up to 3.9 times faster than the paths at and below the
+unit root (median 1.4), except far from it with two or more regressors, where the paths are as fast or faster (at c =
+-50 1.05 to 1.25 times for F and f with the quadratic trend, the intercept with a sine and a cosine and the trend with a
+stationary start, and 1.04 to 1.6 times for the 5% quantile in most designs). Above the unit root the paths are 1.3 to
+3.7 times faster than the line integral (and 1.8 to 2.4 times faster than the classical engine for the intercept and the
+trend) while their outer hyperbola keeps its angle of 45 degrees: for the intercept up to c = 1.5, for the trends, the
+trend detrended first and the intercept with a sine and a cosine up to c = 2 or 2.5, for the quadratic trend up to c =
+3; beyond, as the hyperbola steepens, the line integral is the faster again (1.3 times for the intercept at c = 2, 1.2
 to 9 times for every design at c = 3 except the quadratic trend), and without deterministic terms it stays the faster
-from c = 1 on. With c0 != 0 the line integral is 4 to 10 times slower, hence the paths there, except with c0 > 0 on the
+from c = 1 on. With c0 != 0 the line integral is 4.4 to 11 times slower, hence the paths there, except with c0 > 0 on the
 vertical line: there the parabola X(v) of a point x < 0 has two positive roots, whose parts the line's rule does not
 resolve, and the paths' one evaluation was off by up to 1e-3 in the lower tail (an intercept with a sine and a cosine at
 c = 5, c0 = 2), where the line integral is accurate. A case string or a classical design with `engine = :general`
@@ -190,40 +193,40 @@ below, except case DG, which the line integral does not cover) and its paths abo
 
 | cell | engine | classical (ms) | general (ms) | largest difference | why |
 |---|---|---|---|---|---|
-| t-ratio, c0 = 0, zero or stationary start below the unit root, cases DK, DU, DT, SK, SU, ST, DG; above it case DK, case DU for c > 1.5, case DT for c > 2 | classical | 2.8 to 52 | 2.7 to 77 | 1.7e-13 | in case DG 11 to 12 times faster (the general engine has no line integral with GLS detrending); elsewhere below the unit root the general engine's line integral is 1.0 to 1.24 times faster, below the threshold of 1.3 |
-| t-ratio, c0 = 0, zero start, case DU for 0 < c <= 1.5, case DT for 0 < c <= 2 | general (its paths) | 25 to 38 | 15 to 23 | 1.4e-11 | 1.6 to 2.3 times faster (November 26, 2026) |
-| zero start, c0 < 0, case DK for -5 < c <= 2 | general | 131 to 582 | 13 to 91 | 2.1e-10 | 5.6 to 28 times faster (the classical engine's line integral with its general kernel) |
-| zero start, c0 < 0, case DT for -50 <= c <= -10 | general | 54 to 76 | 20 to 29 | 8.6e-12 | 1.3 to 2.7 times faster, at x = 0 too |
-| zero start, c0 < 0 otherwise (c >= -100) | classical | 7.7 to 54 | 13 to 46 | 7.4e-10 (c = -100) | in case DK from c = -5 on (its conditional integral) 1.05 to 2.6 times faster; in case DU and in case DT nearer the unit root the gains of either engine vary with c and c0 |
-| zero start, c0 > 0, c <= 1 (case DT: c <= 2) | general | 59 to 367 | 12 to 84 | 9.5e-11 | 2.4 to 9.5 times faster (at c = -100, which the rule gave the classical engine until November 26, 2026, 2.4 to 5 times; in case DT at c = 1.5, 2 3.6 to 7 times) |
+| t-ratio, c0 = 0, zero or stationary start below the unit root, cases DK, DU, DT, SK, SU, ST, DG; above it case DK, case DU for c > 1.5, case DT for c > 2 | classical | 2.8 to 52 | 2.8 to 76 | 1.7e-13 | in case DG 11 to 12 times faster (the general engine has no line integral with GLS detrending); elsewhere below the unit root the general engine's line integral is 1.0 to 1.24 times faster, below the threshold of 1.3 |
+| t-ratio, c0 = 0, zero start, case DU for 0 < c <= 1.5, case DT for 0 < c <= 2 | general (its paths) | 25 to 38 | 14 to 18 | 1.4e-11 | 1.6 to 2.3 times faster (November 26, 2026) |
+| zero start, c0 < 0, case DK for -5 < c <= 2 | general | 132 to 581 | 11 to 87 | 2.1e-10 | 5.6 to 28 times faster (the classical engine's line integral with its general kernel) |
+| zero start, c0 < 0, case DT for -50 <= c <= -10 | general | 55 to 77 | 20 to 28 | 8.6e-12 | 1.3 to 2.7 times faster, at x = 0 too |
+| zero start, c0 < 0 otherwise (c >= -100) | classical | 7.6 to 55 | 12 to 45 | 7.4e-10 (c = -100) | in case DK from c = -5 on (its conditional integral) 1.05 to 2.6 times faster; in case DU and in case DT nearer the unit root the gains of either engine vary with c and c0 |
+| zero start, c0 > 0, c <= 1 (case DT: c <= 2) | general | 59 to 369 | 11 to 79 | 9.5e-11 | 2.4 to 9.5 times faster (at c = -100, which the rule gave the classical engine until November 26, 2026, 2.4 to 5 times; in case DT at c = 1.5, 2 3.6 to 7 times) |
 | the same, case DK, within 1e-3 of the tangency x* = -sqrt(2 c0) above it | classical | | | | the density is infinite at x*; just above it the general engine's density is off by up to 1.5e-3 relative (x* + 1e-9), the classical by 5e-10; below x* the general engine is the right one (the classical density off by 10% at x* - 1e-9 at c = -20, c0 = 0.5) |
-| zero start, c0 > 0 otherwise (c > 1, case DT c > 2) | classical | 14 to 56 | 29 to 43 | 3.5e-11 | 2.1 times faster in case DU at c = 2 |
-| zero start, c0 != 0, c < -100 | general | 196 to 497 | 36 to 66 | 2.6e-11 | 5.4 to 6.8 times faster |
-| stationary start, c0 != 0, c <= -3e-3 | general | 88 to 8459 | 17 to 55 | 1.6e-10 (case SK at c = -0.1, the classical engine's one evaluation) | 4.3 to 230 times faster (case SK at c = c0 = -0.1: 8.7 s against 38 ms); values below 1e-3 go back to the classical conditional integral, whose error is relative |
-| stationary start, c0 != 0, c > -3e-3 | classical | 262 to 1006 | 26 to 53 | 8.1e-10 (c = -1e-3) | next to zero the general engine is off by 1e-10 to 7e-8 in cases SU, ST |
-| above the unit root, c0 < 0 (c > 2) | classical | 44 to 412 | 114 to 464 | 2.2e-13 | 4.8 to 11 times faster in cases DU, DT (c = 5) |
-| above the unit root, the bulk at c >= 7 | classical | 198 to 661 | 373 to 20802 | 1.4e-13 | 1.1 to 32 times faster |
-| fixed start, case DK, c <= 1, (c g0)^2/2 <= 400 or \|g0\| <= 1.5 with \|c g0\| <= 50 and c >= -100, except c0 < 0 with c > -1 | general | 75 to 281 | 28 to 78 | 3.7e-11 | 2.0 to 5.8 times faster; beyond (c g0)^2/2 <= 400 1.4 to 6 times (November 26, 2026; the rule tested g0 <= 0.5 with c >= -100 there and did not take the absolute value of g0) |
+| zero start, c0 > 0 otherwise (c > 1, case DT c > 2) | classical | 13 to 56 | 28 to 42 | 3.5e-11 | 2.1 times faster in case DU at c = 2 |
+| zero start, c0 != 0, c < -100 | general | 194 to 495 | 33 to 58 | 2.6e-11 | 5.4 to 6.8 times faster |
+| stationary start, c0 != 0, c <= -3e-3 | general | 83 to 8466 | 16 to 53 | 1.6e-10 (case SK at c = -0.1, the classical engine's one evaluation) | 4.3 to 230 times faster (case SK at c = c0 = -0.1: 8.5 s against 31 ms); values below 1e-3 go back to the classical conditional integral, whose error is relative |
+| stationary start, c0 != 0, c > -3e-3 | classical | 262 to 1012 | 23 to 50 | 8.1e-10 (c = -1e-3) | next to zero the general engine is off by 1e-10 to 7e-8 in cases SU, ST |
+| above the unit root, c0 < 0 (c > 2) | classical | 44 to 418 | 113 to 463 | 2.2e-13 | 4.8 to 11 times faster in cases DU, DT (c = 5) |
+| above the unit root, the bulk at c >= 7 | classical | 199 to 663 | 374 to 20287 | 1.4e-13 | 1.1 to 32 times faster |
+| fixed start, case DK, c <= 1, (c g0)^2/2 <= 400 or \|g0\| <= 1.5 with \|c g0\| <= 50 and c >= -100, except c0 < 0 with c > -1 | general | 75 to 277 | 26 to 77 | 3.7e-11 | 2.0 to 5.8 times faster; beyond (c g0)^2/2 <= 400 1.4 to 6 times (November 26, 2026; the rule tested g0 <= 0.5 with c >= -100 there and did not take the absolute value of g0) |
 | the same with c0 < 0 and c > -1 | classical | | | | the general engine's one evaluation of before November 2026 was off in the upper tail by up to 2.7e-6 at the 99.99% point and 2.9e-2 beyond (c = 0.5, c0 = -5 and -10, g0 = 1), the classical engine within 1e-12 of its checked computation and the conditional integral |
-| fixed start, cases DU, DT, c < -10: c0 > 0 below c = -20 or where \|c g0\| > 20, any c0 below c = -20 where \|c g0\| > 60 | general | | | 1e-10 in F; the density the derivative of F to 1e-10 of the peak | the classical contour integral's one evaluation was off (November 2026): in the density by up to 2.2e-2 of the peak (case DU, c = -60, g0 = 1.5, c0 = 5), in F by 3.9e-5 (c0 = -2); its checked computation in the density by up to 8.4e-6; the general engine 0.23 to 0.9 times the time down to c = -45, up to 5 times below c = -75 |
-| fixed start, case DK otherwise, cases DU, DT otherwise | classical | 35 to 332 | 40 to 397 | 5.4e-11 | 1.15 to 1.2 times faster in cases DU, DT and in case DK at c = 2, and its warnings of the brittle regimes; with \|g0\| = 2 or \|c g0\| > 50 in case DK the gains vary |
-| moments (`method = :engine`), zero or fixed start, c0 = 0 | general | 13 to 197 | 8.7 to 14 | 4.2e-14 relative | 1.4 to 15 times faster |
-| moments, stationary start, c0 = 0: case SK at c <= -3e-3, cases SU, ST at c <= -1 | general | 8 to 18 | 8.9 to 14 | 1.7e-13 relative | 1.2 to 1.3 times faster in cases SU, ST at c = -5; in case SK the classical engine is 1.2 times faster, below the threshold |
-| moments, c0 != 0: stationary start for c <= -5, case SU, zero start in cases DK, DU, and in case DT for c < -5 | classical | 8.9 to 80 | 34 to 238 | 1.6e-9 relative (c = c0 = -300) | 1.8 to 10 times faster (November 26, 2026; far from the unit root neither engine is converged: both move by 1e-8 to 5e-7 relative under finer rules) |
-| moments, c0 != 0 nearer the unit root: stationary start for -5 < c <= -3e-3 (cases SK; ST from c = -1 on), case DT for c >= -5 | general | 383 to 2432 | 94 to 134 | | in case ST at c = c0 = -1 25 times faster, in case DT at c = 0, c0 = -2 2.8 times; next to zero the general engine's moments lose accuracy in cases SU, ST (1e-10 at c = -0.1 to 4e-7 at c = -3e-3), the classical engine there |
-| quantiles at c0 = 0: a fixed start, case DT for c <= 2, case DU for 0 <= c <= 1.5, cases SU, ST for c <= -0.5 | general | 38 to 468 | 28 to 133 | 1.0e-10 | 1.1 to 6.3 times faster (one path, F and f in one pass); above the unit root by the paths 2.3 to 2.5 times; with a stationary start 1.3 to 1.7 times (next to zero the general search is off, by 2.6e-7 in case ST at c = -1e-3) |
-| quantiles otherwise | classical | 13 to 105 | 11 to 191 | 5.0e-12 | 7.3 times faster in case DG; in cases DK, DU (below the unit root), SK the gains of the general search vary from 1.1 to 1.6; each evaluation of the search routed, and where the rule gives the point to the general engine, F and f from one pass of its paths (`route_dist2`) |
-| the coefficient statistic (`method = :engine`) | as the t-ratio at x = 0 with the null value c0 + y, except with a zero start (cases DK, DU, DT, -100 < c <= 2): c0 + y > 0 classical, c0 + y < 0 in case DK for c > -5 general | 5.9 to 85 | 7.9 to 76 | 3.9e-12 (7.6e-11 for the quantile) | one point per call at x = 0: with c0 + y > 0 the classical line integral 2 to 12 times faster, with c0 + y < 0 in case DK for c > -5 the general engine 1.4 to 2.7 times; in case DT for -50 <= c <= -10 the general engine 1.6 to 3.1 times |
-| P(V <= b) (`ltratio_lincdf` with a = NaN), case DK | general | 5.5 to 311 | 0.04 to 0.17 | 4.8e-15 below c = 4; above, the classical inversion is off by 5.9e-10 (c = 4) to 1.8e-7 (c = 7) | 34 to 4000 times faster, and above the unit root the more accurate |
-| P(U - aV <= b), case DK | classical | 5.3 to 19 | 5.2 to 273 | 9.6e-13 | up to 29 times faster (above the unit root 11 to 29 times) |
-| P(U - aV <= b), case DG, a != 0, c > 0 with cbar <= -1, and every c > 4 | general | 50 to 239 | 34 to 111 | 7.1e-12 | 2.2 times faster above the unit root (cbar = -1, c = 2); beyond c = 4 the classical code refuses |
-| P(U - aV <= b), case DG otherwise (at and below the unit root at every cbar; a = 0) | classical | 14 to 25 | 21 to 101 | 7.7e-12 | 2 to 11.5 times faster below the unit root (November 26, 2026; the general engine took cbar <= -2 there until then); the closed form at a = 0 |
-| the power envelope, case DK at c <= -0.01 | general | 77 to 168 | 84 to 110 | 2.8e-12 | the critical value to 1e-10 (the classical engine bisects it to 1e-9); 1.07 times slower to 1.5 times faster; by default the single inversion of Bao and Kan computes |
-| the power envelope, case DG, and case DK nearer zero | classical | 127 to 1531 | 507 to 687 | 2.1e-9 | in case DG 4.7 to 21 times faster at c = -2 to -20 (November 26, 2026; the general engine took c <= -1 until then); case DK at c = -1e-4: the general engine is off by 1.1e-9 |
-| ADFmax, stationary start, c <= -0.1 | general | 113 to 190 | 50 to 58 | 3e-12 | 2.3 to 3.4 times faster; next to zero (c = -1e-4) it is off by 2e-9 |
-| ADFmax, zero start | classical | 21 to 33 | 50 to 52 | 2.6e-12 | 1.6 to 2.3 times faster |
-| regions (`ltratio_region`): the parabola of the t-ratio at c0 = 0, c <= 0 | general | 1.5 to 2.3 | 0.41 to 0.58 | 1.2e-13 | 2.5 to 27 times faster (its line integral; November 26, 2026) |
-| regions otherwise: the line, the parabola with c0 != 0 or above the unit root, the WAP boundary and a function g | classical | 1.1 to 1.5 | 1.9 to 3.3 | 1e-12 | 3.1 times faster for the line, 1.3 to 2.6 times for the parabola with c0 != 0; the classical engine is the only one for the WAP boundary and a function g |
+| fixed start, cases DU, DT, c < -10: c0 > 0 below c = -20 or where \|c g0\| > 20, any c0 below c = -20 where \|c g0\| > 60 | general | | | 1e-10 in F; the density the derivative of F to 1e-10 of the peak | the classical contour integral's one evaluation was off (November 2026): in the density by up to 2.2e-2 of the peak (case DU, c = -60, g0 = 1.5, c0 = 5), in F by 3.9e-5 (c0 = -2); its checked computation in the density by up to 8.4e-6; the general engine 0.35 to 0.86 times the time down to c = -45, up to 6 times at c = -75 to -100 |
+| fixed start, case DK otherwise, cases DU, DT otherwise | classical | 35 to 334 | 39 to 400 | 5.4e-11 | 1.15 to 1.2 times faster in cases DU, DT and in case DK at c = 2, and its warnings of the brittle regimes; with \|g0\| = 2 or \|c g0\| > 50 in case DK the gains vary |
+| moments (`method = :engine`), zero or fixed start, c0 = 0 | general | 13 to 199 | 8.5 to 14 | 4.2e-14 relative | 1.4 to 15 times faster |
+| moments, stationary start, c0 = 0: case SK at c <= -3e-3, cases SU, ST at c <= -1 | general | 8.1 to 18 | 8.7 to 14 | 1.7e-13 relative | 1.2 to 1.3 times faster in cases SU, ST at c = -5; in case SK the classical engine is 1.2 times faster, below the threshold |
+| moments, c0 != 0: stationary start for c <= -5, case SU, zero start in cases DK, DU, and in case DT for c < -5 | classical | 8.7 to 76 | 34 to 236 | 1.6e-9 relative (c = c0 = -300) | 1.8 to 10 times faster (November 26, 2026; far from the unit root neither engine is converged: both move by 1e-8 to 5e-7 relative under finer rules) |
+| moments, c0 != 0 nearer the unit root: stationary start for -5 < c <= -3e-3 (cases SK; ST from c = -1 on), case DT for c >= -5 | general | 380 to 2444 | 93 to 133 | | in case ST at c = c0 = -1 25 times faster, in case DT at c = 0, c0 = -2 2.8 times; next to zero the general engine's moments lose accuracy in cases SU, ST (1e-10 at c = -0.1 to 4e-7 at c = -3e-3), the classical engine there |
+| quantiles at c0 = 0: a fixed start, case DT for c <= 2, case DU for 0 <= c <= 1.5, cases SU, ST for c <= -0.5 | general | 35 to 462 | 28 to 133 | 1.0e-10 | 1.1 to 6.3 times faster (one path, F and f in one pass); above the unit root by the paths 2.3 to 2.5 times; with a stationary start 1.3 to 1.7 times (next to zero the general search is off, by 2.6e-7 in case ST at c = -1e-3) |
+| quantiles otherwise | classical | 13 to 100 | 11 to 191 | 5.0e-12 | 7.3 times faster in case DG; in cases DK, DU (below the unit root), SK the gains of the general search vary from 1.1 to 1.6; each evaluation of the search routed, and where the rule gives the point to the general engine, F and f from one pass of its paths (`route_dist2`) |
+| the coefficient statistic (`method = :engine`) | as the t-ratio at x = 0 with the null value c0 + y, except with a zero start (cases DK, DU, DT, -100 < c <= 2): c0 + y > 0 classical, c0 + y < 0 in case DK for c > -5 general | 5.9 to 84 | 7.7 to 75 | 3.9e-12 (7.6e-11 for the quantile) | one point per call at x = 0: with c0 + y > 0 the classical line integral 2 to 12 times faster, with c0 + y < 0 in case DK for c > -5 the general engine 1.4 to 2.7 times; in case DT for -50 <= c <= -10 the general engine 1.6 to 3.1 times |
+| P(V <= b) (`ltratio_lincdf` with a = NaN), case DK | general | 5.5 to 314 | 0.03 to 0.17 | 4.8e-15 below c = 4; above, the classical inversion is off by 5.9e-10 (c = 4) to 1.8e-7 (c = 7) | 34 to 4000 times faster, and above the unit root the more accurate |
+| P(U - aV <= b), case DK | classical | 5.3 to 18 | 5 to 274 | 9.6e-13 | up to 29 times faster (above the unit root 11 to 29 times) |
+| P(U - aV <= b), case DG, a != 0, c > 0 with cbar <= -1, and every c > 4 | general | 50 to 241 | 35 to 110 | 7.1e-12 | 2.2 times faster above the unit root (cbar = -1, c = 2); beyond c = 4 the classical code refuses |
+| P(U - aV <= b), case DG otherwise (at and below the unit root at every cbar; a = 0) | classical | 14 to 25 | 22 to 100 | 7.7e-12 | 2 to 11.5 times faster below the unit root (November 26, 2026; the general engine took cbar <= -2 there until then); the closed form at a = 0 |
+| the power envelope, case DK at c <= -0.01 | general | 78 to 169 | 83 to 104 | 2.8e-12 | the critical value to 1e-10 (the classical engine bisects it to 1e-9); 1.07 times slower to 1.5 times faster; by default the single inversion of Bao and Kan computes |
+| the power envelope, case DG, and case DK nearer zero | classical | 128 to 1542 | 508 to 693 | 2.1e-9 | in case DG 4.7 to 21 times faster at c = -2 to -20 (November 26, 2026; the general engine took c <= -1 until then); case DK at c = -1e-4: the general engine is off by 1.1e-9 |
+| ADFmax, stationary start, c <= -0.1 | general | 105 to 190 | 48 to 56 | 3e-12 | 2.3 to 3.4 times faster; next to zero (c = -1e-4) it is off by 2e-9 |
+| ADFmax, zero start | classical | 22 to 33 | 48 to 51 | 2.6e-12 | 1.6 to 2.3 times faster |
+| regions (`ltratio_region`): the parabola of the t-ratio at c0 = 0, c <= 0 | general | 1.4 to 2.2 | 0.39 to 0.57 | 1.2e-13 | 2.5 to 27 times faster (its line integral; November 26, 2026) |
+| regions otherwise: the line, the parabola with c0 != 0 or above the unit root, the WAP boundary and a function g | classical | 1.1 to 1.5 | 1.9 to 3.2 | 1e-12 | 3.1 times faster for the line, 1.3 to 2.6 times for the parabola with c0 != 0; the classical engine is the only one for the WAP boundary and a function g |
 | above the range of the general engine (c > 16 with deterministic terms, c > 10 with them and a fixed start, c > 20 without) | classical | | | | the general engine refuses there |
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
 | the extensions of the limit (the keywords `vol` and `rho` != 1), any design | general; `rho = -1` for a classical case by the rule at -x | | | | the classical engine refuses them; `rho = -1` is the t-ratio's own law reflected, which the rule's cells cover; the normal average of 0 < \|rho\| < 1 calls the general engine's distribution function at all its points in one call, which shares the outer contour over them (the rule's cells were measured on five points) |
@@ -268,15 +271,15 @@ One evaluation of the general engine's inversion on paths (`dist_cdf`, `dist_pdf
 the classical functions where the rule `autoengine` takes the general engine) takes a thinner rule than before November
 2026 where it holds (`DFDet.PATH_RULES`, `DFDet.path_region`; keyword `rule`, :auto by default): the outer hyperbola
 with 1.5 times the step and the U-shapes with 16 nodes per panel and 32 on the tails of their rays for 24 and 40 (32 and
-48 for 48 and 64 with a fixed start), 0.50 times the time of one evaluation (the median over 564 configurations, 0.30 to
-0.87; the thin inner rule on the present hyperbola 0.73). The regions, a rule in (the start, whether the design has
+48 for 48 and 64 with a fixed start), 0.49 times the time of one evaluation (the median over 404 configurations, 0.44 to
+0.69, warm calls on mains power, November 26, 2026; the thin inner rule on the present hyperbola 0.72). The regions, a rule in (the start, whether the design has
 deterministic terms, c, c0) that the C engine and the MATLAB programs can take over:
 
 | region | rule | why |
 |---|---|---|
 | c > -1, c0 < 0, zero or stationary start | the thin inner rule on the present hyperbola | the thinner outer step lost 1.3e-8 of the peak of the density (case DK at c = 0, c0 = -5) |
 | c > -1, c0 < 0, fixed start, deterministic terms | the thin inner rule on the present hyperbola with half its step | the thinner outer step lost up to 3.1e-6 (case DU at c = 2, c0 = -5) |
-| c > -1, c0 < 0, fixed start, no deterministic terms | the present inner rule on the present hyperbola, the step min(1/2, 2.5/(g0 \|c0\|)) times its own where it is flatter than 70 degrees (2 to 11 times the cost) | the present step was off by up to 0.86 in the upper tail (c = 0.5, g0 = 1, c0 = -20; 1.8e-3 at c0 = -5), this one within 7e-12 of the classical engine (g0 from 0.5 to 2, c from -0.5 to 1, c0 from -1 to -20) |
+| c > -1, c0 < 0, fixed start, no deterministic terms | the present inner rule on the present hyperbola, the step min(1/2, 2.5/(g0 \|c0\|)) times its own where it is flatter than 70 degrees (1.7 to 7 times the cost at g0 = 0.5 and 1, the cost of the present rule at g0 = 2) | the present step was off by up to 0.86 in the upper tail (c = 0.5, g0 = 1, c0 = -20; 1.8e-3 at c0 = -5), this one within 7e-12 of the classical engine (g0 from 0.5 to 2, c from -0.5 to 1, c0 from -1 to -20) |
 | c > -1, c0 = 0, fixed start, no deterministic terms | the thin inner rule on the present hyperbola | the thinner outer step lost 1.4e-8 of the peak of the density at mean + 5.75 sd (c = 0.5) |
 | c > 2 with a fixed start, c > 5; c < -60 with c0 other than 0 and c | the present rule | beyond the range of the sweep (at c = 5 with a fixed start the thin rule differed from the present one by 5.6e-6 of the peak of the density, Perron's model C with two breaks; at c = -480, case DK, c0 = 2, by 7.7e-9) |
 | elsewhere | the thin rule | |
@@ -303,9 +306,9 @@ that of `path_region` for the zero-start model of its design at the smallest c o
 
 The classical engine's contour integral (a fixed start in cases DU, DT; `DFExact.ctr_rule`, keyword `rule` of
 `tr_contour`) takes, for one evaluation, 32 nodes per panel and ray of the U-shapes for 64 and the outer step 1.5 times
-as long where they hold: 0.42 times the time near the unit root (median; 0.28 to 0.70), the 32 nodes on the present
-step above the unit root (c > 1, 0.59 times), 64 nodes on the longer step with c0 > 0 below c = -2.5 and everywhere
-below c = -10, and the present rule where |c g0| > 20 (there the longer step lost up to 2.4e-2 in F, case DT at c =
+as long where they hold: 0.39 times the time near the unit root (median; 0.38 to 0.41; warm calls on mains power,
+November 26, 2026), the 32 nodes on the present step above the unit root (c > 1, 0.57 times), 64 nodes on the longer
+step with c0 > 0 below c = -2.5 and everywhere below c = -10 (0.69 times), and the present rule where |c g0| > 20 (there the longer step lost up to 2.4e-2 in F, case DT at c =
 -30, g0 = 3). Against the checked computation on a dense grid of x (129 configurations: cases DU with g0 0.5 and 1.5,
 DT with 1 and 3, c from 2 to -60, c0 in {0, 2, -2, -5, c}) every configuration holds the criterion, within 6.2e-11 in
 F. Far from the unit root the present rule's own one evaluation was off: with c0 > 0 in the density by up to 5e-6 of
@@ -315,14 +318,14 @@ where |c g0| > 60 with any c0 in the distribution function by up to 3.9e-5 (case
 the engines (`autoengine`) gives these cells to the general engine: with c0 > 0 below c = -20 (below c = -10 where |c
 g0| > 20), and with any c0 below c = -20 where |c g0| > 60. There the general engine's density is the derivative of the
 distribution function on which the two engines agree (to 1e-10 of the peak, by Richardson's central difference;
-`scratch/rules/probe_ctr_far5.jl`), and it takes 0.23 to 0.9 times the time of the classical one evaluation down to c =
--45, up to 1.8 times at c = -60 and 1.2 to 5 times below c = -75.
+`scratch/rules/probe_ctr_far5.jl`), and it takes 0.35 to 0.86 times the time of the classical one evaluation down to c =
+-45, up to 1.9 times at c = -60 and 1.1 to 6 times at c = -75 and -100 (November 26, 2026, on mains power).
 
 The classical engine's conditional integral (one evaluation, `DFExact.cond_rule`) takes 48 nodes on the path of each
 inner inversion and of the integral over l for 96 with a stationary start for c <= -2, with a zero start in cases DU, DT
-for c >= -5 and in case DK for c <= -13.5 (medians of warm calls, F and f at 13 points: 0.60 times the time with a
-stationary start, 0.81 and 0.87 in cases DU, DT with a zero start, 0.86 in case DK, where the conditional integral takes
-20 to 50 ms), and 64 with a stationary start for c > -2; a fixed start (measured at one configuration only) and c > 2
+for c >= -5 and in case DK for c <= -13.5 (medians of warm calls, F and f at 13 points, November 26, 2026, on mains
+power: 0.60 times the time with a stationary start, 0.78 and 0.84 in cases DU, DT with a zero start, 0.76 in case DK,
+where the conditional integral takes 22 to 64 ms), and 64 with a stationary start for c > -2; a fixed start (measured at one configuration only) and c > 2
 keep 96. Against the rule with 192 nodes and the outer tolerance 1e-14 on a dense grid of x (150 configurations: cases
 DK, DU, DT with a zero start, c from 2 to -100, and SK, SU, ST, c from -0.5 to -50, c0 in {2, -2, -5, c}) the regions
 hold the criterion. Elsewhere 48 nodes lost up to 1e-3 far from the unit root with a zero start in cases DU, DT (1.8e-8
@@ -356,12 +359,12 @@ whose estimate exceeds the tolerance.
 
 | function | the single inversion by default | largest difference from the engines | which is right where they differ | warm time (ms), single inversion against `method = :engine` |
 |---|---|---|---|---|
-| `coef_cdf`, `coef_icdf` | the six cases with zero, fixed and stationary starts, -550 <= c <= 20 | 2.4e-11 in cases SK, SU, ST; in cases DK, DU, DT 3.1e-10 (c = -550), 1.8e-9 (case DU, c = -1e-3, the 1% point) and 4e-9 at c = 20, where the law lies within 1e-6 of y = c and the rounding of y moves F (1,836 points at nine quantiles; at each the single inversion with the tolerances 1e-10 and 1e-12 agrees to 1e-15) | case DU, c = -60, g0 = 1.5: the engines' one evaluation off by up to 1.5e-6, the single inversion within 4.3e-12 of their checked computation | 0.04 to 0.3 against 0.3 to 59 (30 to 1600 times faster; 0.8 times in the upper tail of case DK, where the line integral has no root); quantiles 1.6 to 2.5 against 55 to 144 |
-| `coef_pdf`, `coef_mom` | the same cases (new functions) | the density within 2.1e-13 of the general engine's (`DFDet.coef_pdf`); the first two moments within 1.3e-12 of the integrals of the density | | 0.05 to 1 |
-| `ltratio_lincdf` | case DK with a zero start for -100 <= c <= 4, the six cases through their designs (fixed start included) for -100 <= c <= 2, a != 0 | 5.5e-11 against the classical code (2.2e-11 at the tolerance 1e-12), 1e-12 against the general engine | with a fixed start above the unit root the general engine's one evaluation is off by up to 6e-2 (case DK, c = 1, a = -7, the 99% point) and 2.9e-3 (case DU, c = 2): the single inversion agrees with its checked computation and with the plain quadrature without the tail to 1e-14 | 0.08 to 0.5 against 4.8 to 12 (11 to 165 times faster) |
-| `ltratio_mom` (jets) | the six cases, any c0 and fixed start, c <= 20 | 1.4e-11 relative near the unit root (8.2e-12 to 1.4e-11 at c = 0, -3, -5), 3.2e-10 against the stored values far from it at c0 = 0, 1e-8 to 1.3e-7 with c0 = c far from it (2e-7 at c = c0 = -480 with a stationary start) | with c0 = c far from the unit root the engines' circles are not converged: they move towards the jets under refinement, and at c = c0 = -60 the integral of x^j times the density is within 1.5e-9 of the jets and 5.2e-9 of the circles; with a fixed start above the unit root the engines' one evaluation is off by up to 0.65 relative (case DK, c = 2, c0 = -2, g0 = 1), and their circles with four times the nodes and a quarter of the step agree with the jets to 3.4e-13; at c = 10, 20 with c0 = c by up to 33 relative (case DT) | 0.3 to 1.3 against 12 to 158 for four moments (16 to 290 times faster) |
-| `ltratio_icdf` (the start) | the six cases with zero, fixed and stationary starts, c <= 20 | 2.4e-11 (the search tolerance 1e-10), except case DK with c0 = 2 far from the unit root: 4.3e-10 at c = -20 and 5.5e-9 at c = -60, where the distribution function the search inverts is known to about 1e-9 | | whole calls (four quantiles) 0.27 to 1.0 times as long (median 0.85; case DK at c = 0: 46 to 13.8 ms) |
-| `power_envelope` | case DK (DU), c <= -1e-4 | 2.7e-12 against the general engine (critical value to 1e-10) from c = -1e-4 to -500 | the classical bisection of the critical value to 1e-9 is off by up to 1.1e-9 | 1.2 to 13 against 35 to 161 (10 to 40 times faster) |
+| `coef_cdf`, `coef_icdf` | the six cases with zero, fixed and stationary starts, -550 <= c <= 20 | 2.4e-11 in cases SK, SU, ST; in cases DK, DU, DT 3.1e-10 (c = -550), 1.8e-9 (case DU, c = -1e-3, the 1% point) and 4e-9 at c = 20, where the law lies within 1e-6 of y = c and the rounding of y moves F (1,836 points at nine quantiles; at each the single inversion with the tolerances 1e-10 and 1e-12 agrees to 1e-15) | case DU, c = -60, g0 = 1.5: the engines' one evaluation off by up to 1.5e-6, the single inversion within 4.3e-12 of their checked computation | 0.03 to 1 against 0.2 to 11 (up to 420 times faster, median 24; about as fast, 0.7 to 1.1 times, in the upper tail near the unit root); quantiles 0.3 to 2.8 against 18 to 320 |
+| `coef_pdf`, `coef_mom` | the same cases (new functions) | the density within 2.1e-13 of the general engine's (`DFDet.coef_pdf`); the first two moments within 1.3e-12 of the integrals of the density | | 0.04 to 1.6 |
+| `ltratio_lincdf` | case DK with a zero start for -100 <= c <= 4, the six cases through their designs (fixed start included) for -100 <= c <= 2, a != 0 | 5.5e-11 against the classical code (2.2e-11 at the tolerance 1e-12), 1e-12 against the general engine | with a fixed start above the unit root the general engine's one evaluation is off by up to 6e-2 (case DK, c = 1, a = -7, the 99% point) and 2.9e-3 (case DU, c = 2): the single inversion agrees with its checked computation and with the plain quadrature without the tail to 1e-14 | 0.05 to 1.1 against 3.3 to 7.1 (6 to 100 times faster) |
+| `ltratio_mom` (jets) | the six cases, any c0 and fixed start, c <= 20 | 1.4e-11 relative near the unit root (8.2e-12 to 1.4e-11 at c = 0, -3, -5), 3.2e-10 against the stored values far from it at c0 = 0, 1e-8 to 1.3e-7 with c0 = c far from it (2e-7 at c = c0 = -480 with a stationary start) | with c0 = c far from the unit root the engines' circles are not converged: they move towards the jets under refinement, and at c = c0 = -60 the integral of x^j times the density is within 1.5e-9 of the jets and 5.2e-9 of the circles; with a fixed start above the unit root the engines' one evaluation is off by up to 0.65 relative (case DK, c = 2, c0 = -2, g0 = 1), and their circles with four times the nodes and a quarter of the step agree with the jets to 3.4e-13; at c = 10, 20 with c0 = c by up to 33 relative (case DT) | 0.3 to 1.2 against 8 to 45 for four moments (11 to 100 times faster) |
+| `ltratio_icdf` (the start) | the six cases with zero, fixed and stationary starts, c <= 20 | 2.4e-11 (the search tolerance 1e-10), except case DK with c0 = 2 far from the unit root: 4.3e-10 at c = -20 and 5.5e-9 at c = -60, where the distribution function the search inverts is known to about 1e-9 | | whole calls (four quantiles) 0.32 to 0.93 times as long (median 0.74; case DK at c = 0: 47 to 15 ms) |
+| `power_envelope` | case DK (DU), c <= -1e-4 | 2.7e-12 against the general engine (critical value to 1e-10) from c = -1e-4 to -500 | the classical bisection of the critical value to 1e-9 is off by up to 1.1e-9 | 1.3 to 13 against 25 to 123 (9 to 57 times faster) |
 
 The general engine has the same inversion for the statistics of a design whose transform it evaluates point by point:
 the point-optimal statistic (`pt_cdf`, `pt_pdf`, `pt_quantile`, `pt_power`, `pt_envelope`, and through them
@@ -372,13 +375,13 @@ in place of its continuation along the fixed grid of 60,000 points. `method = :g
 grid of before with its refusals. The point-optimal statistic agrees with the contour integral of the general engine on
 its quadratic form (the paths around the roots, an independent evaluation) to 3.3e-12 from c = -30 to 4 (an intercept at
 cbar = -7, a linear trend at -13.5, Perron's model B at -17.8, a quadratic trend at -20; the 1 to 99% points), where the
-grid is off by up to 3.8e-10 at c = 3 and refuses at c = 4 and 5; the single inversion takes 1.2 to 65 ms a value against
-77 to 640 ms for the grid. Above c = 4 it can take seconds a value (11 s for Perron's model B at c = 5), and the grid with
+grid is off by up to 3.8e-10 at c = 3 and refuses at c = 4 and 5; the single inversion takes 1.5 to 11 ms a value against
+46 to 460 ms for the grid. Above c = 4 it can take seconds a value (Perron's model B: 0.01 to 0.04 s at c = 5, 1.1 to 2.2 s at c = 6), and the grid with
 its refusal stays the default there; the single inversion has no limit on q (the grid refused |q| > 1000). The quantile
-searches keep the transform values along the ray (5% points 13 to 77 ms against 63 to 478, envelopes 15 to 86 ms against
-126 to 876). `coef_cdf_gp` agrees with the contour integral (`DFDet.coef_cdf`) to 9.6e-13 from c = -30 to 5 for polynomial
+searches keep the transform values along the ray (5% points 13 to 68 ms against 47 to 458, envelopes at three values of c 39 to 244 ms
+against 302 to 2457). `coef_cdf_gp` agrees with the contour integral (`DFDet.coef_cdf`) to 9.6e-13 from c = -30 to 5 for polynomial
 trends, Perron's model C with one and two breaks and a stationary start (2.5e-11 with GLS detrending, where the grid and the
-contour integral differ by 1.6e-10), in 3 to 58 ms a value against 120 to 160 for the grid; above c = 5 (7 s a value at c =
+contour integral differ by 1.6e-10), in 3 to 38 ms a value against 133 to 813 for the grid; above c = 5 (6.5 s a value at c =
 10) and with a fixed start the grid stays.
 
 The same devices fix the branches inside the engines: the classical engine's P(t), M_0(t) and the labels of the roots of
@@ -389,8 +392,8 @@ values of before, at the same cost.
 At a = 0 (the law of U alone, whose transform decays like a power, with the edge of its support where the tail start runs
 away) the linear form stays with the engines' closed form; at c = 7 in case DK the classical code differs from the single
 inversion by 2e-8 at the 99.9% point with a = 2, which no third computation settled, so the default there is unchanged.
-Times are warm BenchmarkTools minima on four threads of a shared Apple M4 (November 2026, `scratch/int` of the branch
-kan-integration), against `method = :engine` in the same session.
+Times are warm minima (7 timed calls after a warm-up, 3 from 1 s on) on four threads of an M4 laptop on mains power with
+nothing else running (November 26, 2026), against `method = :engine` or the grid in the same session.
 
 ## Extensions of the limit
 
