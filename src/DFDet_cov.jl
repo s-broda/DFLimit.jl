@@ -243,7 +243,7 @@ taken as 0 or 1 outside the bulk of tau (`tau_bulk`), where it is so to rounding
 reach far into the tails, where the engine is not asked (at x = -424 its value was -1.2e-8, which its range check refuses).
 """
 function mixture_both(D::Determ, x::Vector{Float64}, c::Float64, rho::Float64, c0::Float64, start::Symbol, gamma0::Float64;
-                      h = nothing, zmax::Float64 = 8.5, n::Int = 12, verified::Bool = false)
+                      h = nothing, zmax::Float64 = 8.5, n::Int = 12, verified::Bool = false, method::Symbol = :auto)
     rb = sqrt(1 - rho^2)
     Mo = startmodel(D, c, start, gamma0)
     hz = h === nothing ? (Mo.r == 1 ? 0.125 : 0.25) / (1 + rb / rho) : Float64(h)
@@ -273,7 +273,7 @@ function mixture_both(D::Determ, x::Vector{Float64}, c::Float64, rho::Float64, c
     Fq = [qk < lo ? 0.0 : 1.0 for qk in q]
     ib = findall(qk -> lo <= qk <= hi, q)
     if !isempty(ib)
-        Fq[ib] = dist_cdf(D, q[ib], c; c0, start, gamma0, verified)
+        Fq[ib] = dist_cdf(D, q[ib], c; c0, start, gamma0, verified, method)
         # (where the line integral, the engine's default for these designs at c0 = 0, returns a value that is not finite,
         # the inversion on paths: case DK at c = 0 gives NaN at x = -7.8125 and below x = 1e-150 on the positive side)
         nf = [ib[k] for k in eachindex(ib) if !isfinite(Fq[ib[k]])]

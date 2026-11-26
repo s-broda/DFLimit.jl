@@ -640,7 +640,8 @@ returned), `trend(0)` (seasonal dummies) or `trend(1)` (seasonal dummies and sea
 
 The inversion on the line Re u = 0 of the transform E exp(uL + tV) = 1/D(0, u, t), with the kernel int_0^inf v^2 cos(q y v)
 e^{-t v^2} dv in closed form: a double integral over Im u and Im t on a grid of the transform built once per design and c
-(about 0.3 s, cached) and then a few ms a value.  verified = true: a second grid with another tau and a shorter range, a
+(cached; 20 to 35 ms with the closed forms without seasonal terms and with seasonal dummies at the unit root, 0.7 to 3.4 s
+otherwise on four threads) and then a few ms a value.  verified = true: a second grid with another tau and a shorter range, a
 warning where the two differ by more than vtol (the first is returned).
 
     hegy_t4_cdf(trend(0), [2.3193])        # 0.975

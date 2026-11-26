@@ -89,4 +89,9 @@ convolution (t3^2 + chi^2_1)/2 for F to 1e-11; the moments of the densities of t
 to its eight decimals; the critical values and powers of the prototype's table (checked there against simulations of the
 regression) are reproduced to their four.
 
-@@TIMINGS@@
+Times on warm calls (four threads of an M4 laptop, November 26, 2026, measured while another job shared the machine):
+t3 0.04 to 0.06 ms a value on a cached contour and its 5% quantile in 0.2 to 0.5 ms; the grid of the transform 20 ms
+without seasonal terms and 33 ms with seasonal dummies at the unit root (the closed forms), 0.7 to 3.4 s with the general
+transform (seasonal trends, or c != 0), cached; on a cached grid t4 3 to 5 ms and F 20 to 40 ms a value. That is 1.2 to
+7.5 times faster than the prototype: half its grid points at the same accuracy, and the sums over the grid on the
+threads.
