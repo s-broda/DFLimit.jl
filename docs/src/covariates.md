@@ -48,7 +48,32 @@ regression (`gls` and `detrend_first` raise an `ArgumentError`, as does a volati
 
 ## Examples
 
-@@EXAMPLES@@
+```julia
+julia> ltratio_icdf([0.01, 0.05, 0.1], "DU"; rho = sqrt(0.5))     # Hansen's test with an intercept, rho^2 = 0.5
+3-element Vector{Float64}:
+ -3.2062789931174214
+ -2.5867469344813205
+ -2.2575791153746296
+
+julia> c0 = cadf_c0(-5, sqrt(0.5))                  # the local null value at c = -5 (R = rho)
+4.999999999999998
+
+julia> ltratio_cdf(-2.58675, "DU", -5; rho = sqrt(0.5), c0)       # the power of the 5% test at c = -5
+0.36828922771661277
+
+julia> 1 - ltratio_cdf(1.6448536269514722, "DU", 0; rho = -0.95, c0 = predictive_c0(0, -0.95))
+0.42125879087918017
+
+julia> ltratio_icdf(0.95, "DU", -5; rho = -0.95, c0 = predictive_c0(-5, -0.95))
+2.3775199949214865
+
+julia> 1 - ltratio_cdf(1.645, "DU", -5; rho = -0.95, c0 = predictive_c0(-5, -0.95, 10))
+0.9987165058779714
+```
+
+The last three lines are the predictive regression with rho = -0.95: the size of the right-tailed t-test at the normal
+5% value when the regressor has a unit root (the companion paper's 0.4213), the exact 95% point of the null limit at c =
+-5 (2.378), and the power against the local alternative b = 10 at the normal value.
 
 ## Accuracy and cost
 

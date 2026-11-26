@@ -362,6 +362,40 @@ inversion by 2e-8 at the 99.9% point with a = 2, which no third computation sett
 Times are warm BenchmarkTools minima on four threads of a shared Apple M4 (November 2026, `scratch/int` of the branch
 kan-integration), against `method = :engine` in the same session.
 
+## Extensions of the limit
+
+Three extensions, computed by the general engine on its own machinery (the outer contour of a transform, the inner
+integrals around the roots, the rules of one evaluation, the checked computation), each with a page of the documentation:
+
+| call | computes |
+|---|---|
+| `ltratio_cdf(x, cas, c; vol)`, `ltratio_pdf`, `ltratio_icdf`, `dist_cdf(D, xs, c; vol)`, `dist_pdf`, `dist_quantile` | the t-ratio when the innovation standard deviation, and with c a vector of one value per regime the local-to-unity parameter, is piecewise constant between known dates: `vol = volpath(breaks, omega)` |
+| the same functions with `rho` and `c0`; `cadf_c0(c, rho, R)`, `predictive_c0(c, rho, b)` | rho tau_{c0} + sqrt(1 - rho^2) Z (Z standard normal and independent): the limit of the covariate-augmented t-ratio of Hansen (1995) and of the t-ratio of the slope in a predictive regression with a regressor local to unity |
+| `hegy_t3_cdf(D, xs, c; c0, vol)`, `hegy_t3_pdf`, `hegy_t3_quantile`, `hegy_t4_cdf`, `hegy_t4_pdf`, `hegy_t4_quantile`, `hegy_f_cdf`, `hegy_f_quantile` | the two t-ratios and the F statistic of the regression of Hylleberg, Engle, Granger and Yoo at a harmonic frequency (a pair of complex unit roots) |
+
+A volatility path covers any design with a zero start, least squares detrending and c <= 0; the volatility transform is
+the engine's with a diagonal tilt at the regime boundaries, so the outer contour, the inner integrals and the rules are
+the engine's. With rho the default computation is the inversion on two lines with the normal component in the kernel
+(`method = :lines`), the normal average of the t-ratio's distribution function (`method = :mixture`) near |rho| = 1, with a
+fixed start and above the unit root; rho = 1 is the t-ratio itself, a negative rho its reflection. The first seasonal
+t-ratio, of Dickey-Fuller shape, is a single integral of residues over the engine's outer contour for any design; the
+second and the F statistic are double integrals on lines for the polynomial seasonal trends (none, seasonal dummies,
+seasonal dummies and seasonal trends; without seasonal terms the second t-ratio is exactly standard normal). The values
+of the three prototypes (in the repository df-deterministics), checked there against simulations of the regressions,
+independent quadrature and published tables, are reproduced to their printed digits, and so is the companion paper's
+table of the sizes of the predictive regression's t-tests.
+
+```julia
+julia> ltratio_cdf(-2.8615688636519616, "DU"; vol = volpath([0.1], [1.0, 3.0]))   # the size of the 5% test, variance tripling at 0.1
+0.02278491904449314
+
+julia> ltratio_icdf(0.05, "DU"; rho = sqrt(0.5))     # the 5% value of Hansen's covariate-augmented test, rho^2 = 0.5
+-2.5867469344813205
+
+julia> hegy_f_quantile(trend(0), 0.95)                # the 5% value of the F statistic with seasonal dummies
+6.64548083810789
+```
+
 ## Example
 
 ```julia

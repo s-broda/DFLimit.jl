@@ -1,7 +1,8 @@
 # The statistics of a pair of complex unit roots at a harmonic frequency (src/DFDet_seas.jl).  t3: the sum of the residues
 # against the engine's inversion on paths of the doubled transform, the exponential law without deterministic terms, the
-# elementary form at the unit root (spherical Bessel functions), the moments of Nabeya (2001, Table 1); the transform of
-# (R, L, V) against its closed forms (no terms; seasonal dummies at the unit root; Nabeya's Theorems 8 and 9) and against
+# elementary form at the unit root (spherical Bessel functions), the moments in the table of Nabeya (2001); the transform of
+# (R, L, V) against its closed forms (no terms; seasonal dummies at the unit root; Nabeya's transforms with seasonal dummies
+# and with seasonal trends) and against
 # the engine's determinant at u = 0; t4 and F against the normal law and the convolution (t3^2 + chi^2_1)/2 without
 # deterministic terms; the reference values of the prototype (df-deterministics, extensions/seasonal, table.txt: critical
 # values and powers at four decimals); compositions with a volatility path; argument errors and type stability.
@@ -84,7 +85,7 @@ end
         # far from the unit root, and the checked computation
         @test maximum(abs, hegy_t3_cdf(trend(0), xs, -50.0; verified = true) .- hegy_t3_cdf(trend(0), xs, -50.0)) < 1e-11
     end
-    @testset "t3: the moments of Nabeya (2001, Table 1) from the density" begin
+    @testset "the moments of Nabeya (2001) from the densities" begin
         # (seasonal dummies: mean and standard deviation of t3, the standard deviation of t4, at eight decimals)
         z, w = DD.glrule(400)
         q = -12 .+ 24 .* z; f = hegy_t3_pdf(trend(0), q)
@@ -116,7 +117,8 @@ end
             (p >= 0 && c == 0) && @test abs(f - DD.seas_dval(SM, -s, u, t)) < 1e-11 * abs(f)     # even in s at the unit root
             u == 0 && @test abs(f / DD.Dval(DD.prep(trend(p)), c, s, t) - 1) < 1e-11
         end
-        # at u = 0 the engine's determinant for designs with breaks; the closed forms of Nabeya (2001, Theorems 8, 9)
+        # at u = 0 the engine's determinant for designs with breaks; Nabeya's (2001) closed forms with seasonal dummies and
+        # with seasonal trends
         for D in (perron(:A, 0.4), perron(:C, 0.6)), (s, t) in ((0.3, 0.5), (0.2 + 1.0im, 0.4 + 2.0im))
             @test abs(DD.seas_dval(DD.SeasModel(DD.prep(D)), s, 0.0, t; c = -2.0) / DD.Dval(DD.prep(D), -2.0, s, t) - 1) < 1e-11
         end

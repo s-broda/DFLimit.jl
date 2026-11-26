@@ -45,6 +45,13 @@ in MATLAB and, all but the boundary type `"fun"` of `ltratio_region`, in R and P
 | `power_envelope(c, cas = "DK"; alpha)` | the asymptotic power envelope of Elliott, Rothenberg and Stock (1996), case DK (= DU) or DG |
 | `ltratio_bisect(f, lo, hi, tol = 1e-9)` | bisection, as used by `power_envelope` |
 
+Three extensions of the limit are computed by the general engine: the t-ratio under volatility and persistence regimes
+between known dates (the keyword `vol`, [Volatility and persistence regimes](@ref)), a normal component, which is the
+limit of the covariate-augmented t-ratio and of the t-ratio of the slope in a predictive regression (the keyword `rho`,
+[A normal component: covariates and the predictive regression](@ref)), and the two t-ratios and the F statistic of a pair
+of complex unit roots at a harmonic frequency (`hegy_t3_cdf`, `hegy_t4_cdf`, `hegy_f_cdf`, ..., [Seasonal unit
+roots](@ref)).
+
 The case codes, the representations and the options are described in [Case codes and arguments](@ref), the two engines
 and the choice between them in [Two engines](@ref), the statistics other than the t-ratio in
 [Statistics beyond the t-ratio](@ref), and every function in the [API reference](@ref).

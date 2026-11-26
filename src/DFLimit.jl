@@ -16,6 +16,11 @@ reached as `DFLimit.DFExact.cdf` and so on.  The engine is multithreaded: start 
 The general engine, that of the lead paper (any piecewise smooth deterministic terms), is the module `DFLimit.DFDet`
 (the file `src/DFDet.jl`); the classical functions take its designs (`trend`, `perron`, `fdesign`, ...) in place of the
 case, and `DFLimit.autoengine` chooses the engine of every call (`src/merged.jl`; the README, "Two engines").
+
+Three extensions of the limit, computed by the general engine: volatility and persistence regimes (`volpath` and the
+keyword `vol` of the t-ratio functions), a normal component (the keyword `rho`: the covariate-augmented t-ratio, the
+predictive regression; `cadf_c0`, `predictive_c0`) and seasonal unit roots at a harmonic frequency (`hegy_t3_cdf`,
+`hegy_t4_cdf`, `hegy_f_cdf` and their densities and quantiles).
 """
 module DFLimit
 

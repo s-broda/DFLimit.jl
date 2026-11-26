@@ -49,7 +49,33 @@ tau and a shorter range.
 
 ## Examples
 
-@@EXAMPLES@@
+```julia
+julia> hegy_t3_quantile(trend(0), [0.01, 0.05, 0.1])        # t3 with seasonal dummies
+3-element Vector{Float64}:
+ -3.9088938821313146
+ -3.3442470388202103
+ -3.0477235222336314
+
+julia> hegy_t4_quantile(trend(0), [0.95, 0.975])            # t4 with seasonal dummies
+2-element Vector{Float64}:
+ 1.9603338454278663
+ 2.3193380115009394
+
+julia> hegy_f_quantile(trend(0), 0.95)                      # F with seasonal dummies
+6.64548083810789
+
+julia> hegy_t3_cdf(trend(0), [-3.3442], -5.0)               # the local power of the 5% t3 test at c = -5
+1-element Vector{Float64}:
+ 0.20176667884727695
+
+julia> hegy_t4_cdf(trend(-1), [1.959963984540054])          # without seasonal terms t4 is standard normal
+1-element Vector{Float64}:
+ 0.975
+
+julia> hegy_t3_cdf(trend(0), [-3.3442]; vol = volpath([0.5], [1.0, 3.0]))   # its size under a variance break
+1-element Vector{Float64}:
+ 0.027813961380253382
+```
 
 ## Accuracy and cost
 

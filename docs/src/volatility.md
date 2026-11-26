@@ -44,7 +44,30 @@ transform). `verified = true` is the engine's checked computation, with the vari
 
 ## Examples
 
-@@EXAMPLES@@
+```julia
+julia> V = volpath([0.1], [1.0, 3.0])               # the standard deviation triples after a tenth of the sample
+volpath([0.1], [0.349215, 1.04765])
+
+julia> cv = ltratio_icdf(0.05, "DU")                # the 5% critical value at a constant variance
+-2.8615688636519616
+
+julia> ltratio_cdf(cv, "DU"; vol = V)               # the size of that test under the variance break
+0.02278491904449314
+
+julia> ltratio_icdf(0.05, "DU"; vol = V)            # the 5% critical value under the break
+-2.579981541980405
+
+julia> ltratio_cdf(cv, "DU", [0.0, -20.0]; vol = volpath([0.5]))   # power when c falls from 0 to -20 at mid-sample
+0.13186507163798253
+
+julia> dist_quantile(perron(:C, 0.4), [0.01, 0.05], -5.0; vol = volpath([0.6], [3.0, 1.0]))
+2-element Vector{Float64}:
+ -5.272473428374128
+ -4.674747457616461
+```
+
+The last line is a break in level and slope at 0.4 with the standard deviation falling to a third at 0.6, under the local
+alternative c = -5.
 
 ## Accuracy and cost
 

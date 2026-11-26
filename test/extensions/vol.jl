@@ -2,7 +2,7 @@
 # against the product of the transfer matrices of the regimes without deterministic terms and against the finite-sample
 # moment generating function of the regression; the distribution function against the engine's with one regime and with a
 # dummy boundary; the reference values of the prototype (df-deterministics, extensions/volatility, CHECKS.md: the table
-# of the note at eight decimals, the quantiles of its simulation section at four, the power under changing persistence);
+# of the note at eight decimals, the quantiles of its simulations at four, the power under changing persistence);
 # the checked computation, the density against the distribution function, argument errors and type stability.
 using DFLimit, Test, LinearAlgebra, Logging
 const DD = DFLimit.DFDet
@@ -85,7 +85,7 @@ const V3 = volpath([0.2, 0.7], [2.0, 1.0, 0.5]); const C3 = [-3.0, 0.0, -10.0]
             @test abs((4 * (2m4 - m2) - (2m2 - m1)) / 3 - ex) < 2e-5
         end
     end
-    @testset "the reversal at the unit root (CHECKS.md, section 5)" begin
+    @testset "the reversal at the unit root" begin
         # D is not even in s under a variance break; the reversed design with the reversed path has D(-s, t) = D(s, t)
         VM = DD.vol_model(trend(0), V2, [0.0, 0.0]); VR = DD.vol_model(trend(0), volpath([0.7], [3.0, 1.0]), [0.0, 0.0])
         @test abs(DD.vol_dval(VM, 0.5, -2.0) - 1.6815863197) < 1e-9
