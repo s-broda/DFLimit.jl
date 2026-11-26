@@ -33,6 +33,38 @@
   of the peak; a linear trend with a fixed start at c = 7 by 8.7e-5 in F), without a warning; `dist_cdf`, `dist_pdf` and
   `dist_quantile` (and the classical functions with such a design) now warn there where the paths compute
   (`DFDet.far_above_warn`; `verified = true` checks the values).
+- **Three extensions of the limit** (the general engine; pages "Extensions of the limit" of the documentation). The
+  keyword `vol = volpath(breaks, omega)` of `ltratio_cdf`, `ltratio_pdf`, `ltratio_icdf`, `dist_cdf`, `dist_pdf`,
+  `dist_quantile`: the innovation standard deviation, and with c a vector of one value per regime the local-to-unity
+  parameter, piecewise constant between known dates (any design, zero start, least squares detrending, c <= 0;
+  `src/DFDet_vol.jl`). The keyword `rho` of the same functions: the limit rho tau_{c0} + sqrt(1 - rho^2) Z of the
+  covariate-augmented t-ratio of Hansen (1995) and of the t-ratio of the slope in a predictive regression, with the local
+  null values `cadf_c0(c, rho, R)` and `predictive_c0(c, rho, b)` (the inversion on two lines with the normal component in
+  the kernel, or the normal average of the t-ratio's distribution function; `src/DFDet_cov.jl`). The functions
+  `hegy_t3_cdf`, `hegy_t3_pdf`, `hegy_t3_quantile`, `hegy_t4_cdf`, `hegy_t4_pdf`, `hegy_t4_quantile`, `hegy_f_cdf`,
+  `hegy_f_quantile`: the two t-ratios and the F statistic of the regression of Hylleberg, Engle, Granger and Yoo at a
+  harmonic frequency (the first for any design and with a volatility path, the others for the polynomial seasonal
+  trends; `src/DFDet_seas.jl`). They reproduce the values of the prototypes of the repository df-deterministics and the
+  companion paper's table of the predictive regression to their printed digits (`test/extensions/`); the reference
+  values for the ports are `test/ref/ext_ref.txt` (`dev/ext_ref.jl`).
+- **The engine's outer contour for any transform.** The path builder of the general engine (`cpath`, `rootpath_sparse`,
+  `linecpath`, `fixed_phi`) takes a transform model (`DFDet.TransformModel`: the engine's `Model` or the volatility
+  model), `verify_eval` the variant contours of the model, `eigtop` a covariance kernel. The hyperbola is now steepened
+  while either group of roots leaves its side of the imaginary axis (before, the positive group only): the volatility
+  transform needs it, and for the engine's designs, where the negative group stays left of the origin, nothing changes.
+- **The rule of the engines and the extensions together** (the merge of the branches `engine-rules` and `extensions`).
+  The calls with `vol` or `rho` != 1 take the general engine whatever `autoengine` says (`engine = :classical` refuses
+  them), except `rho = -1` for a classical case, the t-ratio's own law at -x, which now takes the engine of the rule.
+  Inside the general engine the normal average of `rho` takes `method = :auto` of each call of the distribution
+  function (the line integral at c0 = 0, also the paths above the unit root where they are the faster, the line integral
+  at the points x < 0 with c0 > 0 on the vertical line). Each of the general engine's warnings of a brittle computation
+  (far above the unit root; the vertical line's parts at a root; the rounding estimate; the end of the outer contour)
+  now comes at most once per call (`DFDet.once_per_call`): the normal average, which evaluates the t-ratio at hundreds
+  of points and once per step of its quantile search, and the quantiles of a vector of probabilities warned once per
+  evaluation. The warning far above the unit root now also comes where the line integral of c0 > 0 on the vertical line
+  leaves the points x >= 0 to the paths (it did not). The steepening of the outer contour while either group of roots
+  leaves its side of the imaginary axis changes no path of the engine's own designs (checked on 464 configurations:
+  ten designs, zero, fixed and stationary starts and GLS detrending, c from -480 to 14).
 - **Timings re-measured for 0.5.0** (November 26, 2026, four threads, an M4 laptop on battery power): the table
   "Which engine" of the README from a new run of `dev/engine_table.jl` (`dev/engine_table.txt`; five minutes, it was
   half an hour). The general engine's paths take about half the time they took when the rule `autoengine` was set,

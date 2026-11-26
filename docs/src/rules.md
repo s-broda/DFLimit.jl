@@ -32,7 +32,10 @@ to 9e-8 of the peak of the density between them near the unit root (case DK at c
 nodes do not. Far from the unit root the reference is not the more accurate: in case DK at c = -60, c0 = 2 the present
 rule is within 1.7e-10 of the classical engine's checked computation, the reference 6.7e-10. On the line with c0 > 0 at
 x < 0 (two roots of the parabola) the line keeps its Gauss-Legendre rule and its warning, and the present rule is off by
-up to 2.7e-5 there (case DK at c = 5, c0 = 2), as is the thin one.
+up to 2.7e-5 there (case DK at c = 5, c0 = 2), as is the thin one; `method = :auto` takes the line integral at these
+points where it covers the design (`DFDet.line_vline`). The extensions take the same rules: the volatility transform
+that of `path_region` for the zero-start model of its design at the smallest c of its regimes, the normal average of
+`rho` that of each of its calls of the distribution function.
 
 The classical engine's contour integral (a fixed start in cases DU, DT; `DFExact.ctr_rule`, keyword `rule` of
 `tr_contour`) takes, for one evaluation, 32 nodes per panel and ray of the U-shapes for 64 and the outer step 1.5 times

@@ -361,6 +361,9 @@ function line_dist(method::Symbol, D::Determ, xs::AbstractVector, c::Real, which
     # (the paths at the points the line integral leaves to them, by the rule of one evaluation; with verified = true, the
     # check below, by the present rule)
     function paths(xp)
+        # (the warning far above the unit root where the paths compute: the points x >= 0 of `line_vline`, the points beyond
+        # the line integral's bounds; not for the check of verified = true)
+        verified || far_above_warn(fn, D, c, start, gamma0, gls)
         Mo = startmodel(D, c, start, gamma0, gls)
         hf, n, nt, rl = path_rule(rule, verified, Mo, c, c0, hfac, kw)
         CP = rule_path(Mo, c, phi, hf, rl, c0)

@@ -78,6 +78,7 @@ below, except case DG, which the line integral does not cover) and its paths abo
 | regions otherwise: the line, the parabola with c0 != 0 or above the unit root, the WAP boundary and a function g | classical | 1.1 to 1.5 | 1.9 to 3.3 | 1e-12 | 3.1 times faster for the line, 1.3 to 2.6 times for the parabola with c0 != 0; the classical engine is the only one for the WAP boundary and a function g |
 | above the range of the general engine (c > 16 with deterministic terms, c > 10 with them and a fixed start, c > 20 without) | classical | | | | the general engine refuses there |
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
+| the extensions of the limit (the keywords `vol` and `rho` != 1), any design | general; `rho = -1` for a classical case by the rule at -x | | | | the classical engine refuses them; `rho = -1` is the t-ratio's own law reflected, which the rule's cells cover; the normal average of 0 < \|rho\| < 1 calls the general engine's distribution function at all its points in one call, which shares the outer contour over them (the rule's cells were measured on five points) |
 
 Where the classical engine computes, its values are those of 0.5.0 bit for bit; where the rule takes the general engine
 for a case string, the values move within the differences above (in the cells moved on November 26, 2026 within 1e-7). The borders were swept: the stationary start at c =

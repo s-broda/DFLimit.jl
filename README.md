@@ -128,7 +128,10 @@ raises an `ArgumentError` that names the statistic, c and the bound; the rule ta
 the unit root, for c > 5.5, the inversion on paths by one evaluation may be off by more than 1e-5 in the upper tail for
 a design beyond the classical cases and for a fixed start with deterministic terms (Perron's model C at c = 7 by 1.5e-5
 in F, a linear trend with a fixed start at c = 7 by 8.7e-5), and the general engine warns there (`verified = true`
-checks it).
+checks it). Each of the general engine's warnings of a brittle computation (this one, the vertical line's parts at a root
+of the parabola, the rounding estimate and the end of the outer contour) comes at most once per call, also where the call
+evaluates many times (the steps of a quantile search, the quantiles of a vector of probabilities, the normal average of
+`rho`; `DFDet.once_per_call`).
 
 The general engine's own functions are exported as well: `dist_cdf(D, xs, c; c0, start, gamma0, gls, method)`, `dist_pdf`,
 `dist_quantile`, `dist_moments`, `coef_pdf`, `coef_quantile`, `coef_cdf_gp`, `lin_cdf`, `lin_pdf`, `lin_quantile`,
@@ -222,6 +225,7 @@ below, except case DG, which the line integral does not cover) and its paths abo
 | regions otherwise: the line, the parabola with c0 != 0 or above the unit root, the WAP boundary and a function g | classical | 1.1 to 1.5 | 1.9 to 3.3 | 1e-12 | 3.1 times faster for the line, 1.3 to 2.6 times for the parabola with c0 != 0; the classical engine is the only one for the WAP boundary and a function g |
 | above the range of the general engine (c > 16 with deterministic terms, c > 10 with them and a fixed start, c > 20 without) | classical | | | | the general engine refuses there |
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
+| the extensions of the limit (the keywords `vol` and `rho` != 1), any design | general; `rho = -1` for a classical case by the rule at -x | | | | the classical engine refuses them; `rho = -1` is the t-ratio's own law reflected, which the rule's cells cover; the normal average of 0 < \|rho\| < 1 calls the general engine's distribution function at all its points in one call, which shares the outer contour over them (the rule's cells were measured on five points) |
 
 Where the classical engine computes, its values are those of 0.5.0 bit for bit; where the rule takes the general engine
 for a case string, the values move within the differences above (in the cells moved on November 26, 2026 within 1e-7). The borders were swept: the stationary start at c =
@@ -287,7 +291,10 @@ to 9e-8 of the peak of the density between them near the unit root (case DK at c
 nodes do not. Far from the unit root the reference is not the more accurate: in case DK at c = -60, c0 = 2 the present
 rule is within 1.7e-10 of the classical engine's checked computation, the reference 6.7e-10. On the line with c0 > 0 at
 x < 0 (two roots of the parabola) the line keeps its Gauss-Legendre rule and its warning, and the present rule is off by
-up to 2.7e-5 there (case DK at c = 5, c0 = 2), as is the thin one.
+up to 2.7e-5 there (case DK at c = 5, c0 = 2), as is the thin one; `method = :auto` takes the line integral at these
+points where it covers the design (`DFDet.line_vline`). The extensions take the same rules: the volatility transform
+that of `path_region` for the zero-start model of its design at the smallest c of its regimes, the normal average of
+`rho` that of each of its calls of the distribution function.
 
 The classical engine's contour integral (a fixed start in cases DU, DT; `DFExact.ctr_rule`, keyword `rule` of
 `tr_contour`) takes, for one evaluation, 32 nodes per panel and ray of the U-shapes for 64 and the outer step 1.5 times
@@ -379,6 +386,47 @@ away) the linear form stays with the engines' closed form; at c = 7 in case DK t
 inversion by 2e-8 at the 99.9% point with a = 2, which no third computation settled, so the default there is unchanged.
 Times are warm BenchmarkTools minima on four threads of a shared Apple M4 (November 2026, `scratch/int` of the branch
 kan-integration), against `method = :engine` in the same session.
+
+## Extensions of the limit
+
+Three extensions, computed by the general engine on its own machinery (the outer contour of a transform, the inner
+integrals around the roots, the rules of one evaluation, the checked computation), each with a page of the documentation:
+
+| call | computes |
+|---|---|
+| `ltratio_cdf(x, cas, c; vol)`, `ltratio_pdf`, `ltratio_icdf`, `dist_cdf(D, xs, c; vol)`, `dist_pdf`, `dist_quantile` | the t-ratio when the innovation standard deviation, and with c a vector of one value per regime the local-to-unity parameter, is piecewise constant between known dates: `vol = volpath(breaks, omega)` |
+| the same functions with `rho` and `c0`; `cadf_c0(c, rho, R)`, `predictive_c0(c, rho, b)` | rho tau_{c0} + sqrt(1 - rho^2) Z (Z standard normal and independent): the limit of the covariate-augmented t-ratio of Hansen (1995) and of the t-ratio of the slope in a predictive regression with a regressor local to unity |
+| `hegy_t3_cdf(D, xs, c; c0, vol)`, `hegy_t3_pdf`, `hegy_t3_quantile`, `hegy_t4_cdf`, `hegy_t4_pdf`, `hegy_t4_quantile`, `hegy_f_cdf`, `hegy_f_quantile` | the two t-ratios and the F statistic of the regression of Hylleberg, Engle, Granger and Yoo at a harmonic frequency (a pair of complex unit roots) |
+
+A volatility path covers any design with a zero start, least squares detrending and c <= 0; the volatility transform is
+the engine's with a diagonal tilt at the regime boundaries, so the outer contour, the inner integrals and the rules are
+the engine's. With rho the default computation is the inversion on two lines with the normal component in the kernel
+(`method = :lines`), the normal average of the t-ratio's distribution function (`method = :mixture`) near |rho| = 1, with a
+fixed start and above the unit root; rho = 1 is the t-ratio itself, a negative rho its reflection. The extensions take the
+general engine whatever the rule `autoengine` (`engine = :classical` refuses them), except `rho = -1` for a classical
+case, which is the t-ratio at -x by the rule; inside the general engine the normal average's distribution function takes
+the engine's `method = :auto` (the line integral at c0 = 0 where it covers the design, the paths at c0 != 0, the line
+integral at the points x < 0 with c0 > 0 on the vertical line). The outer contour is steepened while either group of
+roots leaves its side of the imaginary axis (the volatility transform needs it); for the engine's designs this changes
+no path (464 configurations of ten designs with zero, fixed, stationary starts and GLS detrending, c from -480 to 14,
+`scratch/next/contour_scan.jl` of the branch next). The first seasonal
+t-ratio, of Dickey-Fuller shape, is a single integral of residues over the engine's outer contour for any design; the
+second and the F statistic are double integrals on lines for the polynomial seasonal trends (none, seasonal dummies,
+seasonal dummies and seasonal trends; without seasonal terms the second t-ratio is exactly standard normal). The values
+of the three prototypes (in the repository df-deterministics), checked there against simulations of the regressions,
+independent quadrature and published tables, are reproduced to their printed digits, and so is the companion paper's
+table of the sizes of the predictive regression's t-tests.
+
+```julia
+julia> ltratio_cdf(-2.8615688636519616, "DU"; vol = volpath([0.1], [1.0, 3.0]))   # the size of the 5% test, variance tripling at 0.1
+0.02278491904449314
+
+julia> ltratio_icdf(0.05, "DU"; rho = sqrt(0.5))     # the 5% value of Hansen's covariate-augmented test, rho^2 = 0.5
+-2.5867469344813205
+
+julia> hegy_f_quantile(trend(0), 0.95)                # the 5% value of the F statistic with seasonal dummies
+6.64548083810789
+```
 
 ## Example
 

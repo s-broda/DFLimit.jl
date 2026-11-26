@@ -53,7 +53,10 @@ raises an `ArgumentError` that names the statistic, c and the bound; the rule ta
 the unit root, for c > 5.5, the inversion on paths by one evaluation may be off by more than 1e-5 in the upper tail for
 a design beyond the classical cases and for a fixed start with deterministic terms (Perron's model C at c = 7 by 1.5e-5
 in F, a linear trend with a fixed start at c = 7 by 8.7e-5), and the general engine warns there (`verified = true`
-checks it).
+checks it). Each of the general engine's warnings of a brittle computation (this one, the vertical line's parts at a root
+of the parabola, the rounding estimate and the end of the outer contour) comes at most once per call, also where the call
+evaluates many times (the steps of a quantile search, the quantiles of a vector of probabilities, the normal average of
+`rho`; `DFDet.once_per_call`).
 
 The general engine's own functions are exported as well: `dist_cdf(D, xs, c; c0, start, gamma0, gls, method)`, `dist_pdf`,
 `dist_quantile`, `dist_moments`, `coef_pdf`, `coef_quantile`, `coef_cdf_gp`, `lin_cdf`, `lin_pdf`, `lin_quantile`,

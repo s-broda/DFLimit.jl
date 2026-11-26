@@ -2247,12 +2247,22 @@ user-level functions: :auto (the default: DFLimit.autoengine decides, after this
 this engine computes, the values are those of the engine before the merge, bit for bit.
 """
 const ROUTE = Ref{Any}(nothing)
-"""engine = :auto and :general only; nothing (this engine) with :classical or without a router"""
+"""engine = :auto and :general only; nothing (this engine) with :classical or without a router.  The keywords of the
+extensions of the limit (vol, a volatility path; rho, a normal component), which the general engine computes, go to the
+router with any engine but :classical, which refuses them."""
 function route(f::Symbol, engine::Symbol, args...; kw...)
     engine in (:auto, :classical, :general) || throw(ArgumentError("engine must be :auto, :classical or :general"))
+    if ext_keywords(kw)
+        engine === :classical && throw(ArgumentError("engine = :classical: the extensions of the limit (the keywords vol and rho) are computed by the general engine"))
+        ROUTE[] === nothing && throw(ArgumentError("the extensions of the limit (the keywords vol and rho) need the package DFLimit"))
+    end
     (engine === :classical || ROUTE[] === nothing) && return nothing
     ROUTE[](f, engine, args...; kw...)
 end
+"""whether the keywords kw hold an extension of the limit (a volatility path vol, or rho != 1)"""
+ext_keywords(kw) = (haskey(kw, :vol) && kw[:vol] !== nothing) || (haskey(kw, :rho) && kw[:rho] != 1)
+"""kw without the keywords of the extensions at their defaults (vol = nothing, rho = 1), which this engine does not take"""
+ext_strip(kw) = (; (p for p in pairs(kw) if !((first(p) === :vol && last(p) === nothing) || (first(p) === :rho && last(p) == 1)))...)
 """
 The single inversion of Bao and Kan ("Exact Finite-Sample Distribution and Moments of the Least Squares Estimator in
 First-Order Autoregressions: O(1) Algorithms"; the module DFLimit.DFKan) for the statistics that reject on a half-plane
@@ -2308,7 +2318,8 @@ function ltratio_dist(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0
 end
 function ltratio_dist_(kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, verified::Bool = false,
                        engine::Symbol = :auto, kw...)
-    engine === :general && return route(:dist, engine, kind, x, cas, c; c0, g0, method, verified, kw...)
+    (engine === :general || ext_keywords(kw)) && return route(:dist, engine, kind, x, cas, c; c0, g0, method, verified, kw...)
+    kw = ext_strip(kw)
     model, stat, c0, g0, method = ltratio_args(cas, c; c0, g0, method)
     r = route(:dist, engine, kind, x, cas, c; c0, g0, method, verified, kw...); r === nothing || return r
     start = stat ? :stationary : :zero
@@ -2509,6 +2520,14 @@ the parabola X(v) lies far out, and large x above the unit root; see `path_error
 evaluating it: method = :auto then takes the conditional integral there (`route_double`), method = :single raises an
 ArgumentError that names the arguments (also case DG, which has the line integral only).
 
+Two extensions of the limit, computed by the general engine (`DFLimit.DFDet.dist_cdf`; engine = :classical refuses them):
+`vol = volpath(breaks, omega)`, the innovation standard deviation piecewise constant between known dates, and with c a
+vector of one value per regime the local-to-unity parameter as well (zero start, every c <= 0; method :auto or :paths);
+`rho` (default 1), the limit rho tau_{c0} + sqrt(1 - rho^2) Z with Z standard normal and independent, which is the limit
+of the covariate-augmented t-ratio of Hansen (1995) at c0 = `cadf_c0(c, rho, R)` and of the t-ratio of the slope in a
+predictive regression with a regressor local to unity at c0 = `predictive_c0(c, rho, b)` (rho in [-1, 1]; method :auto,
+:lines or :mixture).
+
     ltratio_cdf(-2.86, "DU")                        # P[tau_mu <= -2.86] at the unit root
     ltratio_cdf(-1.94087, "DK", -5)                 # power of the 5% test of tau at c = -5
     ltratio_cdf(-3.41, "ST", -10)                   # trend case, stationary start
@@ -2529,12 +2548,14 @@ ltratio_pdf(x, cas::AbstractString, c::Real = 0; kw...) = ltratio_dist(1, x, cas
 The limit of the p-quantile of the t-ratio, p in (0, 1) (an array), by Newton's method on `ltratio_cdf` with `ltratio_pdf`
 as the derivative, safeguarded by bisection, started at the normal approximation from the first two moments (from jets, the
 method of Bao and Kan, where the package's router has them: `DFLimit.mom_start`; otherwise from the circles of this engine).
+The keywords vol and rho (and c a vector with vol) as in `ltratio_cdf`.
 
     ltratio_icdf([0.01, 0.05, 0.10], "DU")          # the asymptotic critical values of tau_mu
 """
 function ltratio_icdf(p, cas::AbstractString, c::Real = 0; tol::Real = 1e-10, c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto,
                       engine::Symbol = :auto, kw...)
-    engine === :general && return route(:icdf, engine, p, cas, c; tol, c0, g0, method, kw...)
+    (engine === :general || ext_keywords(kw)) && return route(:icdf, engine, p, cas, c; tol, c0, g0, method, kw...)
+    kw = ext_strip(kw)
     model, = ltratio_args(cas, c; c0, g0, method)
     r = route(:icdf, engine, p, cas, c; tol, c0, g0, method, kw...); r === nothing || return r
     kw = (; kw..., engine)

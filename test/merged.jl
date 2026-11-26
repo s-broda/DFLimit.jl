@@ -192,6 +192,37 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test_logs min_level = Logging.Warn ltratio_cdf(0.0, "DT", 6.0)          # (the classical engine computes)
     end
 
+    @testset "the rules and the extensions together: one warning per call, the reflection by the rule" begin
+        # (the counts of each kind of warning in a call)
+        kinds(f) = (r = Test.collect_test_logs(f; min_level = Logging.Warn)[1];
+                    (far = count(l -> occursin("far above", string(l.message)), r), line = count(l -> occursin("vertical line", string(l.message)), r), all = length(r)))
+        PC = perron(:C, 0.3); TR = fdesign(r -> [1.0, sin(2pi * r), cos(2pi * r)]; name = "trig")
+        # far above the unit root: once in a call that evaluates many times (the quantiles of a vector, their Newton steps;
+        # the normal average of rho, which calls the t-ratio's distribution function at its points), and once per call
+        @test kinds(() -> dist_quantile(PC, [0.5, 0.6], 6.0; x0 = 1.0)) == (far = 1, line = 0, all = 1)
+        @test kinds(() -> ltratio_icdf([0.5, 0.6], PC, 6.0)) == (far = 1, line = 0, all = 1)
+        @test kinds(() -> dist_cdf(PC, [0.0, 1.0], 6.0; rho = 0.995)) == (far = 1, line = 1, all = 2)
+        @test GEM.once_per_call(() -> (GEM.warn_first(:k), GEM.warn_first(:k), GEM.warn_first(:j))) == (true, false, true)
+        @test (GEM.warn_first(:k), GEM.warn_first(:k)) == (true, true)                       # (outside a call: every time)
+        # the line integral of c0 > 0 on the vertical line computes the points x < 0, the paths the others: the warning
+        # comes where the paths compute
+        @test kinds(() -> dist_cdf(TR, [-3.0, 1.0], 6.0; c0 = 2.0)) == (far = 1, line = 0, all = 1)
+        @test kinds(() -> dist_cdf(TR, [-3.0], 6.0; c0 = 2.0)) == (far = 0, line = 0, all = 0)
+        # rho = -1 for a classical case: the t-ratio's own functions at -x by the engine of the rule (here the classical
+        # engine), within 1e-10 of the general engine's reflection
+        x = [-1.0, 0.5, 2.0]
+        for (cas, c, c0) in (("DU", -10.0, -10.0), ("DK", -7.0, -3.0), ("DT", -60.0, -5.0))
+            S = spec(cas)
+            @test MD.autoengine(:dist, S, c, c0, -0.5) == :classical
+            @test ltratio_cdf(x, cas, c; rho = -1, c0) == 1 .- ltratio_cdf(-x, cas, c; c0)
+            @test ltratio_pdf(x, cas, c; rho = -1, c0) == ltratio_pdf(-x, cas, c; c0)
+            @test maximum(abs, ltratio_cdf(x, cas, c; rho = -1, c0) .- dist_cdf(S.D, x, c; rho = -1.0, c0, start = S.start)) < 1e-10
+            @test ltratio_icdf([0.05, 0.9], cas, c; rho = -1, c0) == -ltratio_icdf(1 .- [0.05, 0.9], cas, c; c0)
+        end
+        @test ltratio_cdf(x, "DU", -10; rho = -1, c0 = -10, engine = :general) == dist_cdf(trend(0), x, -10.0; rho = -1.0, c0 = -10.0)
+        @test occursin("GLS detrending", errm(() -> ltratio_cdf(x, "DG", -5; rho = -1)))     # (refused, as by the general engine)
+    end
+
     @testset "far from the unit root: the merged default against the stored values" begin
         # (test/engine/largec_ref.txt, the classical engine's values, which test_dfexact.jl holds it to 1e-10).  The moments of
         # the merged default come from the general engine at c0 = 0 and with a stationary start: within 1e-10 except with

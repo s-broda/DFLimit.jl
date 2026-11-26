@@ -534,6 +534,11 @@ end
     @test (Base.include(Module(), joinpath(@__DIR__, f)); true)
 end
 Base.include(Module(), joinpath(@__DIR__, "general", "line.jl"))   # the line integral of the general designs of rank one or two
+# the extensions of the limit: volatility and persistence regimes, a normal component (covariates, the predictive
+# regression), seasonal unit roots; and the reference values of the ports (test/ref/ext_ref.txt, dev/ext_ref.jl)
+for f in ("vol.jl", "cov.jl", "seas.jl", "ref.jl")
+    Base.include(Module(), joinpath(@__DIR__, "extensions", f))
+end
 Base.include(Module(), joinpath(@__DIR__, "kan.jl"))               # the devices of Bao and Kan (src/DFKan*.jl) and the functions that take them
 
 # The vector library of the batched sums (DFExact.vecmath): Accelerate on macOS, IntelVectorMath on x86-64 Linux and

@@ -24,6 +24,11 @@ makedocs(
             "The devices of Bao and Kan" => "devices.md",
         ],
         "Statistics beyond the t-ratio" => "statistics.md",
+        "Extensions of the limit" => [
+            "Volatility and persistence regimes" => "volatility.md",
+            "Covariates and the predictive regression" => "covariates.md",
+            "Seasonal unit roots" => "seasonal.md",
+        ],
         "API reference" => "api.md",
     ],
 )
