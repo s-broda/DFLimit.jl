@@ -3,17 +3,19 @@
 
 The exact limiting distribution of the Dickey-Fuller t-ratio: the distribution function, density, quantiles and
 moments of the limits of the Dickey-Fuller t-ratios under local alternatives, by the exact representations of Bao,
-Broda and Kan, "The Exact Limiting Distribution of the Dickey-Fuller t-Ratio and Some Related Statistics".
+Broda and Kan, "The Exact Limiting Distribution of the Dickey-Fuller t-Ratio with General Deterministic Terms" (the
+lead paper, SSRN 7745921), and, for the classical cases, of its companion paper, "Low-Rank Representations of the
+Classical Dickey-Fuller Limits, with an Extension to Predictive Regressions" (SSRN 7725619).
 
-The numbers come from the Julia engine of the paper, the module `DFLimit.DFExact` (the file `src/DFExact.jl`, with
+The classical engine, that of the companion paper, is the module `DFLimit.DFExact` (the file `src/DFExact.jl`, with
 `src/df_series.jl`); `DFLimit` re-exports its exported functions (`ltratio_cdf`,
 `ltratio_pdf`, `ltratio_icdf`, `ltratio_mom`, `adfmax_cdf`, `adfmax_pdf`, `adfmax_icdf`, `coef_cdf`, `coef_icdf`,
 `ltratio_region`, `ltratio_lincdf`, `power_envelope`, `ltratio_bisect`), and the functions it does not export are
 reached as `DFLimit.DFExact.cdf` and so on.  The engine is multithreaded: start Julia with `-t auto`.
 
-The general engine of the companion paper on general deterministic terms is the module `DFLimit.DFDet` (the file
-`src/DFDet.jl`); the classical functions take its designs (`trend`, `perron`, `fdesign`, ...) in place of the case, and
-`DFLimit.autoengine` chooses the engine of every call (`src/merged.jl`; the README, "Two engines").
+The general engine, that of the lead paper (any piecewise smooth deterministic terms), is the module `DFLimit.DFDet`
+(the file `src/DFDet.jl`); the classical functions take its designs (`trend`, `perron`, `fdesign`, ...) in place of the
+case, and `DFLimit.autoengine` chooses the engine of every call (`src/merged.jl`; the README, "Two engines").
 """
 module DFLimit
 
@@ -46,7 +48,7 @@ export Determ, trend, perron, fdesign, ltrend, design_from_matrix, detrend_first
        dist_moments, coef_pdf, coef_quantile, local_power, lin_cdf, lin_pdf, lin_quantile, v_cdf, v_pdf,
        adfmax_quantile, region_prob, simulate_tratio, simulate_gls, simulate_first, empty_caches!
 
-# the statistics of the paper on general deterministic terms: the point-optimal statistic and the envelope for any design,
+# the statistics of the lead paper (general deterministic terms): the point-optimal statistic and the envelope for any design,
 # the LM statistic, MZ_alpha and MSB (in the module DFDet, whose file stays that of df-deterministics)
 # the general engine's determinant with the branch from the pivots and the single inversion (Bao and Kan), for the
 # point-optimal statistic and coef_cdf_gp

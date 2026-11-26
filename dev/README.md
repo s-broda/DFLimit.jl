@@ -1,7 +1,7 @@
 # Development checks of the engine
 
-The engine, `src/DFExact.jl` with `src/df_series.jl`, was developed in the directory `julia/` of the paper's repository
-(DF-Limit) up to commit b484d4f; its checks came with it. The two that act as tests, `quickcheck.jl` and
+The engine, `src/DFExact.jl` with `src/df_series.jl`, was developed in the directory `julia/` of the companion paper's
+repository (DF-Limit) up to commit b484d4f; its checks came with it. The two that act as tests, `quickcheck.jl` and
 `test_dfexact.jl`, are in `test/engine/` with the stored values they read and run with `Pkg.test()`. The scripts here are
 longer checks and the writers of stored values, run by hand when the engine changes. They use the environment of this
 folder, which loads the package from the parent folder (Julia 1.11 or later, for the `[sources]` entry of

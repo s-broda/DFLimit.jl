@@ -6,23 +6,31 @@
 The exact limiting distribution of the Dickey-Fuller t-ratio in Julia.
 
 `DFLimit` computes the distribution function, density, quantiles and moments of the limits of the Dickey-Fuller
-t-ratios under local alternatives, phi = 1 + c/n, by the exact representations of
+t-ratios under local alternatives, phi = 1 + c/n, by the exact representations of two papers. The lead paper,
 
-> Bao, Y., Broda, S. A. and Kan, R., "The Exact Limiting Distribution of the Dickey-Fuller t-Ratio and Some Related
-> Statistics", working paper, 2026, available at <https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7725619>.
+> Bao, Y., Broda, S. A. and Kan, R., "The Exact Limiting Distribution of the Dickey-Fuller t-Ratio with General
+> Deterministic Terms", working paper, 2026, available at <https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7745921>,
 
-for the regression without deterministic terms, with an intercept and with an intercept and a trend; with a zero,
-a fixed or a stationary initial observation; for the t-ratio centred at the unit root or at a local null value c0;
-and for the GLS-detrended trend case of Elliott, Rothenberg and Stock (1996). It also has the ADFmax test of
+gives the inversion formula on paths around the singularities of the joint moment generating function and with it the
+limit for any piecewise smooth deterministic terms; its companion,
+
+> Bao, Y., Broda, S. A. and Kan, R., "Low-Rank Representations of the Classical Dickey-Fuller Limits, with an Extension
+> to Predictive Regressions", working paper, 2026, available at <https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7725619>,
+
+gives the representations of the classical cases, in which the numerator has rank one or two (the line integral and the
+conditional integral), and the probabilities of regions of the plane of the numerator and the denominator.
+
+The package covers the regression without deterministic terms, with an intercept and with an intercept and a trend;
+a zero, a fixed or a stationary initial observation; the t-ratio centred at the unit root or at a local null value c0;
+and the GLS-detrended trend case of Elliott, Rothenberg and Stock (1996). It also has the ADFmax test of
 Leybourne (1995), the coefficient statistic, the probabilities of regions {U <= g(V)} of the limit experiment
 (point-optimal and weighted-average-power tests), the distribution of the linear form U - aV and the asymptotic power
-envelope. A second engine, that of the companion paper on general deterministic terms (in preparation), computes the
-same quantities for any deterministic terms: polynomial trends of any order, breaks in level and slope at known dates
-(Perron's models), regressors given by functions, the statistic that detrends first and GLS detrending, and it has the
-point-optimal statistic, the power envelope and the LM statistic for any design ("Two engines" below). The numbers of
-the classical cases come from the multithreaded Julia engine of the paper, `DFExact.jl`, whose home is this package
-(`src/`); the same functions, with the same names and arguments, exist in MATLAB and, all but `ltratio_lincdf`,
-`power_envelope` and the boundary type `"fun"` of `ltratio_region`, in R.
+envelope. A second engine, that of the lead paper, computes the same quantities for any deterministic terms: polynomial
+trends of any order, breaks in level and slope at known dates (Perron's models), regressors given by functions, the
+statistic that detrends first and GLS detrending, and it has the point-optimal statistic, the power envelope and the LM
+statistic for any design ("Two engines" below). The classical engine is the multithreaded Julia engine of the companion
+paper, `DFExact.jl`, whose home is this package (`src/`); the same functions, with the same names and arguments, exist
+in MATLAB and, all but the boundary type `"fun"` of `ltratio_region`, in R and Python.
 
 | function | computes |
 |---|---|
@@ -43,8 +51,9 @@ followed by `K` (no deterministic terms, tau), `U` (intercept, tau_mu) or `T` (i
 `"DG"` is the GLS-detrended trend case (DF-GLS, cbar = -13.5); in place of the case a design of the general engine
 may be given (see "Two engines" below). `method` is `:auto` (at each point the fastest
 representation that one evaluation gives to well below 1e-5), `:single` or `:line` (the line integral representation of
-the paper), `:double` or `:conditional` (the conditional integral representation) or `:contour` (the contour integral
-representation: the inversion formula on paths around the singularities of the moment generating function, with the
+the companion paper), `:double` or `:conditional` (the conditional integral representation, also of the companion
+paper) or `:contour` (the contour integral representation: the inversion formula on paths of the lead paper, around
+the singularities of the moment generating function, with the
 integral over v in closed form and the paths in s and t deformed, a double integral with an explicit integrand; a fixed
 start in cases DU and DT only, and there the choice of `:auto`). By default (`verified = false`) every value is one
 evaluation by one method, with a warning, once per call, where the parameters lie in a regime in which one evaluation is
@@ -65,14 +74,17 @@ conditional integral `DFLimit.DFExact.tr_limdist(x, model, c; c0, g0, start, pdf
 
 ## Two engines
 
-The package holds two engines. The classical engine, `DFLimit.DFExact` (`src/DFExact.jl`), is that of the paper above:
-the line, conditional and contour integral representations for the three classical cases and case DG. The general
-engine, `DFLimit.DFDet` (`src/DFDet.jl`, the file of the repository df-deterministics, with its outer paths of the
-classical cases at the unit root in `data/paths`), computes the same limits for any deterministic terms (piecewise
-polynomial or smooth functions of r = t/n with known break dates, the statistic that detrends first, GLS detrending)
-by the inversion formula on paths around the singularities of the joint moment generating function. They stay two
-submodules, each its own file as at its home (the additions for the paper on general deterministic terms are a file of
-their own, `src/DFDet_paper2.jl`, evaluated in the module `DFDet`): the engines were written separately and share many
+The package holds two engines. The classical engine, `DFLimit.DFExact` (`src/DFExact.jl`), is that of the companion
+paper: the line and conditional integral representations for the three classical cases and case DG, and for a fixed
+start in cases DU, DT the contour integral (the inversion on paths of the lead paper, the integral over v in closed
+form). The
+general engine, `DFLimit.DFDet` (`src/DFDet.jl`, the file of the repository df-deterministics, with its outer paths of
+the classical cases at the unit root in `data/paths`), is that of the lead paper: it computes the same limits for any
+deterministic terms (piecewise polynomial or smooth functions of r = t/n with known break dates, the statistic that
+detrends first, GLS detrending) by the inversion formula on paths around the singularities of the joint moment
+generating function. They stay two submodules, each its own file as at its home (the statistics of the lead paper
+beyond the t-ratio are a file of their own, `src/DFDet_paper2.jl`, evaluated in the module `DFDet`): the engines were
+written separately and share many
 internal names, and kept apart each can be brought up to date by copying its file. The one file that knows both is
 `src/merged.jl`: the interface, the router that the classical user-level functions consult after their own checks of
 the arguments (`DFExact.ROUTE`), and the rule `DFLimit.autoengine`.
@@ -117,7 +129,7 @@ The general engine's own functions are exported as well: `dist_cdf(D, xs, c; c0,
 `dist_quantile`, `dist_moments`, `coef_pdf`, `coef_quantile`, `coef_cdf_gp`, `lin_cdf`, `lin_pdf`, `lin_quantile`,
 `v_cdf`, `v_pdf`, `adfmax_quantile`, `region_prob`, `local_power`, `simulate_tratio`, `simulate_gls`, `simulate_first`
 and the designs; its `coef_cdf`, `adfmax_cdf`, `adfmax_pdf` and `power_envelope`, whose names are the classical
-functions', are `DFLimit.DFDet.coef_cdf` and so on. The statistics of the paper on general deterministic terms are
+functions', are `DFLimit.DFDet.coef_cdf` and so on. The statistics of the lead paper beyond the t-ratio are
 functions of the general engine: the point-optimal statistic of Elliott, Rothenberg and Stock and the power envelope
 for any design (`pt_cdf(D, qs, cbar, c)`, `pt_pdf`, `pt_quantile(D, p, cbar)`, `pt_power(D, cbar, c)`,
 `pt_envelope(D, cs)`, also through `power_envelope(c, D)`; for the intercept and the linear trend it is the envelope of
@@ -379,7 +391,7 @@ julia> coef_cdf(-14.0936, "DU", -10)                  # power of the 5% coeffici
 julia> adfmax_icdf(0.05, "DU")                        # 5% critical value of ADFmax with a constant
 -2.435416499432509
 
-julia> ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK")   # size of the WAP test of the paper
+julia> ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK")   # size of the WAP test of the companion paper
 0.049999622834651807
 
 julia> power_envelope(-7)                             # the power envelope at c = -7
@@ -412,20 +424,22 @@ released, comes from the GitHub repository: `pkg> add DFLimit#main` (or
 `Pkg.develop(path = "/path/to/DFLimit.jl")`. The dependencies (SpecialFunctions, QuadGK, PrecompileTools) are
 installed with it. The first `using DFLimit` precompiles the package, which takes about half a minute: it runs a few of
 the functions once, so that their first call in a session does not wait several seconds for compilation.
-`Pkg.test("DFLimit")` runs the tests (about six minutes; they compare the values with values stored by the paper's
-code, and end with the engine's own checks in `test/engine/`). The longer checks of the engine and the scripts that
+`Pkg.test("DFLimit")` runs the tests (about six minutes; they compare the values with values stored by the companion
+paper's code, and end with the engine's own checks in `test/engine/`). The longer checks of the engine and the scripts that
 write its stored values are in `dev/` (see `dev/README.md`).
 
 ## Other implementations
 
 The same functions exist as MATLAB programs in the package dflimit-matlab, which also holds the C engine, a port of
 this engine checked against its values, with a MEX gateway for MATLAB. The R package
-[`dflimit`](https://github.com/s-broda/dflimit) and the Python package dflimit-py are built on that C engine. The paper's
-repository has the scripts that reproduce the tables and figures of the paper (`julia/replication/`, on this package).
+[`dflimit`](https://github.com/s-broda/dflimit) and the Python package dflimit-py are built on that C engine. The
+companion paper's repository has the scripts that reproduce its tables and figures (`julia/replication/`, on this
+package).
 
 ## Licence and citation
 
-MIT (see `LICENSE`). Please cite the paper when using the package.
+MIT (see `LICENSE`). Please cite the lead paper when using the package, and the companion paper as well where you use
+the representations of the classical cases (`CITATION.bib` has both).
 
-The engine in `src/DFExact.jl` and `src/df_series.jl` was developed in the directory `julia/` of the paper's repository up
-to DF-Limit commit b484d4f; this package is its home since.
+The engine in `src/DFExact.jl` and `src/df_series.jl` was developed in the directory `julia/` of the companion paper's
+repository up to DF-Limit commit b484d4f; this package is its home since.

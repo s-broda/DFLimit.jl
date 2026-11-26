@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The two papers.** The package cites the lead paper, Bao, Broda and Kan, "The Exact Limiting Distribution of the
+  Dickey-Fuller t-Ratio with General Deterministic Terms" (SSRN 7745921), the paper of the general engine and of the
+  inversion formula on paths, and, for the classical engine and its representations, its companion, "Low-Rank
+  Representations of the Classical Dickey-Fuller Limits, with an Extension to Predictive Regressions" (SSRN 7725619,
+  the posting that carried the former title "... and Some Related Statistics"): README, docstrings, `CITATION.cff`,
+  `CITATION.bib` (both entries) and `.zenodo.json`.
 - **The upper tail of the fixed start near the unit root (general engine).** The placement of the U-shape G+ of a fixed
   start (`ufixed_place`) counted the growth e^{sigma^2 x^2/(4 Re(t + c0 s))} of the v-kernels of the upper tail to the
   left of the origin above the unit root only.  In case DK near it (c = 0, -0.5) G+ went left of the origin in the upper

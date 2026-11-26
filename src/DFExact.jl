@@ -2,8 +2,9 @@
     DFExact
 
 Exact density and distribution function of the limiting Dickey–Fuller t-ratio tau = U/sqrt(V),
-Models M1–M3 with local-to-unity parameter c (zero initial value and drift), by the inversion
-formula of the paper with the s-integral done analytically: a port of df_exact2.py.
+Models M1–M3 with local-to-unity parameter c (zero initial value and drift), by the line
+integral representation of the companion paper (the inversion formula with the s-integral done analytically): a
+port of df_exact2.py.
 
     density(q, model; c = 0.0, start = :zero)   # f(q); start = :stationary for the stationary start (c < 0)
     cdf(q, model; c = 0.0, start = :zero)       # P(tau <= q)
@@ -106,7 +107,7 @@ end
 # Q = e^c (t + s^2/2 + c s) g(z)/D, g = (2Q + S)/z (M2) or [-12 C + (24 - 4z) Q + (24 + z) S]/z^3 (M3) (df_mgf.py,
 # checked there by Monte Carlo); averaging gives (1 + c Q)^{-1/2} (M2) and (1 + c^3 Q)^{-1/2} (M3), that is
 # D_stat = D + c^k e^c (t + s^2/2 + c s) g(z), k = 1 or 3, again a polynomial of degree two in s.  For M1 the
-# tilted pair (J(0), J(1)) is Gaussian with the covariance given in the companion paper of Bao, Broda and Kan and
+# tilted pair (J(0), J(1)) is Gaussian with the covariance given in the companion paper (its section on the initial observation) and
 # R = (J(1)^2 - J(0)^2)/2, which gives D_stat = e^c [C - cS + S (2t + s^2)/(2c)]: the roots are +-, as time
 # reversal of the stationary process requires.  The functions g are entire; near z = 0 their Taylor series.
 const G2SER, G3SER = let
@@ -2007,7 +2008,7 @@ end
 #   "DU"  regression on 1 and y_{t-1}            (tau_mu),   start g0
 #   "DT"  regression on 1, t and y_{t-1}         (tau_tau),  start g0
 #   "SK", "SU", "ST"  the same regressions with y_0 from the stationary distribution, J(0) ~ N(0, -1/(2c)), c <= -1e-4 (CSTAT)
-const CASES = ("DK", "DU", "DT", "SK", "SU", "ST", "DG")                 # DG: GLS-detrended, trend, zero start (the GLS-detrended tests of the paper)
+const CASES = ("DK", "DU", "DT", "SK", "SU", "ST", "DG")                 # DG: GLS-detrended, trend, zero start (the GLS-detrended tests of the companion paper)
 """where the contour integral fails with a fixed start (cases DU, DT): c > 1 with c0 < 0 (the far upper tail) and, in case
 DU, c > 1.5 with c0 > 3; automethod takes the conditional integral there (ctr_fails in dfl_api.c, LTRATIO_METHOD)"""
 ctr_fails(model::Int, c::Float64, c0::Float64) = (c > 1 && c0 < 0) || (model == 2 && c > 1.5 && c0 > 3)
@@ -2109,7 +2110,7 @@ function ltratio_args(cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
     isfinite(g0) || throw(ArgumentError("g0 must be a finite real scalar"))
     g0 != 0 && stat && throw(ArgumentError("g0 (a fixed start) applies to cases DK, DU, DT only"))
-    method == :line && (method = :single); method == :conditional && (method = :double)   # the paper's names (as in the MATLAB programs)
+    method == :line && (method = :single); method == :conditional && (method = :double)   # the companion paper's names (as in the MATLAB programs)
     method in (:auto, :single, :double, :contour) || throw(ArgumentError("method must be :auto, :single (:line), :double (:conditional) or :contour"))
     model = cas == "DG" ? 4 : findfirst(==(cas[2]), "KUT")
     method == :contour && !((model == 2 || model == 3) && g0 != 0 && !stat) && throw(ArgumentError(CONTOUR_MSG))
@@ -2706,7 +2707,7 @@ kernof(::Val{k}) where {k} = k
 # generating function with a fixed start): in case DK
 # R + g0^2/2 = J(1)^2/2 with J(1) ~ N(m, 1/s1), m = g0/F_0, and in cases DU, DT R = (X1^2 - X2^2)/2 with X1 ~ N(m1, 1/s2),
 # X2 ~ N(m2, -1/s1) (s2 the root with positive real part, s1 the other), m_k^2 = g0^2 mu_k from the partial fractions
-# of Q(s, t) in the paper.  The
+# of Q(s, t) in the companion paper (its proposition on the fixed start).  The
 # transform is M_{g0}(0,t) = M_0(0,t) e^{g0^2 Q(0,t)}: pref = e^{g0^2 Q(0,t)} multiplies phi_t, and phi_t itself is the
 # density of R with the fixed start, normalized as the central one (total mass M0 = (-s1 s2)^{-1/2}, or s1^{-1/2}).
 # Case DK: phi_t(X~) = pref e^{-s1 m^2/2} e^{-s1 X~} cosh(m s1 sqrt(2 X~))/sqrt(pi X~) with X~ = X + g0^2/2 (the code's X,
@@ -2926,7 +2927,7 @@ function ncsaddle(K::NCK{2}, X, sgn, s1, s2)
     pre / (2pi * sqrt(w1) * sqrt(w2)) * acc, Eref
 end
 """the kernel of the fixed start g0 at the point t: the means and pref from the Girsanov forms (case DK) or from the
-partial fractions of Q(s,t) in the paper (cases DU, DT; the determinant form of Q for c <= CGIRS, the Girsanov form beyond)"""
+partial fractions of Q(s,t) in the companion paper (cases DU, DT; the determinant form of Q for c <= CGIRS, the Girsanov form beyond)"""
 function nckernel(model::Int, c::Float64, t::ComplexF64, g0::Float64, s1::ComplexF64, s2::ComplexF64)
     if model == 1
         G = girsanov(1, c, t)
@@ -3595,7 +3596,7 @@ end
 # The double integral (the conditional integral representation): the inner inversion in the argument of V along a path through a saddle point, the
 # outer integral over V = b.  A port of Raymond Kan's TR_LIMDIST.
 #
-# With A' = U + cV... in the notation of the paper, R = U + 1/2 and a(b) = 1/2 + x sqrt(b) + c0 b,
+# With A' = U + cV... in the notation of the companion paper, R = U + 1/2 and a(b) = 1/2 + x sqrt(b) + c0 b,
 #   F(x) = int_0^inf H(b) db,  H(b) = E[delta(V - b) 1{R <= a(b)}].
 # (i) Case DK (zero or fixed start): H(b) = (1/2 pi i) int M_V(s) P e^{-s b} ds with P = erf(sqrt(a/(2 kap_1))) (a > 0),
 #     the analytic continuation of P[kap_1 Z^2 <= a]; the density uses dP/da.  With a zero start the product is in
@@ -5432,7 +5433,7 @@ function tr_contour(x::Vector{Float64}, model::Int, c::Float64; c0::Float64 = 0.
 end
 
 # =====================================================================================================================
-# The applications of the paper (local power, confidence sets, the weighted-average-power test): the ADFmax statistic of
+# The applications of the companion paper (local power, confidence sets, the weighted-average-power test): the ADFmax statistic of
 # Leybourne (1995), the coefficient statistic, the probability of a region {U <= g(V)} of the plane, the linear form
 # U - aV by the inversion formula of Gil-Pelaez and the asymptotic power envelope of Elliott, Rothenberg and Stock
 # (1996), with the names and the arguments of the MATLAB
@@ -6020,8 +6021,8 @@ end
 
 The limiting probability P{U <= g(V)} of a region of the plane under phi = 1 + c/n, no drift, zero start, case "DK" (no
 deterministic terms; also the constant case with GLS demeaning), with U = int J dJ and V = int J^2 as in `ltratio_cdf`.
-Every test of the unit root in the limit experiment of case DK rejects on such a region (the paper's section on the
-weighted-average-power test), and the first part of the conditional integral representation, the probability of a region of the
+Every test of the unit root in the limit experiment of case DK rejects on such a region (the companion paper's section on
+the weighted-average-power test), and the first part of the conditional integral representation, the probability of a region of the
 plane, gives its probability for every boundary g, by one outer integral over V (`tr_region`).  `bnd` is a
 NamedTuple (or a Dict) with the field `type` and its parameters:
 
@@ -6035,7 +6036,7 @@ and optionally `v0` (g = +Inf on (0, v0), whose probability P(V < v0) is added) 
 the outer rule).  Options as in `tr_region`.  Accurate to about 1e-11.  As LTRATIO_REGION of the MATLAB programs, whose
 bnd is a structure with the same fields.
 
-    ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK", 0)   # 0.05 (the critical values of the weighted-average-power test in the paper)
+    ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK", 0)   # 0.05 (the weighted-average-power test of the companion paper)
 """
 function ltratio_region(bnd, cas::AbstractString = "DK", c::Real = 0; engine::Symbol = :auto, kw...)
     engine === :general && return route(:region, engine, bnd, cas, c; kw...)
@@ -6400,10 +6401,10 @@ the forward regression (y_t on y_{t-1}) and of the reverse regression (y_t on y_
 constant ("DU", "SU") or a constant and a trend ("DT", "ST"), zero start ("D") or stationary start ("S", c <= -1e-4).  In the
 limit both regressions have the denominator V and the numerators U and -U - 1, so that ADFmax => (|R| - 1/2)/sqrt(V),
 R = U + 1/2, and {ADFmax <= x} = {|R| <= 1/2 + x sqrt(V)}, a region between two curves of the plane (the ADFmax test of
-the paper), by the conditional integral (`tr_adfmax`, whose options are passed on).  x may be an array; F = 0 at -Inf, 1 at
+the companion paper), by the conditional integral (`tr_adfmax`, whose options are passed on).  x may be an array; F = 0 at -Inf, 1 at
 Inf, NaN at NaN.  Accurate to about 1e-11.  As ADFMAX_CDF of the MATLAB programs (which also returns the error estimates).
 
-    adfmax_cdf(-2.43542, "DU")                      # 0.05 (the quantiles of the ADFmax statistic in the paper)
+    adfmax_cdf(-2.43542, "DU")                      # 0.05 (the quantiles of the ADFmax statistic in the companion paper)
 """
 adfmax_cdf(x, cas::AbstractString, c::Real = 0; kw...) = adfmax_vals(false, x, cas, c; kw...)
 """
@@ -6420,7 +6421,7 @@ The p-quantiles (p a number or an array in (0, 1)) of the limit of `adfmax_cdf`,
 the derivative, safeguarded by bisection on a bracket grown from [x0 - 1, x0 + 1] in steps of one, to `tol`.  Further
 options go to `adfmax_cdf`.  As ADFMAX_ICDF of the MATLAB programs.
 
-    adfmax_icdf([0.01, 0.05, 0.10], "DT")           # -3.67949 -3.11891 -2.82890 (the quantiles of the ADFmax statistic in the paper)
+    adfmax_icdf([0.01, 0.05, 0.10], "DT")           # -3.67949 -3.11891 -2.82890 (the ADFmax quantiles of the companion paper)
 """
 function adfmax_icdf(p, cas::AbstractString, c::Real = 0; tol::Float64 = 1e-10, x0::Float64 = -2.0, kw...)
     one(pk) = begin
