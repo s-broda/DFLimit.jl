@@ -273,19 +273,44 @@ end
 # ---------- the option `method` of dist_cdf, dist_pdf and dist_quantile ----------
 const LINE_METHOD_MSG = "method must be :auto, :line (the line integral with the explicit kernel) or :paths (the inversion on paths around the roots)"
 """
-    line_auto(c, c0) -> Bool
+    line_auto(D, c, c0) -> Bool
 
-The rule of method = :auto where the line integral covers the arguments: the line integral at c0 = 0, the inversion on paths
-at c0 != 0.  Measured on warm calls (scratch timing of November 2026, F and f at mean + (-2, -1, 0, 1, 2) sd and quantiles
-at 2.5%, 5% and 10%): at c0 = 0 the line integral was 1.3 to 5 times faster than the paths, for every covered design, start
-and c from -50 to 2 (it takes the classical integrator's fixed layouts below the unit root); at c0 != 0 the classical
+The rule of method = :auto where the line integral covers the arguments: the line integral at c0 = 0, except above the
+unit root with deterministic terms while the outer hyperbola of the paths keeps its angle of 45 degrees, for 0 < c <= 1.5
+(0 < c <= 2 with two or more regressors), where the inversion on paths is the faster; the inversion on paths at c0 != 0.
+Measured on warm calls (scratch timing of November 2026, F and f at mean + (-2, -1, 0, 1, 2) sd and quantiles at 2.5%,
+5% and 10%): at c0 = 0 the line integral was 1.3 to 5 times faster than the paths, for every covered design, start and c
+from -50 to 2 (it takes the classical integrator's fixed layouts below the unit root); at c0 != 0 the classical
 integrator's general kernel (breakpoints of X(v), adaptive pieces) makes it 2 to 5 times slower than the paths.  Since the
-thinner rules of the paths (re-measured on November 26, 2026, F and f at five points): at c0 = 0 below the unit root 1.03
-to 4.1 times faster (median 1.8; 1.05 to 1.3 at c = -50 with deterministic terms), at c = 2 1.3 to 3.8 times faster
-without deterministic terms and with an intercept but 1.6 to 1.8 times slower than the paths for the linear and the
-quadratic trend and the trend detrended first; at c0 != 0 4 to 10 times slower.  The rule is unchanged.
+thinner rules of the paths (re-measured on November 26, 2026, interleaved warm calls, F and f at five points and the 5%
+quantile; no deterministic terms, an intercept, the linear and the quadratic trend, the trend detrended first and an
+intercept with a sine and a cosine): at c0 = 0 below the unit root the line integral is 1.03 to 4.1 times faster (median
+1.8); above it, for 0 < c <= 1.5 with an intercept and 0 < c <= 2 with the other designs, the paths are 1.3 to 2.3 times
+faster (the outer hyperbola has the angle of 45 degrees up to c = 1.5 for the intercept, 2 to 3 for the others, and the
+paths slow down as it steepens: the line integral 1.5 times faster for the intercept at c = 2, 2 to 9 times for every
+design at c = 3 except the quadratic trend); without deterministic terms the hyperbola steepens from c = 0.5 on and the
+line integral stays (the paths 1.3 to 1.5 times faster per value at c = 0.25, 0.5, the line integral from c = 1); at
+c0 != 0 the line integral is 4 to 10 times slower.
 """
-line_auto(c::Float64, c0::Float64) = c0 == 0
+line_auto(D::Determ, c::Float64, c0::Float64) = c0 == 0 && !(c > 0 && nreg(D) >= 1 && c <= (nreg(D) == 1 ? LINE_PATHS_CMAX1 : LINE_PATHS_CMAX))
+"""
+    line_vline(D, c, start, gamma0, gls, c0) -> Bool
+
+Whether method = :auto takes the line integral, where it covers the arguments, with c0 > 0 above the unit root on the
+vertical line (the outer contour of the paths where no hyperbola keeps the positive roots right of the origin): there the
+parabola X(v) of a point x < 0 has two positive roots, whose parts of the outer integrand the line's rule does not resolve,
+and the paths' one evaluation was off by up to 1e-3 in the lower tail, below zero or NaN (the range check refused them;
+November 26, 2026: an intercept with a sine and a cosine at c = 5, c0 = 2, F(-26.7) = 1.3e-3 for 6.9e-14, F(-8.19) =
+6.7e-5 for 4.7e-13, F(-17.4) = -2.3e-4; the quadratic trend at c = 8, c0 = 2; the line's warning fired), while the line
+integral agrees with the paths to 2e-11 at x > 0 and with the classical engine for the linear trend.  The points beyond the
+line integral's bounds go to the paths, as elsewhere.
+"""
+line_vline(D::Determ, c::Float64, start::Symbol, gamma0::Real, gls, c0::Float64) =
+    c0 > 0 && c > 0 && start != :fixed && isnan(cpath_cached(startmodel(D, c, start, gamma0, gls), c).h)
+"""the end of the range above the unit root in which method = :auto takes the paths at c0 = 0 (`line_auto`): with one
+regressor (the intercept) and with two or more"""
+const LINE_PATHS_CMAX1 = 1.5
+const LINE_PATHS_CMAX = 2.0
 """
     line_select(method, D, c, start, gamma0, gls, phi, hfac, c0, kw) -> LineModel or nothing
 
@@ -299,7 +324,8 @@ function line_select(method::Symbol, D::Determ, c::Real, start::Symbol, gamma0::
     phi === nothing || push!(other, "phi"); (hfac === nothing || hfac == 1) || push!(other, "hfac")
     why = !isempty(other) ? "the options $(join(other, ", ")) belong to the inversion on paths" :
           !(isfinite(c) && isfinite(c0)) ? "c and c0 must be finite" : nothing
-    (method === :auto && why === nothing && !line_auto(Float64(c), c0)) && return nothing     # (before the provider is built)
+    # (before the provider is built; c0 > 0 on the vertical line: see `line_vline`)
+    (method === :auto && why === nothing && !line_auto(D, Float64(c), c0) && !line_vline(D, Float64(c), start, gamma0, gls, c0)) && return nothing
     lm = nothing
     why === nothing && ((lm, why) = line_model(D, c, start, gamma0, gls))
     if lm === nothing

@@ -114,12 +114,25 @@ end
 
 @testset "the automatic choice takes the faster method" begin
     xs = [-3.5, -2.5, -1.5]
-    for (D, c, c0, st) in ((GL.trend(2), 0.0, 0.0, :zero), (TRIG, -13.5, 0.0, :stationary), (GL.trend(3), 2.0, 0.0, :zero))
+    for (D, c, c0, st) in ((GL.trend(2), 0.0, 0.0, :zero), (TRIG, -13.5, 0.0, :stationary), (GL.trend(3), 3.0, 0.0, :zero), (GL.trend(0), 2.0, 0.0, :zero),
+                           (GL.trend(-1), 0.5, 0.0, :zero))
         @test GL.dist_cdf(D, xs, c; c0, start = st) == GL.dist_cdf(D, xs, c; c0, start = st, method = :line)
         @test GL.dist_pdf(D, xs, c; c0, start = st) == GL.dist_pdf(D, xs, c; c0, start = st, method = :line)
     end
-    for (D, c, c0) in ((GL.trend(2), -5.0, -3.0), (GL.trend(2), -5.0, 3.0))
+    # (above the unit root, 0 < c <= 1.5 with one regressor and 0 < c <= 2 with two or more, the paths: November 26, 2026)
+    for (D, c, c0) in ((GL.trend(2), -5.0, -3.0), (GL.trend(2), -5.0, 3.0), (GL.trend(3), 2.0, 0.0), (GL.trend(0), 1.5, 0.0), (TRIG, 0.5, 0.0))
         @test GL.dist_cdf(D, xs, c; c0) == GL.dist_cdf(D, xs, c; c0, method = :paths)
+    end
+    # c0 > 0 on the vertical line (above the unit root, beyond the hyperbolas): the line integral, where the paths do not
+    # resolve the two roots of the parabola of a point x < 0 (their one evaluation was 6.7e-5 at x = -8.19, 1.3e-3 at -26.7
+    # and -2.3e-4 at -17.4 for values below 1e-12; November 26, 2026); on a hyperbola (c = 3) the paths
+    let xn = [-26.68, -17.434, -8.1877, -2.0, 1.0]
+        Fa = @test_logs min_level = Logging.Warn GL.dist_cdf(TRIG, xn, 5.0; c0 = 2.0)
+        @test Fa == GL.dist_cdf(TRIG, xn, 5.0; c0 = 2.0, method = :line) && all(<(1e-10), Fa[1:3]) && issorted(Fa[3:5])
+        @test GL.dist_pdf(TRIG, xn, 5.0; c0 = 2.0) == GL.dist_pdf(TRIG, xn, 5.0; c0 = 2.0, method = :line)
+        @test abs(Fa[5] - GL.dist_cdf(TRIG, [1.0], 5.0; c0 = 2.0, method = :paths)[1]) < 1e-10
+        @test GL.dist_cdf(TRIG, [-3.0], 3.0; c0 = 2.0) == GL.dist_cdf(TRIG, [-3.0], 3.0; c0 = 2.0, method = :paths)
+        @test -6 < ltratio_icdf(1e-4, TRIG, 5.0; c0 = 2.0) < -2
     end
     # the providers are cached per design, start and c, at most CACHE_MAX[] of them
     old = GL.CACHE_MAX[]; GL.CACHE_MAX[] = 3

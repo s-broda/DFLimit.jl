@@ -3818,8 +3818,9 @@ const FINESTEP_PHI = 70 * pi / 180
 The distribution function of the limit (U - c0 V)/sqrt(V) of the t-ratio for phi = 1 + c0/n under phi = 1 + c/n, with
 the start J(0) = 0 (start = :zero), J(0) = gamma0 (:fixed; y_0 = gamma0 sigma sqrt(n)) or J(0) ~ N(0, -1/(2c))
 (:stationary, c < 0).  gls = cbar: the data GLS-detrended at abar = 1 + cbar/n (`prep_gls`; zero start only).  method =
-:auto (the default), :line or :paths: the line integral with the explicit kernel where it covers the design (`line_dist`), or
-the inversion on paths around the roots.  rule: the rule of one evaluation of the paths (`PATH_RULES`; :auto, the
+:auto (the default), :line or :paths: the line integral with the explicit kernel where it covers the design and the rule
+takes it (`line_auto`, `line_vline`: at c0 = 0 except above the unit root for 0 < c <= 1.5 with one regressor and 0 < c
+<= 2 with more, and with c0 > 0 on the vertical line; `line_dist`), or the inversion on paths around the roots.  rule: the rule of one evaluation of the paths (`PATH_RULES`; :auto, the
 default, by `path_region`; :present the rule until November 2026, also taken by verified = true); hfac (the factor of
 the outer step) and the keywords n, ntail (the nodes of the U-shapes) override it.
 """
@@ -3866,6 +3867,7 @@ function dist_eval_(D::Determ, xs::AbstractVector, c::Real, which::Int, start::S
     check_cmax(D, c, start, gamma0, which == 1 ? "the t-ratio (dist_cdf)" : "the t-ratio (dist_pdf)")
     check_rule(rule)
     lv = line_dist(method, D, xs, c, which, start, gamma0, gls, phi, hfac, verified, vtol; rule, kw...); lv === nothing || return lv
+    verified || far_above_warn(which == 1 ? "dist_cdf" : "dist_pdf", D, c, start, gamma0, gls)
     c0 = Float64(get(kw, :c0, 0.0))
     Mo = startmodel(D, c, start, gamma0, gls)
     hf, n, nt, rl = path_rule(rule, verified, Mo, c, c0, hfac, kw)
@@ -3885,6 +3887,7 @@ pass (`contour_eval`), the values those of the two functions bit for bit (one ev
 """
 function dist_both(D::Determ, xs::Vector{Float64}, c::Real = 0.0; c0::Real = 0.0, start::Symbol = :zero, gamma0::Real = 0.0, gls = nothing)
     check_cmax(D, c, start, gamma0, "the t-ratio (dist_cdf)")
+    far_above_warn("dist_cdf", D, c, start, gamma0, gls)
     c0 = Float64(c0)
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
     Mo = startmodel(D, c, start, gamma0, gls)
@@ -3959,6 +3962,36 @@ function search_args(fn::String, name::String, x0::Real, tol::Real)
     nothing
 end
 """
+The brittle region far above the unit root: above c = FAR_ABOVE_CMIN (5.5), beyond the range in which the rules of one
+evaluation were swept, the inversion on paths by one evaluation was off by more than 1e-5 in the upper tail for designs
+beyond the classical cases and for a fixed start with deterministic terms (November 26, 2026, against the paths with a
+quarter of the outer step: Perron's model C at 0.3 by 2.1e-4 of the peak of the density at c = 6, by 1.5e-5 in F and
+3.6e-3 in f at c = 7, by 6.3e-5 and 1.7e-2 at c = 8; model A at 0.5 by 1.2e-4 and 1.5e-3 of the peak at c = 6, 7; the
+linear trend with a fixed start, g0 = 1, by 8.7e-5 in F at c = 7), where the checked computation (verified = true) is
+within 2e-6 of the peak (Perron's model C at c = 6).  `far_above_warn` warns there, once per call, where the paths compute
+(the line integral, which takes the designs it covers at c0 = 0, is not concerned).
+"""
+const FAR_ABOVE_CMIN = 5.5
+"""whether D is the design of a classical case (trend(-1), trend(0), trend(1) in the one-step regression, least squares
+detrending, or trend(1) GLS-detrended at cbar = -13.5 with a zero start)"""
+function classical_design(D::Determ, start::Symbol, gls)
+    gls === nothing || (Float64(gls) == -13.5 && start == :zero) || return false
+    for p in (-1, 0, 1)
+        E = trend(p)
+        (D.C == E.C && D.br == E.br && D.loc == E.loc && D.detrend == E.detrend) || continue
+        return gls === nothing || p == 1
+    end
+    false
+end
+"""the warning of the brittle region far above the unit root (`FAR_ABOVE_CMIN`)"""
+function far_above_warn(fn::String, D::Determ, c::Real, start::Symbol, gamma0::Real, gls)
+    c > FAR_ABOVE_CMIN || return nothing
+    fixed = start == :fixed && gamma0 != 0
+    (!classical_design(D, fixed ? :fixed : start, gls) || (fixed && nreg(D) >= 1)) || return nothing
+    @warn "$fn: far above the unit root (c = $c > $FAR_ABOVE_CMIN) the inversion on paths by one evaluation may be off by more than 1e-5 in the upper tail for a design beyond the classical cases or a fixed start with deterministic terms (Perron's model C at c = 7 by 1.5e-5 in F, the linear trend with a fixed start at c = 7 by 8.7e-5); verified = true checks it" D.name
+    nothing
+end
+"""
     dist_quantile(D, p, c = 0; x0, tol = 1e-9, c0, start, gamma0, kw...) -> x
 
 The p-quantile by Newton's method on F(x) - p with the density from the same evaluation, from x0, the step limited to 1;
@@ -3973,6 +4006,7 @@ function dist_quantile(D::Determ, p::Real, c::Real = 0.0; x0::Real = -2.0, tol::
     check_cmax(D, c, start, gamma0, "the quantiles of the t-ratio (dist_quantile)")
     check_rule(rule)
     lq = line_quantile(method, D, p, c; x0, tol, start, gamma0, gls, phi, hfac, kw...); lq === nothing || return lq
+    far_above_warn("dist_quantile", D, c, start, gamma0, gls)
     c0 = Float64(get(kw, :c0, 0.0))
     Mo = startmodel(D, c, start, gamma0, gls)
     hf, n, nt, rl = path_rule(rule, false, Mo, c, c0, hfac, kw)

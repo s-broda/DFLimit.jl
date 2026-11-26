@@ -77,8 +77,12 @@ xvec(x) = x isa Number ? [Float64(x)] : Float64.(vec(collect(x)))
 
 The choice of `engine = :auto` for a computation the classical engine accepts (a case string, or a design with the
 classical case S.case, within the classical engine's checks; elsewhere the general engine computes): f = :dist (the
-distribution function and the density at the point x), :mom, :lincdf (x = a), :envelope, :adfmax, :region.  The rule
-and the measurements behind it are the table "Which engine" of the README (dev/engine_table.jl, dev/engine_table.txt).
+distribution function and the density at the point x), :icdf, :mom, :lincdf (x = a), :envelope, :adfmax, :region (x = 1
+for the parabola of the t-ratio, with its c0; 0 for the other boundaries).  The rule and the measurements behind it are the
+table "Which engine" of the README (dev/engine_table.jl, dev/engine_table.txt); it was re-derived on November 26, 2026,
+after the thinner rules of one evaluation, from interleaved timings of the two engines in each cell (a cell moved where
+the other engine was at least 1.3 times faster in every repetition) and checks of the new choice's one evaluation against
+the other engine's checked computation on grids of x from the 0.01% to the 99.99% point.
 """
 function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
     cas = S.case; fixed = S.start == :fixed; stat = S.start == :stationary
@@ -87,9 +91,10 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
     c > DFDet.gen_cmax(S.D, fixed) && return :classical
     if f === :dist
         # the t-ratio.  The faster engine where the two agree to 1e-10, the more accurate one where they do not; the
-        # classical line integral keeps c0 = 0 with a zero or stationary start (1.7 to 28 times faster), its conditional
-        # integral c0 < 0 with a zero start down to c = -100, and c0 < 0 above the unit root (the general engine off by 7e-3)
-        # and the bulk at c >= 7 (2.7 to 34 times faster) through the default below
+        # classical engine keeps through the default below c0 = 0 with a zero or stationary start below the unit root (its
+        # line integral; the general engine's line integral 1.0 to 1.24 times faster, below the threshold of 1.3), the
+        # conditional integral with c0 < 0 in case DU and in case DT outside -50 <= c <= -10, c0 < 0 above c = 2 and the
+        # bulk at c >= 7 (1.1 to 32 times faster)
         stat && c0 != 0 && c <= -3e-3 && return :general                   # 2.4 to 140 times faster; nearer zero the general engine
                                                                            # is off by 1e-10 to 7e-8 in cases SU, ST (tails below 1e-3: see merged_dist)
         # x = 0, the points of the coefficient statistic (coef_cdf, coef_icdf: F at x = 0 with the null value c0 + y), one
@@ -97,12 +102,17 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         # the statistic and c0 = -3, 2): with c0 > 0 the classical line integral, 2 to 12 times faster there (X(v) = c0 v^2 +
         # 1/2 has no root), where the rule below takes the general engine for the t-ratio; with c0 < 0 in case DK for c > -5
         # the general engine, 1.4 to 2.7 times faster (the classical line integral with its general kernel); otherwise the
-        # rule of the t-ratio (with c0 < 0 the classical engine, equal to 1.8 times faster in cases DU, DT)
-        if x == 0 && !fixed && !stat && c0 != 0 && -100 < c <= 1 && cas in ("DK", "DU", "DT")
+        # rule of the t-ratio (with c0 < 0 the classical engine, equal to 1.8 times faster in cases DU, DT; since November 26,
+        # 2026 in case DT for -50 <= c <= -10 the general engine, 1.6 to 3.1 times faster at x = 0 as well).  Up to c = 2 since
+        # then, with the cell of c0 > 0 in case DT
+        if x == 0 && !fixed && !stat && c0 != 0 && -100 < c <= 2 && cas in ("DK", "DU", "DT")
             c0 > 0 && return :classical
             (cas == "DK" && c > -5) && return :general
         end
-        if !fixed && !stat && c0 > 0 && -100 < c <= 1
+        # a zero start with c0 > 0 below c = 1 (case DT below c = 2): the general engine, 2.4 to 5 times faster at c = -100,
+        # 3.6 to 7 times in case DT at c = 1.5, 2 (re-measured November 26, 2026, after the thinner rules of the paths; the
+        # rule took the classical engine at c = -100 itself and in case DT above c = 1)
+        if !fixed && !stat && c0 > 0 && (c <= 1 || (cas == "DT" && c <= 2))
             # 1.6 to 4.8 times faster.  In case DK the density is infinite at the tangency x* = -sqrt(2 c0); just above it
             # (within 1e-3 of x*) the classical line integral is the more accurate (the general engine's density off by up
             # to 1.5e-3 relative at x* + 1e-9, the classical by 5e-10), below it the general engine (the classical density
@@ -114,13 +124,28 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
             return :general
         end
         !fixed && !stat && c0 != 0 && c < -100 && return :general            # 2.4 to 3.3 times faster
+        # a zero start with c0 < 0: in case DK near and above the unit root (-5 < c <= 2), where the classical engine takes its
+        # line integral with the general kernel, the general engine, 6 to 28 times faster; in case DT for -50 <= c <= -10, 1.3
+        # to 2.7 times faster (the point x = 0 of the coefficient statistic too); elsewhere the classical engine (re-measured
+        # November 26, 2026: in case DK from c = -5 on, where the classical engine takes its conditional integral, it is 1.05
+        # to 2.6 times faster; in case DU and nearer the unit root in case DT the gains of either are below 1.3 or vary with
+        # c0)
+        !fixed && !stat && c0 < 0 && ((cas == "DK" && -5 < c <= 2) || (cas == "DT" && -50 <= c <= -10)) && return :general
+        # a zero start at c0 = 0 above the unit root, where the outer hyperbola of the general engine keeps its angle of 45
+        # degrees: its paths (the general engine's method :auto there, `DFDet.line_auto`), in case DU for 0 < c <= 1.5 and in
+        # case DT for 0 < c <= 2, 1.6 to 2.3 times faster than the classical engine (re-measured November 26, 2026)
+        !fixed && !stat && c0 == 0 && ((cas == "DU" && 0 < c <= 1.5) || (cas == "DT" && 0 < c <= 2)) && return :general
         # the fixed start of case DK: 1.04 to 4.3 times faster (beyond, the classical engine is up to 1.5 times faster),
         # except with c0 < 0 near the unit root (c > -1): there the outer hyperbola of the general engine does not resolve
         # the upper tail, and its one evaluation was off by 2.7e-6 at the 99.99% point (c = 0.5, c0 = -5, g0 = 1) and 2.9e-2
         # beyond (mean + 6 sd at c0 = -10, where at mean + 4 sd it gave 1.23 and the range check refused), 6.7e-6 at c = 0
         # with g0 = 1.5 (November 2026, `scratch/rules/probe_dkfixed6.jl`); the classical engine's line integral, its
-        # checked computation and the conditional integral agree to 1e-12 there
-        fixed && cas == "DK" && c <= 1 && !(c0 < 0 && c > -1) && ((c * S.g0)^2 / 2 <= 400 || (S.g0 <= 0.5 && c >= -100)) && return :general
+        # checked computation and the conditional integral agree to 1e-12 there.  Re-measured November 26, 2026: beyond
+        # (c g0)^2/2 <= 400 the general engine is 1.4 to 6 times faster also where |g0| <= 1.5 and |c g0| <= 50 with
+        # c >= -100 (the region of g0 <= 0.5 with c >= -100 among them); with |g0| = 2 or |c g0| > 50 the gains vary or the
+        # classical engine is the faster.  (|g0|: the law depends on |g0| only; the rule tested g0 <= 0.5 until then)
+        ag = abs(S.g0)
+        fixed && cas == "DK" && c <= 1 && !(c0 < 0 && c > -1) && ((c * ag)^2 / 2 <= 400 || (c >= -100 && ag <= 1.5 && abs(c) * ag <= 50)) && return :general
         # the fixed start of cases DU, DT far from the unit root: with c0 > 0 below c = -20 (and below c = -10 where |c g0| >
         # 20), and with any c0 below c = -20 where |c g0| > 60, the classical contour integral's one evaluation was off, in
         # the density by up to 5e-6 of its peak (case DU at c = -30, g0 = 0.5, c0 = 2), 4.2e-3 (c = -75, c0 = 5) and 2.2e-2
@@ -137,9 +162,13 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         # the faster (the trend cases and the fixed start: 1.7 to 4.5 times); the classical Newton search otherwise
         c0 == 0 || return :classical
         fixed && return :general
-        (cas == "DT" && c <= 0) && return :general
-        (cas == "ST" && c <= -1) && return :general                         # (next to zero, as the moments)
-        (cas == "DU" && c == 0) && return :general                          # (from c = -1 on the classical search is the faster, by 1.1 to 1.3)
+        (cas == "DT" && c <= 2) && return :general                          # (above the unit root, 0 < c <= 2, by the paths: 2.3 to 2.5 times)
+        # (a stationary start: cases SU, ST from c = -0.5 on, 1.3 to 1.7 times faster, November 26, 2026; next to zero the
+        # general engine's search is off, by 3.4e-8 in case SU and 2.6e-7 in case ST at c = -1e-3, within 2e-9 of the classical
+        # search for c <= -0.01)
+        (cas in ("SU", "ST") && c <= -0.5) && return :general
+        (cas == "DU" && 0 <= c <= 1.5) && return :general                   # (above the unit root by the paths, 2.5 times; from c = -1 on the
+                                                                            # gains of the general search vary from 1.3 to 1.6)
         return :classical
     elseif f === :mom
         # the general engine at c0 = 0 (1.1 to 25 times faster; equal in case DK) and with a stationary start (1.3 to 5
@@ -148,14 +177,19 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         # under refinement of their rules, and they differ by up to 4e-9: neither is the more accurate there
         # (with a stationary start next to zero the general engine's moments lose accuracy in cases SU, ST, by 1e-10 at
         # c = -0.1 to 4e-7 at c = -3e-3, where they fail; the classical ones hold to 1e-12 down to c = -1e-6)
+        # (re-measured November 26, 2026: with c0 != 0 below c = -5 the classical engine is 1.8 to 10 times faster in cases
+        # SK, ST and DT, which took the general engine; nearer the unit root the general engine is the faster there, in case
+        # ST at c = c0 = -1 25 times, in case DT at c = 0, c0 = -2 2.8 times)
         if stat
             (cas == "SU" && c0 != 0) && return :classical                  # (the classical moments of case SU are cheap: 2.4 times faster with c0 != 0)
+            (c0 != 0 && c <= -5) && return :classical
             return (cas == "SK" ? c <= -3e-3 : c <= -1) ? :general : :classical
         end
         c0 == 0 && return :general
-        # (c0 != 0 with a zero start: the classical engine in cases DK, DU, 1.5 to 2.6 times faster, the general in case DT,
-        # 1.4 times faster: without c0 the circle of the general engine shares Sigma(theta), with c0 != 0 it does not)
-        return cas == "DT" ? :general : :classical
+        # (c0 != 0 with a zero start: the classical engine in cases DK, DU, 1.5 to 2.6 times faster, and in case DT below c =
+        # -5; the general engine in case DT nearer the unit root: without c0 the circle of the general engine shares
+        # Sigma(theta), with c0 != 0 it does not)
+        return (cas == "DT" && c >= -5) ? :general : :classical
     elseif f === :lincdf
         # x = a.  Case DK: the classical code (repaired: the region), except the law of V (a = NaN), where the general
         # engine is 40 to 400 times faster, within 1e-14 of the classical code below c = 4 and the more accurate above
@@ -168,9 +202,11 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         # Filon's rule takes the parts at the root); at cbar = -1 below the unit root the classical code is 1.1 to 1.3 times
         # faster.  At a = 0 the classical closed form (the general engine, 1.2 to 3 times faster, is within 7.2e-14 of it).
         # Beyond c = 4, where the classical code refuses (its inner inversion needs more than 2e6 nodes), the general
-        # engine (within its checked computation at c = 4.5 to 7)
+        # engine (within its checked computation at c = 4.5 to 7).  Re-measured November 26, 2026: below and at the unit
+        # root the classical code is now 2 to 11 times faster in case DG at every cbar (the general engine took cbar <= -2
+        # there until then); above it the general engine stays for cbar <= -1
         (cas == "DK" && isnan(x)) && return :general
-        (cas == "DG" && x != 0 && (c > 4 || S.gls <= -2 || (S.gls <= -1 && c > 0))) && return :general
+        (cas == "DG" && x != 0 && (c > 4 || (S.gls <= -1 && c > 0))) && return :general
         return :classical
     elseif f === :adfmax
         # a stationary start: the general engine, 1.7 to 3 times faster and within 4e-12 of the classical values (which
@@ -183,10 +219,17 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         # classical engine (from c = -0.5 on the general engine is the slower, and at c = -0.01 it exhausts the memory)
         # (case DK: within 3e-12 of the classical engine's down to c = -0.01; at c = -1e-4, where a = c/2 puts the critical
         # value at the edge of the support of U - aV, the general engine is off by 1.1e-9)
+        # (re-measured November 26, 2026: in case DG the classical engine is 4.7 to 21 times faster at c = -2 to -20, and
+        # its power within 2.1e-9 of the general engine's; the classical engine there, as in the C rule)
         cas == "DK" && return c <= -0.01 ? :general : :classical
-        return c <= -1 ? :general : :classical
+        return :classical
+    elseif f === :region
+        # x = 1 for the parabola of the t-ratio (with its c0), 0 for the other boundaries.  The parabola at c0 = 0: the
+        # general engine (its line integral), 2.5 to 27 times faster than the classical region code's conditional integral
+        # (re-measured November 26, 2026); with c0 != 0 and for the line the classical code, the faster
+        return (x == 1 && c0 == 0) ? :general : :classical
     end
-    :classical                                                             # (the regions)
+    :classical
 end
 
 # ---------- the router of the classical engine's user-level functions (DFExact.ROUTE) ----------
@@ -565,12 +608,22 @@ function region_nonfinite(bnd)
     isfinite(v) && return nothing
     isnan(v) ? NaN : v > 0 ? 1.0 : 0.0
 end
+"""the arguments of the rule for a region (`autoengine` with f = :region): (1.0, c0) for the parabola of the t-ratio without
+v0 and brks (with its c0, finite), (0.0, 0.0) for the other boundaries"""
+function region_rule_args(bnd)
+    fld(f) = bnd isa AbstractDict ? get(bnd, f, get(bnd, String(f), nothing)) : (haskey(bnd, f) ? bnd[f] : nothing)
+    ty = fld(:type)
+    (ty === nothing || lowercase(String(ty)) != "parabola" || fld(:v0) !== nothing || fld(:brks) !== nothing) && return 0.0, 0.0
+    c0 = something(fld(:c0), 0.0)
+    (c0 isa Real && isfinite(c0)) ? (1.0, Float64(c0)) : (0.0, 0.0)
+end
 function route_region(engine::Symbol, bnd, cas::AbstractString, c::Real; kw...)
     v = region_nonfinite(bnd); v === nothing || return v
     S = Spec(DFDet.trend(-1), :zero, 0.0, nothing, "DK")
     if engine === :auto
         isempty(kw) || return nothing
-        autoengine(:region, S, Float64(c), 0.0, 0.0) === :general || return nothing
+        xr, c0r = region_rule_args(bnd)
+        autoengine(:region, S, Float64(c), c0r, xr) === :general || return nothing
     end
     DFDet.region_prob(S.D, bnd, Float64(c); kw...)
 end

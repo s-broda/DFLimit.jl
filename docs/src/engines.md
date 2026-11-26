@@ -49,7 +49,11 @@ above the unit root, for the coefficient statistic, the moments and the t-ratio 
 deterministic terms (10 with them and a fixed start) and up to c = 20 without them (`DFLimit.DFDet.gen_cmax`): beyond, one
 root of its transform is of the
 order 2c e^{-2c} and the others are no longer resolved in double precision, and every function of the general engine
-raises an `ArgumentError` that names the statistic, c and the bound; the rule takes the classical engine there.
+raises an `ArgumentError` that names the statistic, c and the bound; the rule takes the classical engine there. Far above
+the unit root, for c > 5.5, the inversion on paths by one evaluation may be off by more than 1e-5 in the upper tail for
+a design beyond the classical cases and for a fixed start with deterministic terms (Perron's model C at c = 7 by 1.5e-5
+in F, a linear trend with a fixed start at c = 7 by 8.7e-5), and the general engine warns there (`verified = true`
+checks it).
 
 The general engine's own functions are exported as well: `dist_cdf(D, xs, c; c0, start, gamma0, gls, method)`, `dist_pdf`,
 `dist_quantile`, `dist_moments`, `coef_pdf`, `coef_quantile`, `coef_cdf_gp`, `lin_cdf`, `lin_pdf`, `lin_quantile`,

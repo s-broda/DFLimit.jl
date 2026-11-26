@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- **The choice of engine re-derived** (`autoengine`, November 26, 2026): after the thinner rules of one evaluation, which
+  halved the time of the general engine's paths, from interleaved timings of the two engines in each cell (two runs on
+  mains power; a cell moved where the other choice was at least 1.3 times faster in both) and checks of the new choice's
+  one evaluation against the other engine's checked computation from the 0.01% to the 99.99% point over the cell's
+  region (within 1e-7). The t-ratio takes the general engine also with a zero start and c0 > 0 at c = -100 (2.4 to 5
+  times faster) and in case DT up to c = 2 (3.6 to 7 times); with c0 < 0 in case DK for -5 < c <= 2 (5.6 to 28 times)
+  and in case DT for -50 <= c <= -10 (1.3 to 2.7 times); at c0 = 0 above the unit root in case DU for 0 < c <= 1.5 and in
+  case DT for 0 < c <= 2, by its paths (1.6 to 2.3 times); with a fixed start in case DK also where |g0| <= 1.5 with
+  |c g0| <= 50 and c >= -100 (1.4 to 6 times; the rule now takes the absolute value of g0, which the law depends on). The
+  quantiles at c0 = 0 take the general engine's search in case DT up to c = 2 and in case DU for 0 <= c <= 1.5 (2.3 to
+  2.5 times) and in cases SU, ST for c <= -0.5 (1.3 to 1.7 times). The classical engine now takes the moments (`method =
+  :engine`) with c0 != 0 below c = -5 with a stationary start and in case DT (1.8 to 10 times faster), the linear form of
+  case DG at and below the unit root at every cbar (2 to 11.5 times) and the power envelope of case DG (4.7 to 21
+  times, as the C rule). The parabola of `ltratio_region` at c0 = 0 takes the general engine (2.5 to 27 times). Left
+  alone, below the threshold or with gains that vary: c0 = 0 below the unit root (the general engine's line integral 1.0
+  to 1.24 times faster), c0 < 0 in case DU, the quantiles in cases DK, DU below the unit root and SK. Where the rule now
+  takes the other engine, values move by less than 1e-7.
+- **The general engine's method `:auto` above the unit root** (`DFDet.line_auto`): the inversion on paths for 0 < c <=
+  1.5 with one regressor and 0 < c <= 2 with two or more, where the outer hyperbola keeps its angle of 45 degrees and the
+  paths are 1.3 to 2.3 times faster than the line integral; the line integral otherwise at c0 = 0, as before. And the line
+  integral, where it covers the design, with c0 > 0 on the vertical line (`DFDet.line_vline`): there the paths did not
+  resolve the two roots of the parabola of a point x < 0, and one evaluation was off by up to 1e-3 in the lower tail,
+  below zero (refused by the range check) or NaN, with the line's warning (an intercept with a sine and a cosine at c = 5,
+  c0 = 2: F(-26.7) = 1.3e-3 for 6.9e-14, the 0.01% point -35.9 for -4.76; the quadratic trend at c = 8, c0 = 2).
+- **A warning far above the unit root.** For c > 5.5 the inversion on paths by one evaluation was off by more than 1e-5
+  in the upper tail for designs beyond the classical cases and for a fixed start with deterministic terms (Perron's
+  model C at c = 7 by 1.5e-5 in F and 3.6e-3 of the peak of the density, at c = 8 by 6.3e-5; model A at c = 6 by 1.2e-4
+  of the peak; a linear trend with a fixed start at c = 7 by 8.7e-5 in F), without a warning; `dist_cdf`, `dist_pdf` and
+  `dist_quantile` (and the classical functions with such a design) now warn there where the paths compute
+  (`DFDet.far_above_warn`; `verified = true` checks the values).
 - **Timings re-measured for 0.5.0** (November 26, 2026, four threads, an M4 laptop on battery power): the table
   "Which engine" of the README from a new run of `dev/engine_table.jl` (`dev/engine_table.txt`; five minutes, it was
   half an hour). The general engine's paths take about half the time they took when the rule `autoengine` was set,

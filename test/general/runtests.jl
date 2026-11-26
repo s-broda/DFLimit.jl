@@ -193,10 +193,13 @@ end
         y = 19.999999940099205
         F20 = DFDet.coef_cdf(trend(-1), [y], 20.0)[1]
         @test abs(F20 - 0.3) < 2e-8
-        @test abs(DFLimit.coef_cdf(y, "DK", 20.0; engine = :general) - F20) < 1e-12
+        # (the t-ratio at x = 0 with c0 = y > 0 on the vertical line: the line integral since November 26, 2026, line_vline,
+        # within 1.8e-9 of the paths; coef_cdf of a design keeps the paths)
+        @test abs(DFLimit.coef_cdf(y, "DK", 20.0; engine = :general) - F20) < 1e-8
         @test abs(DFLimit.coef_cdf(y, trend(-1), 20.0; engine = :general) - F20) < 1e-12
-        @test abs(ltratio_cdf(0.0, "DK", 20.0; c0 = y, engine = :general) - F20) < 1e-12
-        @test abs(dist_cdf(trend(-1), [0.0], 20.0; c0 = y)[1] - F20) < 1e-12
+        @test abs(ltratio_cdf(0.0, "DK", 20.0; c0 = y, engine = :general) - F20) < 1e-8
+        @test abs(dist_cdf(trend(-1), [0.0], 20.0; c0 = y)[1] - F20) < 1e-8
+        @test dist_cdf(trend(-1), [0.0], 20.0; c0 = y) == dist_cdf(trend(-1), [0.0], 20.0; c0 = y, method = :line)
         # an intercept and a trend at c = 16, the end of the range with deterministic terms (within 2.2e-9 of the classical
         # engine at seven levels)
         for (cas, p) in (("DU", 0), ("DT", 1)), pr in (0.01, 0.5, 0.99)

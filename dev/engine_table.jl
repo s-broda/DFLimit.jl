@@ -46,11 +46,15 @@ end
 pr("(1) the t-ratio, F and f at x = mean + (-2, -1, 0, 1, 2) sd\n")
 for cas in ("DK", "DU", "DT"), c in (0.0, -10.0, -50.0); tcell("zero start, c0 = 0, -100 <= c <= 5", cas, c); end
 tcell("zero start, c0 = 0, -100 <= c <= 5", "DG", 0.0; xs = [-3.5, -2.8, -2.0, -1.2, -0.5]); tcell("zero start, c0 = 0, -100 <= c <= 5", "DG", -10.0; xs = [-4.5, -3.5, -2.5, -1.5, -0.5])
-for cas in ("DT",), c in (3.0, 5.0); tcell("zero start, c0 = 0, 0 < c <= 5", cas, c); end
+for (cas, c) in (("DU", 1.0), ("DU", 1.5), ("DT", 1.0), ("DT", 2.0)); tcell("zero start, c0 = 0, above the unit root: DU 0 < c <= 1.5, DT 0 < c <= 2", cas, c); end
+for (cas, c) in (("DU", 2.0), ("DT", 3.0), ("DT", 5.0)); tcell("zero start, c0 = 0, above the unit root, otherwise", cas, c); end
 for cas in ("DK", "DU", "DT"); tcell("zero start, c0 = 0, c < -100", cas, -300.0); end
-for (cas, c, c0) in (("DU", -10.0, -10.0), ("DK", -5.0, -5.0), ("DT", -5.0, -5.0), ("DU", -50.0, -50.0), ("DK", -20.0, -20.0), ("DT", -100.0, -100.0)); tcell("zero start, c0 < 0, -100 <= c <= 0", cas, c; c0); end
-for (cas, c, c0) in (("DT", -20.0, 3.0), ("DU", -5.0, 2.0), ("DT", -50.0, 5.0), ("DK", -10.0, 2.0), ("DK", -2.0, 1.0), ("DK", 0.0, 2.0), ("DU", 0.0, 2.0), ("DT", 1.0, 3.0)); tcell("zero start, c0 > 0, -100 < c <= 1", cas, c; c0); end
-for (cas, c, c0) in (("DU", -100.0, 3.0), ("DU", 2.0, 1.0), ("DK", 2.0, 2.0)); tcell("zero start, c0 > 0, otherwise", cas, c; c0); end
+for (cas, c, c0) in (("DK", 0.0, -2.0), ("DK", -1.0, -1.0), ("DK", 1.0, -2.0), ("DK", 2.0, -5.0)); tcell("zero start, c0 < 0, case DK, -5 < c <= 2", cas, c; c0); end
+for (cas, c, c0) in (("DT", -10.0, -10.0), ("DT", -20.0, -2.0), ("DT", -50.0, -50.0)); tcell("zero start, c0 < 0, case DT, -50 <= c <= -10", cas, c; c0); end
+for (cas, c, c0) in (("DU", -10.0, -10.0), ("DK", -5.0, -5.0), ("DT", -5.0, -5.0), ("DU", -50.0, -50.0), ("DK", -20.0, -20.0), ("DT", -100.0, -100.0)); tcell("zero start, c0 < 0, otherwise (c >= -100)", cas, c; c0); end
+for (cas, c, c0) in (("DT", -20.0, 3.0), ("DU", -5.0, 2.0), ("DT", -50.0, 5.0), ("DK", -10.0, 2.0), ("DK", -2.0, 1.0), ("DK", 0.0, 2.0), ("DU", 0.0, 2.0), ("DT", 1.0, 3.0),
+                     ("DU", -100.0, 3.0), ("DT", 2.0, 1.0)); tcell("zero start, c0 > 0, c <= 1 (case DT: c <= 2)", cas, c; c0); end
+for (cas, c, c0) in (("DU", 2.0, 1.0), ("DK", 2.0, 2.0)); tcell("zero start, c0 > 0, otherwise", cas, c; c0); end
 for cas in ("DK", "DU", "DT"); tcell("zero start, c0 != 0, c < -100", cas, -300.0; c0 = -300.0); end
 tcell("zero start, c0 != 0, c < -100", "DU", -480.0; c0 = -480.0)
 for (cas, c) in (("SU", -10.0), ("ST", -50.0)); tcell("stationary start, c0 = 0", cas, c); end
@@ -62,7 +66,7 @@ for (cas, c, c0) in (("DK", 5.0, -3.0), ("DU", 5.0, -3.0), ("DT", 5.0, -3.0), ("
 for (cas, c) in (("DT", 7.0), ("DK", 7.0), ("DU", 10.0)); tcell("above the unit root, c >= 7, the bulk", cas, c; ks = (-1, 0, 1)); end
 for (cas, c, g0) in (("DK", 0.0, 1.0), ("DK", -0.5, 0.5), ("DK", -5.0, 2.0), ("DK", -50.0, 0.5), ("DK", 1.0, 1.0)); tcell("fixed start, case DK, c <= 1, (c g0)^2/2 <= 400", cas, c; g0); end
 tcell("fixed start, case DK, c <= 1, (c g0)^2/2 <= 400", "DK", -10.0; c0 = -2.0, g0 = 1.0)
-for (cas, c, g0) in (("DK", -100.0, 0.5), ("DK", -80.0, 0.3)); tcell("fixed start, case DK, c >= -100, g0 <= 0.5", cas, c; g0); end
+for (cas, c, g0) in (("DK", -100.0, 0.5), ("DK", -80.0, 0.3), ("DK", -20.0, 1.5), ("DK", -50.0, 1.0)); tcell("fixed start, case DK, c >= -100, |g0| <= 1.5, |c g0| <= 50", cas, c; g0); end
 for (cas, c, g0) in (("DK", 2.0, 1.0), ("DK", -20.0, 2.0), ("DK", -100.0, 1.0)); tcell("fixed start, case DK, otherwise", cas, c; g0); end
 for (cas, c, g0) in (("DU", -10.0, 1.0), ("DT", 0.0, 2.0), ("DU", -50.0, 1.5)); tcell("fixed start, cases DU, DT", cas, c; g0); end
 
@@ -76,10 +80,13 @@ end
 for (cas, c) in (("DK", -5.0), ("DU", -5.0), ("DT", -5.0), ("DT", 0.0), ("SK", -5.0), ("SU", -5.0), ("ST", -5.0)); mrow("moments", cas, c); end
 mrow("moments, fixed start", "DU", -5.0; g0 = 1.0); mrow("moments", "DU", -50.0); mrow("moments", "DU", -100.0); mrow("moments", "DK", -480.0)
 mrow("moments, stationary, c0 != 0", "SK", -300.0; c0 = -300.0); mrow("moments, stationary, c0 != 0", "ST", -200.0; c0 = -200.0); mrow("moments, stationary, c0 != 0", "SU", -5.0; c0 = -5.0)
+mrow("moments, stationary, c0 != 0", "ST", -1.0; c0 = -1.0); mrow("moments, stationary, c0 != 0", "SK", -20.0; c0 = 2.0)
 mrow("moments, zero start, c0 != 0", "DK", -100.0; c0 = -100.0); mrow("moments, zero start, c0 != 0", "DU", -480.0; c0 = -480.0); mrow("moments, zero start, c0 != 0", "DT", -300.0; c0 = -300.0); mrow("moments, zero start, c0 != 0", "DU", -5.0; c0 = -5.0)
+mrow("moments, zero start, c0 != 0", "DT", 0.0; c0 = -2.0); mrow("moments, zero start, c0 != 0", "DT", -20.0; c0 = -2.0)
 
 pr("\n(3) quantiles and the coefficient statistic\n")
-for (cas, c, g0) in (("DU", 0.0, 0.0), ("DU", -10.0, 0.0), ("DT", -5.0, 0.0), ("ST", -10.0, 0.0), ("DK", -5.0, 1.0), ("DU", -5.0, 1.0), ("DK", 0.0, 0.0), ("DU", -50.0, 0.0), ("SU", -5.0, 0.0), ("DT", 3.0, 0.0), ("DG", 0.0, 0.0))
+for (cas, c, g0) in (("DU", 0.0, 0.0), ("DU", -10.0, 0.0), ("DT", -5.0, 0.0), ("ST", -10.0, 0.0), ("DK", -5.0, 1.0), ("DU", -5.0, 1.0), ("DK", 0.0, 0.0), ("DU", -50.0, 0.0), ("SU", -5.0, 0.0), ("DT", 3.0, 0.0), ("DG", 0.0, 0.0),
+                     ("DU", 1.0, 0.0), ("DT", 2.0, 0.0))
     au = MD.autoengine(:icdf, MD.case_spec(cas, g0), c, 0.0, 0.0)
     row("ltratio_icdf at p = 0.01, 0.05, 0.5 ($cas, c = $c$(g0 != 0 ? ", g0 = $g0" : ""))", () -> ltratio_icdf([0.01, 0.05, 0.5], cas, c; g0, engine = :classical),
         () -> ltratio_icdf([0.01, 0.05, 0.5], cas, c; g0, engine = :general); auto = au)
@@ -100,7 +107,7 @@ for (cas, a, bs, c) in (("DK", -3.5, [-0.6, -0.2639, 0.3], 0.0), ("DK", -3.5, [-
     row("ltratio_lincdf, a = $a$(isnan(a) ? " (P(V <= b))" : "") ($cas, c = $c)", () -> ltratio_lincdf(bs, a, cas, c; engine = :classical), () -> ltratio_lincdf(bs, a, cas, c; engine = :general); auto = au)
 end
 # case DG with GLS detrending at small |cbar| (the vertical line of the general engine)
-for (cb, c, a) in ((-5.0, 0.0, -2.0), (-2.0, -5.0, -7.3), (-1.0, 0.0, -2.0), (-1.0, 2.0, -2.0))
+for (cb, c, a) in ((-5.0, 0.0, -2.0), (-2.0, -5.0, -7.3), (-1.0, 0.0, -2.0), (-1.0, 2.0, -2.0), (-13.5, 2.0, -7.3), (-5.0, 2.0, -2.0))
     bs = [-0.9, -0.5, 0.0, 0.5]
     au = MD.autoengine(:lincdf, MD.lin_spec("DG", cb), c, 0.0, a)
     row("ltratio_lincdf, a = $a (DG, cbar = $cb, c = $c)", () -> ltratio_lincdf(bs, a, "DG", c; cbar = cb, engine = :classical), () -> ltratio_lincdf(bs, a, "DG", c; cbar = cb, engine = :general); auto = au)
@@ -116,5 +123,13 @@ for (cas, c) in (("DU", 0.0), ("DT", -10.0), ("SU", -10.0), ("ST", -5.0), ("SU",
         () -> vcat(adfmax_cdf([-3.0, -2.4, -1.5], cas, c; engine = :general), adfmax_pdf([-3.0, -2.4, -1.5], cas, c; engine = :general)); auto = au)
 end
 row("ltratio_region, line a = -3.5, b = -0.2639 (DK, c = -5)", () -> ltratio_region((type = "line", a = -3.5, b = -0.2639), "DK", -5.0; engine = :classical), () -> ltratio_region((type = "line", a = -3.5, b = -0.2639), "DK", -5.0; engine = :general))
-row("ltratio_region, parabola x = -1.94087 (DK, c = -7)", () -> ltratio_region((type = "parabola", x = -1.94087), "DK", -7.0; engine = :classical), () -> ltratio_region((type = "parabola", x = -1.94087), "DK", -7.0; engine = :general))
+for c in (-7.0, -50.0, 2.0)
+    bp = (type = "parabola", x = -1.94087)
+    row("ltratio_region, parabola x = -1.94087 (DK, c = $c)", () -> ltratio_region(bp, "DK", c; engine = :classical), () -> ltratio_region(bp, "DK", c; engine = :general);
+        auto = MD.autoengine(:region, MD.case_spec("DK"), c, 0.0, 1.0))
+end
+let bp = (type = "parabola", x = -1.0, c0 = -2.0)
+    row("ltratio_region, parabola x = -1, c0 = -2 (DK, c = -7)", () -> ltratio_region(bp, "DK", -7.0; engine = :classical), () -> ltratio_region(bp, "DK", -7.0; engine = :general);
+        auto = MD.autoengine(:region, MD.case_spec("DK"), -7.0, -2.0, 1.0))
+end
 close(io)
