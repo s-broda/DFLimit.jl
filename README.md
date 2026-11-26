@@ -359,34 +359,34 @@ julia> using DFLimit
 
 julia> ltratio_icdf([0.01, 0.05, 0.10], "DU")         # asymptotic critical values of tau_mu
 3-element Vector{Float64}:
- -3.4303530006055194
- -2.861568863651965
- -2.566791069677309
+ -3.430353000605524
+ -2.8615688636519616
+ -2.566791069677308
 
 julia> ltratio_cdf(-2.86157, "DU", -5)                # limiting power of the 5% test at c = -5
 0.11651356209338504
 
 julia> ltratio_cdf(-2.86157, "SU", -5)                # the same with a stationary start
-0.12496412271269275
+0.12496412271269264
 
 julia> ltratio_cdf(0, "DK", 2; c0 = 2)                # t-ratio centred at the true value
 0.6504355619776843
 
 julia> ltratio_cdf(-2, "DU", -5; g0 = 1.5)            # fixed start
-0.8649772400771694
+0.864977240077059
 
 julia> ltratio_pdf(-2, "DT", -5)                      # density
-0.5088008223323365
+0.5088008223323366
 
 julia> ltratio_mom(4, "DT")                           # first four moments of tau_tau
 4-element Vector{Float64}:
-  -2.1813558185984525
-   5.320675920705032
- -14.035800103551088
-  39.55443049607968
+  -2.181355818598303
+   5.320675920705155
+ -14.035800103555014
+  39.55443049617824
 
 julia> coef_cdf(-14.0936, "DU", -10)                  # power of the 5% coefficient test at c = -10
-0.45925256320730923
+0.45925256320763047
 
 julia> adfmax_icdf(0.05, "DU")                        # 5% critical value of ADFmax with a constant
 -2.435416499432509
@@ -395,7 +395,7 @@ julia> ltratio_region((type = "wap", k = 3.6658, omega = 10), "DK")   # size of 
 0.049999622834651807
 
 julia> power_envelope(-7)                             # the power envelope at c = -7
-0.49940198260314117
+0.4994019828155684
 ```
 
 The engine is multithreaded: start Julia with `julia -t auto` (or set the environment variable
@@ -421,12 +421,14 @@ pkg> add DFLimit
 or, equivalently, `using Pkg; Pkg.add("DFLimit")`. The development version, which may hold changes that are not yet
 released, comes from the GitHub repository: `pkg> add DFLimit#main` (or
 `Pkg.add(url = "https://github.com/s-broda/DFLimit.jl")`), or, from a local clone,
-`Pkg.develop(path = "/path/to/DFLimit.jl")`. The dependencies (SpecialFunctions, QuadGK, PrecompileTools) are
-installed with it. The first `using DFLimit` precompiles the package, which takes about half a minute: it runs a few of
+`Pkg.develop(path = "/path/to/DFLimit.jl")`. The dependencies (SpecialFunctions, QuadGK, StaticArrays, PrecompileTools and standard
+libraries) are installed with it. The first `using DFLimit` precompiles the package, which takes about half a minute: it runs a few of
 the functions once, so that their first call in a session does not wait several seconds for compilation.
 `Pkg.test("DFLimit")` runs the tests (about six minutes; they compare the values with values stored by the companion
 paper's code, and end with the engine's own checks in `test/engine/`). The longer checks of the engine and the scripts that
-write its stored values are in `dev/` (see `dev/README.md`).
+write its stored values are in `dev/` (see `dev/README.md`). The documentation is built with Documenter from `docs/`:
+`julia --project=docs -e 'using Pkg; Pkg.develop(path = "."); Pkg.instantiate()'`, then
+`julia --project=docs docs/make.jl`, which writes the pages to `docs/build`.
 
 ## Other implementations
 

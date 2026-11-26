@@ -58,7 +58,7 @@ glrule(n::Int) = lock(GLLOCK) do; get!(() -> gl(n), GLR, n); end
 
 Piecewise polynomial regressors on [0, 1]: `br` the piece boundaries 0 = br[1] < ... < br[end] = 1, `C[j]` the
 (deg+1) x K matrix of the coefficients of r^k (k = 0..deg, in the global variable r) of the K regressors on piece j.
-A regressor is left-continuous at a break: piece j covers br[j] < r <= br[j+1] (r = 0 belongs to piece 1), so that a
+A regressor is left-continuous at a break: piece j covers `br[j] < r <= br[j+1]` (r = 0 belongs to piece 1), so that a
 level-shift dummy 1{r > lambda} is 0 at r = lambda, as 1{t > T_B} in the regression.  Determ(br, C, name, true): the
 coefficients are those of the local variable r - br[j] on piece j (the form `fdesign` builds, well conditioned at high
 degree on short pieces).  The last field is the statistic: :onestep, the t-ratio of y_{t-1} in the regression of y_t on

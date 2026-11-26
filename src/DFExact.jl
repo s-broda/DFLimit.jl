@@ -22,9 +22,9 @@ coefficients depending on t alone, so that the inverse two-sided Laplace transfo
 variables, a Bessel K_0, for M2 and M3).  The remaining integrals are a Gauss–Legendre rule along
 paths in the complex plane on which the Gaussian factor decays, and a trapezoidal rule along
 Re t = tau.  The t-loops run on NWORKERS[] tasks (start Julia with -t 6 or more; -t auto gives only the performance
-cores on macOS): by default the performance cores plus a
-third of the efficiency cores on macOS and the physical cores elsewhere, since using every hardware thread of a
-machine with efficiency cores or hyperthreading makes it slower; set DFExact.NWORKERS[] to override.
+cores on macOS): by default the smaller of the number of threads and the number of cores (on macOS the performance and
+the efficiency cores, whose help the dynamic schedule of the loops uses; elsewhere the physical cores, since using every
+hardware thread of a machine with hyperthreading makes it slower); set DFExact.NWORKERS[] to override.
 """
 module DFExact
 
@@ -5444,7 +5444,7 @@ end
 """
     ltratio_bisect(f, lo, hi, tol = 1e-9) -> x
 
-The root of `f` on the bracket [lo, hi] (f(lo) f(hi) < 0) by bisection to the width `tol`, at most 200 halvings; the
+The root of `f` on the bracket `[lo, hi]` (f(lo) f(hi) < 0) by bisection to the width `tol`, at most 200 halvings; the
 midpoint of the last bracket.  The same steps as the MATLAB function of the same name; used by `power_envelope` and by
 the replication scripts (julia/replication).  An error if f(lo) and f(hi) do not have opposite signs.
 
@@ -6450,7 +6450,7 @@ end
 """
     coef_cdf(y, cas, c = 0; c0 = 0, g0 = 0, method = :auto, engine = :auto, verified = false, tol = 1e-12, err = false, opts...) -> F
 
-The limit as n -> inf of P[n(phi^ - phi0) <= y] (y a number or an array) for the least squares estimate phi^ of phi in
+The limit as n -> inf of `P[n(phi^ - phi0) <= y]` (y a number or an array) for the least squares estimate phi^ of phi in
 the regression of `ltratio_cdf`, under phi = 1 + c/n, with phi0 = 1 + c0/n (c0 = 0: the coefficient test of Dickey and
 Fuller, rho^ = n(phi^ - 1)).  The limit is (U - c0 V)/V, so that P[(U - c0 V)/V <= y] = P[U - (c0 + y)V <= 0].
 

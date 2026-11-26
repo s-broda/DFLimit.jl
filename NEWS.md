@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Documentation.** Documenter pages in `docs/` (`docs/make.jl`): the home page, installation, a guide to the case
+  codes, the two engines, the choice between them, the rules of one evaluation and the devices of Bao and Kan (the
+  content of the README), the statistics beyond the t-ratio, and the API reference from the docstrings; the workflow
+  `.github/workflows/Documentation.yml` builds them on pushes and pull requests and deploys them from `main` and tags
+  to the branch gh-pages. Docstrings that Documenter misread are repaired (text in brackets followed by parentheses
+  read as a link in `Determ`, `coef_cdf`, `ltratio_bisect`), and the module docstring of `DFExact` gives the default
+  number of tasks as the code sets it. The examples of the README print the values of this version (the power
+  envelope at c = -7 by the single inversion, 0.4994019828155684; the others move in the last digits).
 - **The two papers.** The package cites the lead paper, Bao, Broda and Kan, "The Exact Limiting Distribution of the
   Dickey-Fuller t-Ratio with General Deterministic Terms" (SSRN 7745921), the paper of the general engine and of the
   inversion formula on paths, and, for the classical engine and its representations, its companion, "Low-Rank
