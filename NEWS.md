@@ -22,7 +22,8 @@
 - **The general engine's method `:auto` above the unit root** (`DFDet.line_auto`): the inversion on paths for 0 < c <=
   1.5 with one regressor and 0 < c <= 2 with two or more, where the outer hyperbola keeps its angle of 45 degrees and the
   paths are 1.3 to 2.3 times faster than the line integral; the line integral otherwise at c0 = 0, as before. And the line
-  integral, where it covers the design, with c0 > 0 on the vertical line (`DFDet.line_vline`): there the paths did not
+  integral, where it covers the design, with c0 > 0 at the points x < 0 on the vertical line (`DFDet.line_vline`; the
+  points x >= 0 and the quantiles keep the paths, where the line integral grows slow far out): there the paths did not
   resolve the two roots of the parabola of a point x < 0, and one evaluation was off by up to 1e-3 in the lower tail,
   below zero (refused by the range check) or NaN, with the line's warning (an intercept with a sine and a cosine at c = 5,
   c0 = 2: F(-26.7) = 1.3e-3 for 6.9e-14, the 0.01% point -35.9 for -4.76; the quadratic trend at c = 8, c0 = 2).

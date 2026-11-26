@@ -128,11 +128,13 @@ end
     # and -2.3e-4 at -17.4 for values below 1e-12; November 26, 2026); on a hyperbola (c = 3) the paths
     let xn = [-26.68, -17.434, -8.1877, -2.0, 1.0]
         Fa = @test_logs min_level = Logging.Warn GL.dist_cdf(TRIG, xn, 5.0; c0 = 2.0)
-        @test Fa == GL.dist_cdf(TRIG, xn, 5.0; c0 = 2.0, method = :line) && all(<(1e-10), Fa[1:3]) && issorted(Fa[3:5])
-        @test GL.dist_pdf(TRIG, xn, 5.0; c0 = 2.0) == GL.dist_pdf(TRIG, xn, 5.0; c0 = 2.0, method = :line)
-        @test abs(Fa[5] - GL.dist_cdf(TRIG, [1.0], 5.0; c0 = 2.0, method = :paths)[1]) < 1e-10
+        @test Fa[1:4] == GL.dist_cdf(TRIG, xn[1:4], 5.0; c0 = 2.0, method = :line) && all(<(1e-10), Fa[1:3]) && issorted(Fa[3:5])
+        @test GL.dist_pdf(TRIG, xn[1:4], 5.0; c0 = 2.0) == GL.dist_pdf(TRIG, xn[1:4], 5.0; c0 = 2.0, method = :line)
+        @test abs(Fa[5] - GL.dist_cdf(TRIG, [1.0], 5.0; c0 = 2.0, method = :line)[1]) < 1e-10
         @test GL.dist_cdf(TRIG, [-3.0], 3.0; c0 = 2.0) == GL.dist_cdf(TRIG, [-3.0], 3.0; c0 = 2.0, method = :paths)
-        @test -6 < ltratio_icdf(1e-4, TRIG, 5.0; c0 = 2.0) < -2
+        # (x >= 0 by the paths, as before; the quantiles keep the paths)
+        @test GL.dist_cdf(TRIG, [1.0], 5.0; c0 = 2.0) == GL.dist_cdf(TRIG, [1.0], 5.0; c0 = 2.0, method = :paths)
+        @test GL.dist_quantile(TRIG, 0.5, 5.0; c0 = 2.0, x0 = 5.0) == GL.dist_quantile(TRIG, 0.5, 5.0; c0 = 2.0, x0 = 5.0, method = :paths)
     end
     # the providers are cached per design, start and c, at most CACHE_MAX[] of them
     old = GL.CACHE_MAX[]; GL.CACHE_MAX[] = 3

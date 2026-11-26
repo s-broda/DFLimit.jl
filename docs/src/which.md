@@ -14,8 +14,9 @@ probabilities). The times in the table below are those of `dev/engine_table.txt`
 Within the general engine, `dist_cdf`, `dist_pdf` and `dist_quantile` (and the classical functions with a design, through
 them) choose between two representations by the keyword `method`: `:auto` (the default, `DFDet.line_auto`) takes the
 line integral with the explicit kernel where it covers the design and c0 = 0, except above the unit root for 0 < c <= 1.5
-with one regressor (the intercept) and 0 < c <= 2 with two or more, and with c0 > 0 where the outer contour of the paths
-is the vertical line (`DFDet.line_vline`); the inversion on paths around the roots otherwise; `:line` forces the line
+with one regressor (the intercept) and 0 < c <= 2 with two or more, and with c0 > 0 at the points x < 0 where the outer
+contour of the paths is the vertical line (`DFDet.line_vline`; the quantiles keep the paths there); the inversion on paths
+around the roots otherwise; `:line` forces the line
 integral (an `ArgumentError` with the reason where it does not cover the design, the start or the options) and `:paths`
 the inversion on paths. The line integral covers the designs whose numerator has rank one or two: no deterministic terms,
 the continuous designs that do not vanish at the origin and whose span is closed under differentiation (polynomial

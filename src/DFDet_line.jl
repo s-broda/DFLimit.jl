@@ -302,8 +302,10 @@ parabola X(v) of a point x < 0 has two positive roots, whose parts of the outer 
 and the paths' one evaluation was off by up to 1e-3 in the lower tail, below zero or NaN (the range check refused them;
 November 26, 2026: an intercept with a sine and a cosine at c = 5, c0 = 2, F(-26.7) = 1.3e-3 for 6.9e-14, F(-8.19) =
 6.7e-5 for 4.7e-13, F(-17.4) = -2.3e-4; the quadratic trend at c = 8, c0 = 2; the line's warning fired), while the line
-integral agrees with the paths to 2e-11 at x > 0 and with the classical engine for the linear trend.  The points beyond the
-line integral's bounds go to the paths, as elsewhere.
+integral agrees with the paths to 2e-11 at x > 0 and with the classical engine for the linear trend.  The line integral then
+computes the points x < 0 only, the paths the others (`line_dist`; the line integral's cost grows with x far above the unit
+root), and the quantiles keep the paths (`line_quantile`); the points beyond the line integral's bounds go to the paths, as
+elsewhere.
 """
 line_vline(D::Determ, c::Float64, start::Symbol, gamma0::Real, gls, c0::Float64) =
     c0 > 0 && c > 0 && start != :fixed && isnan(cpath_cached(startmodel(D, c, start, gamma0, gls), c).h)
@@ -364,9 +366,13 @@ function line_dist(method::Symbol, D::Determ, xs::AbstractVector, c::Real, which
         CP = rule_path(Mo, c, phi, hf, rl, c0)
         v = contour_eval(line_refined(CP, xp; c0), xp; c0, n, ntail = nt)[which]; which == 2 && tangency!(v, CP.Mo, xp, c0); v
     end
+    # (where the line integral was taken only for c0 > 0 on the vertical line, `line_vline`, it computes the points x < 0,
+    # whose parabola has two positive roots, and the paths the others, as before: the line integral grows slow at large x)
+    vonly = method === :auto && !line_auto(D, Float64(c), c0)
     nonfinite(xs, which == 1) do x
         v = similar(x); fb = Int[]
         for k in eachindex(x)
+            (vonly && !(x[k] < 0)) && (push!(fb, k); v[k] = NaN; continue)
             v[k] = try
                 line_value(lm, x[k], which, c0)
             catch e
@@ -404,6 +410,9 @@ function line_quantile(method::Symbol, D::Determ, p::Real, c::Real; x0::Real, to
     c0 = Float64(get(kw, :c0, 0.0))
     lm = line_select(method, D, c, start, gamma0, gls, phi, hfac, c0, kw)
     lm === nothing && return nothing
+    # (the quantiles keep the paths where the line integral was taken only for c0 > 0 on the vertical line, `line_vline`: the
+    # search may reach x > 0, where the line integral grows slow; the paths warn there)
+    (method === :auto && !line_auto(D, Float64(c), c0)) && return nothing
     FF(y) = (line_value(lm, y, 1, c0), line_value(lm, y, 2, c0))
     try
         x = Float64(x0)
