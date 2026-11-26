@@ -224,10 +224,11 @@ function autoengine(f::Symbol, S::Spec, c::Float64, c0::Float64, x::Float64)
         cas == "DK" && return c <= -0.01 ? :general : :classical
         return :classical
     elseif f === :region
-        # x = 1 for the parabola of the t-ratio (with its c0), 0 for the other boundaries.  The parabola at c0 = 0: the
-        # general engine (its line integral), 2.5 to 27 times faster than the classical region code's conditional integral
-        # (re-measured November 26, 2026); with c0 != 0 and for the line the classical code, the faster
-        return (x == 1 && c0 == 0) ? :general : :classical
+        # x = 1 for the parabola of the t-ratio (with its c0), 0 for the other boundaries.  The parabola at c0 = 0 below and
+        # at the unit root: the general engine (its line integral), 2.5 to 27 times faster than the classical region code's
+        # conditional integral (re-measured November 26, 2026, c from 0 to -50; at c = 2 the classical code is 1.7 times
+        # faster, dev/engine_table.txt); with c0 != 0, above the unit root and for the line the classical code
+        return (x == 1 && c0 == 0 && c <= 0) ? :general : :classical
     end
     :classical
 end

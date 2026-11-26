@@ -101,6 +101,7 @@ spec(cas; g0 = 0.0) = MD.case_spec(cas, g0)
         @test ae(:lincdf, MD.lin_spec("DG", -0.5), 1, 0, -2.0) == :classical && ae(:lincdf, MD.lin_spec("DG", -0.5), 4.5, 0, -2.0) == :general
         # the parabola of the t-ratio at c0 = 0: the general engine (x = 1 marks the parabola)
         @test ae(:region, spec("DK"), -7, 0, 1) == :general && ae(:region, spec("DK"), -7, -2, 1) == :classical && ae(:region, spec("DK"), -7, 0, 0) == :classical
+        @test ae(:region, spec("DK"), 0, 0, 1) == :general && ae(:region, spec("DK"), 2, 0, 1) == :classical
         @test MD.region_rule_args((type = "parabola", x = -1.9)) == (1.0, 0.0) && MD.region_rule_args((type = "parabola", x = -1.9, v0 = 0.1)) == (0.0, 0.0)
         @test MD.region_rule_args((type = "line", a = -3.5, b = 0.1)) == (0.0, 0.0) && MD.region_rule_args(Dict("type" => "parabola", "x" => 1.0, "c0" => 2)) == (1.0, 2.0)
         # the general engine's method :auto above the unit root (DFDet.line_auto): the paths for 0 < c <= 1.5 with one

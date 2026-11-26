@@ -216,8 +216,8 @@ below, except case DG, which the line integral does not cover) and its paths abo
 | the power envelope, case DG, and case DK nearer zero | classical | | | 2.1e-9 | in case DG 4.7 to 21 times faster at c = -2 to -20 (November 26, 2026; the general engine took c <= -1 until then); case DK at c = -1e-4: the general engine is off by 1.1e-9 |
 | ADFmax, stationary start, c <= -0.1 | general | 112 to 197 | 50 to 59 | 3e-12 | 2.3 to 3.4 times faster; next to zero (c = -1e-4) it is off by 2e-9 |
 | ADFmax, zero start | classical | 22, 33 | 50, 53 | 2.6e-12 | 1.6 to 2.3 times faster |
-| regions (`ltratio_region`): the parabola of the t-ratio at c0 = 0 | general | | | 1.2e-13 | 2.5 to 27 times faster (its line integral; November 26, 2026) |
-| regions otherwise: the line, the parabola with c0 != 0, the WAP boundary and a function g | classical | | | 1e-12 | 3.1 times faster for the line, 1.3 to 2.6 times for the parabola with c0 != 0; the classical engine is the only one for the WAP boundary and a function g |
+| regions (`ltratio_region`): the parabola of the t-ratio at c0 = 0, c <= 0 | general | | | 1.2e-13 | 2.5 to 27 times faster (its line integral; November 26, 2026) |
+| regions otherwise: the line, the parabola with c0 != 0 or above the unit root, the WAP boundary and a function g | classical | | | 1e-12 | 3.1 times faster for the line, 1.3 to 2.6 times for the parabola with c0 != 0; the classical engine is the only one for the WAP boundary and a function g |
 | above the range of the general engine (c > 16 with deterministic terms, c > 10 with them and a fixed start, c > 20 without) | classical | | | | the general engine refuses there |
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
 

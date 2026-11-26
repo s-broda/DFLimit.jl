@@ -15,7 +15,7 @@
   2.5 times) and in cases SU, ST for c <= -0.5 (1.3 to 1.7 times). The classical engine now takes the moments (`method =
   :engine`) with c0 != 0 below c = -5 with a stationary start and in case DT (1.8 to 10 times faster), the linear form of
   case DG at and below the unit root at every cbar (2 to 11.5 times) and the power envelope of case DG (4.7 to 21
-  times, as the C rule). The parabola of `ltratio_region` at c0 = 0 takes the general engine (2.5 to 27 times). Left
+  times, as the C rule). The parabola of `ltratio_region` at c0 = 0 takes the general engine at and below the unit root (2.5 to 27 times). Left
   alone, below the threshold or with gains that vary: c0 = 0 below the unit root (the general engine's line integral 1.0
   to 1.24 times faster), c0 < 0 in case DU, the quantiles in cases DK, DU below the unit root and SK. Where the rule now
   takes the other engine, values move by less than 1e-7.
