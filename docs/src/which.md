@@ -109,3 +109,7 @@ classical engine refuses such points with an `ArgumentError` (the conditional in
 c = 16 and gives 1e44 in case DT, and the general engine's line exceeds its bounds). The general engine cuts its line to
 the oscillation with c0 (it was off by 1.1e-3 at c = 10, c0 = 9). Every distribution function (`ltratio_cdf`, `coef_cdf`,
 `dist_cdf`, `DFDet.coef_cdf`) ends with a check of its values: below -1e-8 or above 1 + 1e-8 an error that names the call.
+The line integral's fixed node layouts serve -50 <= x <= 15, its adaptive rules the far tails beyond (where the layouts
+lost up to 2e-3), and no panel of their partitions ends within 1e-9 of the end of the partition (a panel a few ulps long
+put its nodes on the support edge of the kernel: NaN at the ulps above x = -500/4^k); the general engine's paths take any
+tiny x.

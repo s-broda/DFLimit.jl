@@ -180,6 +180,53 @@ end
     @test Fa ≈ ltratio_cdf(-8.4075, "DU", 2; c0 = 5.0, g0 = 1.5, method = :double, verified = true) atol = 1e-9
 end
 
+@testset "the line integral at every finite point" begin
+    # (no panel a few ulps long at the end of a geometric partition, DFExact.nosliver: at the points one to four ulps above
+    # -500/4^k the last panel of the fixed layouts put its nodes on the support edge of the kernel and F was NaN, case DK at
+    # c = 0 at x = -7.8124999999999991 among them, in every case and at every c <= 0)
+    for (cas, c) in (("DK", 0.0), ("DU", 0.0), ("DT", -5.0), ("SU", -5.0)), k in 2:5
+        x = -500 / 4.0^k; F0 = ltratio_cdf(x, cas, c); f0 = ltratio_pdf(x, cas, c)
+        for j in 1:4
+            x = nextfloat(x)
+            @test abs(ltratio_cdf(x, cas, c) - F0) < 1e-12 && abs(ltratio_pdf(x, cas, c) - f0) < 1e-12 * max(1.0, f0)
+        end
+    end
+    @test all(isfinite, dist_cdf(trend(-1), [nextfloat(-7.8125), nextfloat(nextfloat(-7.8125))], 0.0))     # (the general engine's line integral)
+    @test ltratio_cdf(-7.8125, "DK", 0) < 2e-13            # (the line integral's absolute error floor; the paths give 5.66e-15)
+    # (the Gaussian factor in (r/q)^2, DFExact.inner_cdf: below |x| ~ 1e-154 r^2 and q^2 underflowed, NaN in cases DK, DU)
+    for (cas, c) in (("DK", 0.0), ("DU", 0.0), ("DT", -5.0), ("DK", 1.0)), x in (1e-140, 1e-160, 1e-200, 5e-324, -1e-200, -5e-324)
+        @test abs(ltratio_cdf(x, cas, c) - ltratio_cdf(0.0, cas, c)) < 1e-12 && abs(ltratio_pdf(x, cas, c) - ltratio_pdf(0.0, cas, c)) < 1e-12
+    end
+    @test abs(dist_cdf(trend(0), [1e-160], 0.0)[1] - ltratio_cdf(0.0, "DU")) < 1e-12
+    # (the general engine's paths at a tiny x < 0, whose parabola has its root at -1/(2x): the asymptotic series of the
+    # incomplete Gaussian integrals never ended beyond |z| ~ 1e102, DFDet.ctr_h, and the density was NaN where the end's
+    # exponential underflowed, DFDet.ctr_rend; the rule takes the paths in cases DU, DT above the unit root)
+    for (cas, c) in (("DU", 1.0), ("DT", 2.0)), x in (-1e-100, -1e-200, -5e-324)
+        @test abs(ltratio_cdf(x, cas, c) - ltratio_cdf(-1e-20, cas, c)) < 1e-12 && abs(ltratio_pdf(x, cas, c) - ltratio_pdf(-1e-20, cas, c)) < 1e-12
+    end
+    @test all(isfinite, dist_pdf(perron(:C, 0.3), [-1e-200, 1e-200], -5.0))
+    # (far in the tails the fixed layouts lost accuracy, DFExact.usebatch: they serve -50 <= x <= 15, the adaptive rules
+    # beyond; case DK at c = 0 gave F = 1 + 1.3e-6 at x = 31.25 and 1 + 2.1e-3 at 125, refused by the range check, at c =
+    # -480 F = -2.9e-7 at x = -100, refused, and case DU at c = -10 F = 4.9e-7 at x = -250)
+    @test abs(ltratio_cdf(31.25, "DK", 0) - 1) < 1e-12 && abs(ltratio_cdf(125.0, "DK", 0) - 1) < 1e-10
+    @test abs(ltratio_cdf(-100.0, "DK", -480)) < 1e-12 && abs(ltratio_cdf(-250.0, "DU", -10)) < 1e-11 && abs(ltratio_cdf(-500.0, "DK", 0)) < 1e-12
+end
+
+@testset "verified with c0 > 0 far from the unit root" begin
+    # (the checked conditional integral was off by up to 1e-5 there, and verified = true returned such a value at c = -100,
+    # c0 = 3, off by 2.1e-8 in case DU and 4.2e-8 in case DT: below c = -20 (DFExact.DOUBLE_C0POS_CMAX) a zero start with
+    # c0 > 0 takes the line integral with verified = true as well)
+    for cas in ("DU", "DT")
+        xs = ltratio_icdf([0.001, 0.01, 0.5, 0.99], cas, -100; c0 = 3.0, engine = :classical)
+        Fv = ltratio_cdf(xs, cas, -100; c0 = 3.0, verified = true, engine = :classical)
+        @test maximum(abs, Fv .- ltratio_cdf(xs, cas, -100; c0 = 3.0, method = :single, engine = :classical)) < 1e-11
+        @test maximum(abs, Fv .- dist_cdf(trend(cas == "DU" ? 0 : 1), xs, -100.0; c0 = 3.0, verified = true)) < 1e-10
+    end
+    @test D.automethod_verified(2, false, -100.0, 3.0, 0.0, -5.0) == :single && D.automethod_verified(3, false, -21.0, 2.0, 0.0, -5.0) == :single
+    @test D.automethod_verified(2, false, -20.0, 3.0, 0.0, -5.0) == :double && D.automethod_verified(2, false, -100.0, -3.0, 0.0, -5.0) == :double
+    @test D.automethod(2, false, -100.0, 3.0, 0.0, -5.0) == :single                 # (the default is unchanged)
+end
+
 @testset "moments" begin
     for p in readref("mom_ref.txt")
         m, c, c0, g0, st = num(p[1:5]); mr = num(p[6:9]); cas = casecode(m, st)

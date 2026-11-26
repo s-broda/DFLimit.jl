@@ -142,7 +142,8 @@ functions of the general engine: the point-optimal statistic of Elliott, Rothenb
 for any design (`pt_cdf(D, qs, cbar, c)`, `pt_pdf`, `pt_quantile(D, p, cbar)`, `pt_power(D, cbar, c)`,
 `pt_envelope(D, cs)`, also through `power_envelope(c, D)`; for the intercept and the linear trend it is the envelope of
 the classical construction to 1e-8), the LM statistic of Schmidt and Phillips and of Amsler and Lee (`lm_cdf(D, xs, c)`,
-`lm_quantile(D, p)`, `lm_power(D, cs)`; 5% value -3.0230 for the linear trend) and the companions of the GLS-detrended
+`lm_quantile(D, p)`, `lm_power(D, cs)`; 5% value -3.0230 for the linear trend; for trend functions whose span contains
+the constant and a linear trend, an `ArgumentError` otherwise, `DFDet.span_has_constant`) and the companions of the GLS-detrended
 t-ratio, MZ_alpha (`mza_cdf(D, ys, c; gls)`, `mza_quantile`) and MSB (`msb_cdf(D, xs, c; gls)`, `msb_quantile`).
 
 ### Which engine
@@ -256,6 +257,10 @@ classical engine refuses such points with an `ArgumentError` (the conditional in
 c = 16 and gives 1e44 in case DT, and the general engine's line exceeds its bounds). The general engine cuts its line to
 the oscillation with c0 (it was off by 1.1e-3 at c = 10, c0 = 9). Every distribution function (`ltratio_cdf`, `coef_cdf`,
 `dist_cdf`, `DFDet.coef_cdf`) ends with a check of its values: below -1e-8 or above 1 + 1e-8 an error that names the call.
+The line integral's fixed node layouts serve -50 <= x <= 15, its adaptive rules the far tails beyond (where the layouts
+lost up to 2e-3), and no panel of their partitions ends within 1e-9 of the end of the partition (a panel a few ulps long
+put its nodes on the support edge of the kernel: NaN at the ulps above x = -500/4^k); the general engine's paths take any
+tiny x.
 
 ### The rules of one evaluation
 

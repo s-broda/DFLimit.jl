@@ -806,6 +806,11 @@ const EXPO = 60.0          # the Gaussian factors are followed down to e^{-EXPO}
 # inside a part adapt to t.  Node counts are set so that every part is converged to about 1e-13
 # relative to the whole (checked by doubling, see the log).
 
+"""b, or L where b falls short of L by at most 1e-9 L: the end of a panel in the geometric partitions (`geopanels`,
+`rayint`, `edgehead`, the two pieces of the smooth parts of `inner_cdf` and `inner_density`), so that no panel a few ulps
+long is left at L, whose nodes round to L itself (at the support edge X = 0 of the kernel, where X^{-1/2} is infinite,
+NaN: case DK at c = 0, x = -7.8124999999999991)"""
+nosliver(b::Float64, L::Float64) = (b < L && L - b <= 1e-9 * L) ? L : b
 # Gauss–Legendre on [a, b] with the substitution y = a + (b - a) u^p (p = 1, 2 or 4), which removes
 # algebraic and logarithmic endpoint singularities at a.
 const NODEFAC = Ref(1)      # multiplies every node count (set to 2 to check convergence)
@@ -843,10 +848,10 @@ cap(x) = x / sqrt(1 + x * x)                                   # bulge profile: 
 # outer pieces keep at most 0.85 rad per node.
 nodes(n, osc, L) = (m = 1.2 * osc * L; m > RULEMAX && throw(PathTooLarge(:rule, "a Gauss–Legendre rule", m, RULEMAX)); max(n, 16 * cld(ceil(Int, m), 16)))
 @inline function rayint(f, R, l, n1, n2, p; osc = 0.0)
-    a = min(R, 8l)
+    a = nosliver(min(R, 8l), R)
     acc = glsum(f, 0.0, a, n1, p)
     while a < R                                                 # geometric panels of ratio 4: the algebraic factors
-        b = min(R, 4a)                                          # are resolved on every scale up to R
+        b = nosliver(min(R, 4a), R)                             # are resolved on every scale up to R
         acc += glsum(f, a, b, nodes(n2, osc, b - a), 1)
         a = b
     end
@@ -926,7 +931,7 @@ function edgehead(f, a::Float64, e1::Float64)
     e1 < a || return glsum(f, 0.0, a, 48, 4)
     acc = glsum(f, 0.0, e1, 48, 4); lo = e1
     while lo < a
-        hi = min(a, 4lo); acc += glsum(f, lo, hi, 48, 1); lo = hi
+        hi = nosliver(min(a, 4lo), a); acc += glsum(f, lo, hi, 48, 1); lo = hi
     end
     acc
 end
@@ -977,7 +982,7 @@ function inner_density(V::Val{model}, tj::ComplexF64, q::Float64, s1::ComplexF64
     if part != 2
         # smooth part: (1 - chi) F, the Gaussian bump at r = 0 of width ~ (2w)^{-1/2}
         fs = r -> pathd(vs - r) * (1 - chi(vs - r))
-        r1 = w > 0 ? min(vs, sqrt(EXPO / (1.9w))) : vs
+        r1 = nosliver(w > 0 ? min(vs, sqrt(EXPO / (1.9w))) : vs, vs)
         Is = glsum(fs, 0.0, r1, 64, 1)
         r1 < vs && (Is += glsum(fs, r1, vs, 48, 1))
     end
@@ -1035,7 +1040,9 @@ function inner_cdf(V::Val{model}, tj::ComplexF64, q::Float64, s1::ComplexF64, s2
         lA = 1 / (abs(model == 1 ? s1 : (s2 - s1) / 2) + 2)
         if q < 0 || ray_ok(sd, e, q, at)
             R = q > 0 ? abs(q) * sqrt(EXPO / at) : min(0.5, abs(q) * sqrt(EXPO / at))
-            f = r -> (X = 0.5 + sign(q) * r * e; phi_pos(V, X, s1, s2) * exp(-at * r * r / (q * q)) * sign(q) * e)
+            # (the Gaussian factor e^{-|t| (r/q)^2} with r/q of order one: for |q| below about 1e-154, where the nodes r are of
+            # the order of q, r^2 and q^2 underflowed, to 0/0 = NaN below 1e-162)
+            f = r -> (X = 0.5 + sign(q) * r * e; phi_pos(V, X, s1, s2) * exp(-at * (r / q)^2) * sign(q) * e)
             return Is + rayint(f, R, lA, 48, 32, 1; osc = abs(imag(sd * e))), Ie
         end
         A = x -> phi_alg(V, 0.5 + x, s1, s2) * exp(-sd / 2)
@@ -1056,7 +1063,7 @@ function inner_cdf(V::Val{model}, tj::ComplexF64, q::Float64, s1::ComplexF64, s2
     if part != 2
         # smooth part: (1 - chi) times the integrand, the bump at X = 1/2 (x = 0) of width ~ |q| (2w)^{-1/2}
         fs = y -> path(0.5 - y) * (1 - chi(0.5 - y))                 # y = 1/2 - Xr
-        eps_ = w > 0 ? min(0.5, abs(q) * sqrt(EXPO / (1.9w))) : 0.5
+        eps_ = nosliver(w > 0 ? min(0.5, abs(q) * sqrt(EXPO / (1.9w))) : 0.5, 0.5)
         Is += glsum(fs, 0.0, eps_, 64, 1)
         eps_ < 0.5 && (Is += glsum(fs, eps_, 0.5, 48, 1))
     end
@@ -1187,13 +1194,17 @@ const RATIO = Ref(4.0)        # growth factor of the geometric panels
 function geopanels(a1::Float64, L::Float64, n::Int, p::Int; ratio::Float64 = RATIO[])
     u, gw = rule(n)
     xs = Float64[]; ws = Float64[]
+    a1 = nosliver(a1, L)                                              # (no sliver after the first panel either)
     for k in 1:n
         if p == 1; push!(xs, a1 * u[k]); push!(ws, a1 * gw[k])
         else; push!(xs, a1 * u[k]^p); push!(ws, a1 * p * u[k]^(p - 1) * gw[k]); end
     end
     a = a1
     while a < L
-        b = min(L, ratio * a)
+        # (no sliver at L, `nosliver`: in the smooth part of the distribution function's layouts, in the variable y = 1/2 - X,
+        # L is the support edge X = 0 of the kernel, where 0.001 |x| 4^3 fell an ulp short of 1/2 at x = -7.8124999999999991
+        # in case DK, and the nodes of the panel left there gave X^{-1/2} = Inf times a vanishing weight, NaN)
+        b = nosliver(min(L, ratio * a), L)
         append!(xs, a .+ (b - a) .* u); append!(ws, (b - a) .* gw)
         a = b
     end
@@ -1692,7 +1703,17 @@ const BATCHED = Ref(true)   # use the fixed layouts for M1 (zero start, c <= 0):
 # the fixed layouts serve c <= 0 and |q| above about 0.034: for smaller |q| the bulge of the segment path (of height
 # 1.5/kappa ~ 1/(8|q|) in v) lets the Gaussian factor grow like e^{2 w r g} and the segment integral cancels
 # catastrophically; the adaptive code then takes the ray from X = 1/2 (its criterion 3 tau y/16 > 40)
-usebatch(c, q, tau) = BATCHED[] && c <= 0 && !(3tau / (64q * q) > 40)
+#
+# and far in the tails they lose accuracy, where the adaptive rules hold (absolute errors of the distribution function,
+# November 26, 2026, against the adaptive rules, whose values there are within 2e-14 of 0 or 1 in case DK): in the upper
+# tail of case DK near the unit root (c > -0.3) by 1e-11 at x = 20, 8.7e-7 at x = 30, 7.2e-5 at x = 40 and 2.1e-3 at x =
+# 125 (F above 1, which the range check refused), in its lower tail by 6e-10 at x = -250 (c = 0) and 2.9e-7 at x = -100
+# (c = -480), in case DU at c = -10 by 1.1e-8 at x = -150 and 4.9e-7 at x = -250 (the adaptive rules 2.6e-12).  The
+# fixed layouts therefore serve BATCH_QMIN <= q <= BATCH_QMAX, the bulk and the tails well beyond it at every c >= -550
+# (the bulk of case DK at c = -550 lies within -21 and -12)
+const BATCH_QMIN = -50.0
+const BATCH_QMAX = 15.0
+usebatch(c, q, tau) = BATCHED[] && c <= 0 && !(3tau / (64q * q) > 40) && BATCH_QMIN <= q <= BATCH_QMAX
 const BATCHK0 = Ref(true)   # the fixed layouts for the K_0 kernel (ratio 4, 48/32 nodes: 3e-13 against the adaptive rules)
 function m1batch(q::Float64, dens::Bool, tau::Float64)
     Ls, Le = layouts(q, dens)
@@ -2056,9 +2077,24 @@ c = -80, all five at c = -200, with flagged values off by up to 1e-9 at c = -80,
 single integral is computed anyway, after 0.1-1.2 s a value spent on the double integral against 0.01-0.04 s.  And not with
 c0 != 0 and a zero start for c < -100, where the density of case DK is off by up to 1e-9 at some points without a flag
 (at c = c0 = -300 and -480; cases DU, DT are clean to 2e-11 down to c = c0 = -480 since the floor on |a|, rfloor, so the rule
-could be confined to case DK).  There the single integral serves alone, and in the far tails its absolute error of 1e-14 to 1e-21 stays.
-(With a fixed start g0 != 0 the rule is unchanged.)"""
-autodouble(stat::Bool, c::Float64, c0::Float64, g0::Float64) = !(stat && c < -50) && !(c0 != 0 && g0 == 0 && c < -100)
+could be confined to case DK).  And not with c0 > 0 and a zero start for c < DOUBLE_C0POS_CMAX = -20, where the checked
+conditional integral was off by up to 1e-5 and verified = true returned such a value at c = -100.  There the single
+integral serves alone, and in the far tails its absolute error of 1e-14 to 1e-21 stays.  (With a fixed start g0 != 0 the
+rule is unchanged.)"""
+autodouble(stat::Bool, c::Float64, c0::Float64, g0::Float64) = !(stat && c < -50) && !(c0 != 0 && g0 == 0 && c < -100) &&
+    !(c0 > 0 && g0 == 0 && !stat && c < DOUBLE_C0POS_CMAX)
+"""
+the c below which a zero start with c0 > 0 takes no conditional integral with verified = true either (`autodouble`; the
+default takes the line integral there anyway).  The conditional integral with its checks was off by 2.4e-6 to 1e-5 in
+cases DU, DT far from the unit root (November 26, 2026, at the 0.1%, 1%, 50% and 99% points: c0 = 3 at every c from -100
+to -50, c0 = 2 at c = -40 and -30; clean at c0 = 1 and 10 there, and for c0 = 2 to 5 at c = -20, -10, -5); its agreement
+rule flagged most of these points but not all, and verified = true returned such a value at c = -100, c0 = 3 (off by
+2.1e-8 in case DU at the 99% point, 4.2e-8 in case DT; reached at c = -100 exactly, the end of the range of the
+conditional integral until then), where the line integral is within 4e-12 of the general engine.  Below this c the
+checked computation takes the line integral's value, with its absolute error of 1e-14 to 1e-21 (no recomputation of the
+tails by the conditional integral).
+"""
+const DOUBLE_C0POS_CMAX = -20.0
 """the range of c: below CMIN the user-level functions (ltratio_cdf, ltratio_pdf, ltratio_icdf, ltratio_mom) raise an error with
 CMIN_MSG (the same check and message in the C engine, DFL_CMIN, and the MATLAB programs, LTRATIO_ARGS).  Measured in November
 2026: the line integral is stable to 1e-12 under node doubling, the adaptive rules and a second line at c = -550 and -600 in
@@ -4927,7 +4963,7 @@ term).  A continued fraction for h_k/h_{k-1} does not converge near the imaginar
         a0 *= r0; a1 *= r1; a2 *= r2
         s0 += a0; s1 += a1; s2 += a2
         j += 1
-        (abs(a0) < 1e-17 * abs(s0) && abs(a2) < 1e-17 * abs(s2)) && break
+        (abs(a0) <= 1e-17 * abs(s0) && abs(a2) <= 1e-17 * abs(s2)) && break     # (<=: beyond |z| ~ 1e102 a2 and s2 underflow to 0)
     end
     s0, s1, s2
 end

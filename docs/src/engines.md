@@ -67,5 +67,6 @@ functions of the general engine: the point-optimal statistic of Elliott, Rothenb
 for any design (`pt_cdf(D, qs, cbar, c)`, `pt_pdf`, `pt_quantile(D, p, cbar)`, `pt_power(D, cbar, c)`,
 `pt_envelope(D, cs)`, also through `power_envelope(c, D)`; for the intercept and the linear trend it is the envelope of
 the classical construction to 1e-8), the LM statistic of Schmidt and Phillips and of Amsler and Lee (`lm_cdf(D, xs, c)`,
-`lm_quantile(D, p)`, `lm_power(D, cs)`; 5% value -3.0230 for the linear trend) and the companions of the GLS-detrended
+`lm_quantile(D, p)`, `lm_power(D, cs)`; 5% value -3.0230 for the linear trend; for trend functions whose span contains
+the constant and a linear trend, an `ArgumentError` otherwise, `DFDet.span_has_constant`) and the companions of the GLS-detrended
 t-ratio, MZ_alpha (`mza_cdf(D, ys, c; gls)`, `mza_quantile`) and MSB (`msb_cdf(D, xs, c; gls)`, `msb_quantile`).

@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- **The LM statistic only for a design whose span contains the constant.** `lm_cdf`, `lm_quantile` and `lm_power`
+  computed the limit -1/(2 sqrt V) for any design with a linear trend in its span; that limit holds only when the span
+  also contains the constant (the LM regression estimates the level from the first observation; a referee found it false
+  otherwise). They now raise an `ArgumentError` for such a design (r alone, r and e^r, a level dummy with r gave the limit
+  of the linear trend; `DFDet.span_has_constant`, decided on the piecewise polynomial form of the design: exactly for
+  polynomial trends, breaks and dummies, to 1e-6 for the interpolants of `fdesign` and `design_from_matrix`).
+- **No NaN from the line integral at a finite point.** Three causes in the classical integrator (also the general
+  engine's line integral): (1) where 0.001 |x| 4^m fell a few ulps short of 1/2, the geometric partition of the fixed
+  layouts left a last panel a few ulps long whose nodes lay on the support edge of the kernel, X^{-1/2} = Inf times a
+  vanishing weight: NaN at the one to four ulps above x = -500/4^k (-7.8124999999999991 in case DK at c = 0, which the
+  normal average of `rho` met; -1.9531249999999998, -0.48828124999999994, ... in every case at every c <= 0), now no
+  panel ends within 1e-9 of the end of its partition (`DFExact.nosliver`); (2) for 0 < |x| < about 1e-154 the Gaussian
+  factor e^{-|t| r^2/q^2} of the ray underflowed to 0/0 (cases DK, DU), now in (r/q)^2; (3) far in the tails the fixed
+  layouts lost accuracy (case DK at c = 0: F = 1 + 1.3e-6 at x = 31.25 and 1 + 2.1e-3 at 125, refused by the range check,
+  F = -2.5e-3 at x = -500; at c = -480 F = -2.9e-7 at x = -100; case DU at c = -10 F = 4.9e-7 at x = -250): they now
+  serve -50 <= x <= 15, the adaptive rules beyond (`DFExact.usebatch`), within 1e-11 of 0 or 1 there. And in the general
+  engine's paths at a tiny x < 0, whose parabola has its root at -1/(2x), the asymptotic series of the incomplete
+  Gaussian integrals never ended beyond |z| ~ 1e102 (the call hung: case DU at c = 1, x = -1e-200, which the rule gives to
+  the paths) and the density was NaN where an end's exponential underflowed (`DFDet.ctr_h`, `DFDet.ctr_rend`). Elsewhere
+  the values are unchanged (the adaptive rules' ray to rounding). The absolute error floor of the line integral in the far
+  lower tail of case DK (about 1.4e-13 beyond x = -7, where F is below 1e-13; the paths give F(-7.8125) = 5.66e-15)
+  remains.
+- **`verified = true` with c0 > 0 far from the unit root.** The classical engine's checked computation took the
+  conditional integral for a zero start with c0 != 0 down to c = -100 inclusive; with c0 > 0 far from the unit root that
+  integral with its checks was off by 2.4e-6 to 1e-5 in cases DU, DT (c0 = 3 for c from -100 to -50, c0 = 2 at c = -40,
+  -30), its agreement rule flagged most such points but not all, and at c = -100, c0 = 3 the checked computation
+  returned values off by 2.1e-8 (case DU) and 4.2e-8 (case DT), where the line integral is within 4e-12 of the general
+  engine. Below c = -20 a zero start with c0 > 0 now takes the line integral with `verified = true` as well
+  (`DFExact.autodouble`, `DOUBLE_C0POS_CMAX`; the default took it there already; `method = :double` still forces the
+  conditional integral).
 - **The choice of engine re-derived** (`autoengine`, November 26, 2026): after the thinner rules of one evaluation, which
   halved the time of the general engine's paths, from interleaved timings of the two engines in each cell (two runs on
   mains power; a cell moved where the other choice was at least 1.3 times faster in both) and checks of the new choice's

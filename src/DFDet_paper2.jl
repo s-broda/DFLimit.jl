@@ -307,8 +307,38 @@ function prep_lm(D::Determ)
     P = Prep(D, k, p, nj, N, size(F[1], 1) - 1, br, g, jl, A, B, reshape([1.0; zeros(N - 1)], N, 1), [0.5], 1, 1, 0, Pd * Pd', zeros(N), offs, NaN, :lm)
     P, a1
 end
-"""the LM statistic's prepared design, with the check that J_0(1) vanishes (a linear trend among the trend functions)"""
+"""
+    span_has_constant(D; tol = 1e-6) -> Bool
+
+Whether the constant function lies in the span of the regressors of D.  Every design is piecewise polynomial (`Determ`:
+on piece j the coefficients C[j] of the powers of r, or of r - br[j], of the K regressors), so the question is decided on
+values: the regressors at 2(deg + 1) Chebyshev points inside each piece (more than determine each piece's polynomials),
+the least squares fit of the constant 1 by them (pivoted QR) and its largest residual, against tol.  For polynomial
+trends, breaks in level and slope, dummies and the designs of `perron`, `trend` and `ltrend` the residual is zero to
+rounding (1e-15); for a function design (`fdesign`) and a design from a matrix (`design_from_matrix`) the check is made on
+their piecewise polynomial interpolants, which reproduce the regressors to 1e-14 (1e-8 for the matrix fits), so a span
+that contains the constant through a combination (sin^2 and cos^2, say) gives a residual at that level, and tol = 1e-6
+separates it from a span without the constant, whose residual is of order one unless a combination of the regressors is
+constant to within 1e-6 on [0, 1] (which the check then accepts).  (The coefficients themselves are not compared: the
+high-order local Taylor coefficients of a function design carry rounding of up to 1e-2 that cancels in the values.)
+"""
+function span_has_constant(D::Determ; tol::Float64 = 1e-6)
+    K = nreg(D); K == 0 && return false
+    np = npc(D); m = 2 * size(D.C[1], 1)
+    X = zeros(np * m, K)
+    for j in 1:np, k in 1:m
+        a = D.br[j]; b = D.br[j+1]
+        r = (a + b) / 2 + (b - a) / 2 * cos(pi * (k - 0.5) / m)
+        for i in 1:K; X[(j-1)*m+k, i] = evalpoly(r - poff(D, j), view(D.C[j], :, i)); end
+    end
+    beta = qr(X, ColumnNorm()) \ ones(np * m)
+    maximum(abs, X * beta .- 1) <= tol
+end
+const LM_CONST_MSG = "the LM statistic: the limit computed here holds only for trend functions whose span contains the constant (the LM regression estimates the level from the first observation, and the limit of the statistic is otherwise a different one); the design"
+"""the LM statistic's prepared design, with the checks that the span of the design contains the constant
+(`span_has_constant`) and that J_0(1) vanishes (a linear trend among the trend functions)"""
 function lmprep(D::Determ)
+    span_has_constant(D) || throw(ArgumentError("$LM_CONST_MSG $(D.name) does not contain it"))
     P, a1 = prep_lm(D)
     maximum(abs, a1) < 1e-9 || throw(ArgumentError("the LM statistic: the law of -1/(2 sqrt V) needs a linear trend among the trend functions (J_0(1) does not vanish)"))
     P
@@ -336,6 +366,10 @@ end
 The limit of P(tau_LM <= x) for the LM statistic with the trend functions of D (a linear trend among them), under phi = 1
 + c/n: tau_LM => -1/(2 sqrt V) (`prep_lm`), so that F(x) = P(V <= 1/(4 x^2)) for x < 0 and 1 for x >= 0, one inversion of
 the transform of V on the path of V alone (`lmpath`).  c at most LM_CMAX = 10 (as for `lm_quantile` and `lm_power`).
+The limit holds only for trend functions whose span contains the constant (the LM regression estimates the level from
+the first observation): for any other design, e^r alone or r alone, say, the three functions raise an ArgumentError
+(`span_has_constant`, decided exactly on the piecewise polynomial form of the design; for `fdesign` and
+`design_from_matrix` on their interpolants, to 1e-6).
 """
 function lm_cdf(D::Determ, xs::AbstractVector, c::Real = 0.0)
     CP = lmpath(lmprep(D), c)

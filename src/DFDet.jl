@@ -2259,12 +2259,17 @@ end
         a0 *= r0; a1 *= r1; a2 *= r2
         s0 += a0; s1 += a1; s2 += a2
         j += 1
-        (abs2(a0) < 1e-34 * abs2(s0) && abs2(a2) < 1e-34 * abs2(s2)) && break
+        # (<=: for |z| beyond about 1e102 the terms a2 and with them s2 underflow to zero, and with < the loop never ended:
+        # the t-ratio at x = -1e-100 by the paths, whose parabola has its root at b = -1/(2x))
+        (abs2(a0) <= 1e-34 * abs2(s0) && abs2(a2) <= 1e-34 * abs2(s2)) && break
     end
     s0, s1, s2
 end
 @inline function ctr_rend(a::Float64, sa::ComplexF64, beta::ComplexF64, Ea::ComplexF64)
     z = sa * a + beta / (2sa)
+    # (an end so far out that e^{-t a^2 - s X(a)} underflows to zero, the root a = -1/(2x) of X at a tiny x < 0: its
+    # remainders are zero, and a^2 = Inf times Ea = 0 gave NaN in the density)
+    iszero(Ea) && return (real(z) >= 0 ? 0 : 1), zero(ComplexF64), zero(ComplexF64), zero(ComplexF64)
     if real(z) >= 0
         n = 0; g0, g1, g2 = ctr_h(z)
     else
@@ -2305,21 +2310,30 @@ end v = 0 is the lower end of the first piece of every x)"""
     @inbounds for (a, b) in pcs
         Ea = a == 0 ? eA : exp(-t * a * a - s * (c0 * a * a + q * a + A))
         z = sa * a + hb
-        if real(z) >= 0
-            g0, g1, g2 = ctr_h(z)
+        # (an end where the exponential underflows to zero contributes nothing but its flag: as `ctr_rend`)
+        if iszero(Ea)
+            real(z) < 0 && (nf += 1)
         else
-            h0, h1, h2 = ctr_h(-z); g0 = -h0; g1 = h1; g2 = -h2; nf += 1
-        end
-        M0 += Ea * i1 * g0; M1 += Ea * (a * i1 * g0 + i2 * g1); M2 += Ea * (a * a * i1 * g0 + 2a * i2 * g1 + i3 * g2)
-        if isfinite(b)
-            Eb = exp(-t * b * b - s * (c0 * b * b + q * b + A))
-            z = sa * b + hb
             if real(z) >= 0
                 g0, g1, g2 = ctr_h(z)
             else
-                h0, h1, h2 = ctr_h(-z); g0 = -h0; g1 = h1; g2 = -h2; nf -= 1
+                h0, h1, h2 = ctr_h(-z); g0 = -h0; g1 = h1; g2 = -h2; nf += 1
             end
-            M0 -= Eb * i1 * g0; M1 -= Eb * (b * i1 * g0 + i2 * g1); M2 -= Eb * (b * b * i1 * g0 + 2b * i2 * g1 + i3 * g2)
+            M0 += Ea * i1 * g0; M1 += Ea * (a * i1 * g0 + i2 * g1); M2 += Ea * (a * a * i1 * g0 + 2a * i2 * g1 + i3 * g2)
+        end
+        if isfinite(b)
+            Eb = exp(-t * b * b - s * (c0 * b * b + q * b + A))
+            z = sa * b + hb
+            if iszero(Eb)
+                real(z) < 0 && (nf -= 1)
+            else
+                if real(z) >= 0
+                    g0, g1, g2 = ctr_h(z)
+                else
+                    h0, h1, h2 = ctr_h(-z); g0 = -h0; g1 = h1; g2 = -h2; nf -= 1
+                end
+                M0 -= Eb * i1 * g0; M1 -= Eb * (b * i1 * g0 + i2 * g1); M2 -= Eb * (b * b * i1 * g0 + 2b * i2 * g1 + i3 * g2)
+            end
         end
     end
     if nf != 0
@@ -2362,12 +2376,13 @@ asymptotic series to the term of h_3 for |z| >= 6)"""
         a0 *= r0; a1 *= r1; a2 *= r2; a3 *= r3
         s0 += a0; s1 += a1; s2 += a2; s3 += a3
         j += 1
-        (abs2(a0) < 1e-34 * abs2(s0) && abs2(a3) < 1e-34 * abs2(s3)) && break
+        (abs2(a0) <= 1e-34 * abs2(s0) && abs2(a3) <= 1e-34 * abs2(s3)) && break      # (<=: as in ctr_h)
     end
     s0, s1, s2, s3
 end
 @inline function ctr_rend3(a::Float64, sa::ComplexF64, beta::ComplexF64, Ea::ComplexF64)
     z = sa * a + beta / (2sa)
+    iszero(Ea) && return (real(z) >= 0 ? 0 : 1), zero(ComplexF64), zero(ComplexF64), zero(ComplexF64), zero(ComplexF64)   # (as ctr_rend)
     if real(z) >= 0
         n = 0; g0, g1, g2, g3 = ctr_h3(z)
     else

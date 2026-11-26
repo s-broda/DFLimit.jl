@@ -33,6 +33,29 @@ const GE = DFLimit.DFDet
     @test lm_cdf(trend(1), [q5])[1] ≈ 0.05 atol = 1e-9
     @test lm_cdf(trend(1), [0.5, -Inf]) == [1.0, 0.0]
     @test_throws ArgumentError lm_quantile(trend(0), 0.05)              # no linear trend: J_0(1) does not vanish
+    # the limit computed holds only for trend functions whose span contains the constant (a referee: false otherwise); an
+    # ArgumentError from each function of the statistic: e^r alone, r with e^r, r alone, a level dummy with r, none
+    lmerr(f) = try; f(); ""; catch e; e isa ArgumentError ? e.msg : "other: " * sprint(showerror, e); end
+    for D in (fdesign(r -> [exp(r)]; name = "e^r"), fdesign(r -> [r, exp(r)]; name = "r, e^r"), fdesign(r -> [r]; name = "r"),
+              fdesign(r -> [r > 0.4 ? 1.0 : 0.0, r], [0.4]; name = "a level dummy and r"), trend(-1),
+              fdesign(r -> [exp(r), exp(-r)]; name = "e^r, e^-r"))
+        @test !GE.span_has_constant(D)
+        for f in (() -> lm_cdf(D, [-2.0]), () -> lm_quantile(D, 0.05), () -> lm_power(D, [-5.0]))
+            @test occursin("span contains the constant", lmerr(f))
+        end
+    end
+    # the span contains it: polynomial trends, breaks, the Legendre basis, functions of which only a combination is
+    # constant (to the interpolants' tolerance), a design from a matrix (decided on values: the high-order local Taylor
+    # coefficients of a function design carry rounding up to 1e-2, the trigonometric design's 1.3e-2, which cancels in the
+    # values); and then the statistic is that of the span
+    for D in (trend(0), trend(1), trend(3), perron(:A, 0.5), perron(:C, [0.3, 0.7]), ltrend(4),
+              fdesign(r -> [sin(pi * r)^2, cos(pi * r)^2, r]; name = "sin^2, cos^2, r"), fdesign(r -> [1.0 + r, r]; name = "1 + r, r"),
+              fdesign(r -> [1.0, sin(2pi * r), cos(2pi * r)]; name = "an intercept with a sine and a cosine"),
+              fdesign(r -> [sin(4pi * r)^2, cos(4pi * r)^2]; name = "sin^2, cos^2 of 4 pi r"),
+              design_from_matrix(hcat(ones(200), (1:200) ./ 200, ((1:200) ./ 200) .^ 2)))
+        @test GE.span_has_constant(D)
+    end
+    @test abs(lm_cdf(fdesign(r -> [1.0 + r, r]; name = "1 + r, r"), [-3.0230])[1] - lm_cdf(trend(1), [-3.0230])[1]) < 1e-10
     # the edge t_* of the LM statistic's transform: the first zero of D_V (the estimate took the orthogonal projection on the
     # design, whose largest eigenvalue is not that of the LM statistic's V: 231 for 139 with the linear trend at c = -20, and
     # above the unit root up to 2.3 times the edge, where the path at t_*/2 lay beyond it and failed)
