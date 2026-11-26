@@ -277,9 +277,13 @@ const LINE_METHOD_MSG = "method must be :auto, :line (the line integral with the
 
 The rule of method = :auto where the line integral covers the arguments: the line integral at c0 = 0, the inversion on paths
 at c0 != 0.  Measured on warm calls (scratch timing of November 2026, F and f at mean + (-2, -1, 0, 1, 2) sd and quantiles
-at 2.5%, 5% and 10%): at c0 = 0 the line integral is 1.3 to 5 times faster than the paths, for every covered design, start
+at 2.5%, 5% and 10%): at c0 = 0 the line integral was 1.3 to 5 times faster than the paths, for every covered design, start
 and c from -50 to 2 (it takes the classical integrator's fixed layouts below the unit root); at c0 != 0 the classical
-integrator's general kernel (breakpoints of X(v), adaptive pieces) makes it 2 to 5 times slower than the paths.
+integrator's general kernel (breakpoints of X(v), adaptive pieces) makes it 2 to 5 times slower than the paths.  Since the
+thinner rules of the paths (re-measured on November 26, 2026, F and f at five points): at c0 = 0 below the unit root 1.03
+to 4.1 times faster (median 1.8; 1.05 to 1.3 at c = -50 with deterministic terms), at c = 2 1.3 to 3.8 times faster
+without deterministic terms and with an intercept but 1.6 to 1.8 times slower than the paths for the linear and the
+quadratic trend and the trend detrended first; at c0 != 0 4 to 10 times slower.  The rule is unchanged.
 """
 line_auto(c::Float64, c0::Float64) = c0 == 0
 """

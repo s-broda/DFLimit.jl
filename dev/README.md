@@ -11,11 +11,14 @@ folder, which loads the package from the parent folder (Julia 1.11 or later, for
 julia --project=dev -e 'using Pkg; Pkg.instantiate()'
 ```
 
+(after a change of the package's dependencies an existing `dev/Manifest.toml` needs `Pkg.resolve()` first: without
+it `using DFLimit` fails, as it did for StaticArrays in November 2026).
+
 `engine_table.jl` measures the two engines of the package (the classical one, `DFLimit.DFExact`, and the general one,
 `DFLimit.DFDet`) in each cell of the rule `DFLimit.autoengine`: the warm time of one call by each, their largest
 difference, the engine the rule takes, and where they differ by more than 1e-8 each against the other's checked
 computation; it writes `engine_table.txt`, from which the table "Which engine" of the README is taken:
-`julia -t 4 --project=dev dev/engine_table.jl`, about half an hour.
+`julia -t 4 --project=dev dev/engine_table.jl`, about five minutes (November 2026).
 
 `certify_dfexact.jl` certifies the line integral by node doubling (every adaptive node count and every nodes-per-panel
 count of the fixed layouts), contour independence and the uniform rule, for c > 0 up to the far upper tail and for

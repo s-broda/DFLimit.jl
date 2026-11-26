@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Timings re-measured for 0.5.0** (November 26, 2026, four threads, an M4 laptop on battery power): the table
+  "Which engine" of the README from a new run of `dev/engine_table.jl` (`dev/engine_table.txt`; five minutes, it was
+  half an hour). The general engine's paths take about half the time they took when the rule `autoengine` was set,
+  so that in some cells the rule now takes the slower engine (the table says so; the rule is unchanged): the zero
+  start with c0 < 0 in cases DU, DT (the general engine 1.6 to 2.2 times faster), c0 > 0 at c = -100 in case DU (4.2
+  times), the fixed start of case DK at c = -20, -100 (1.35, 1.7 times), at c0 = 0 the general engine's line integral
+  (1.04 to 1.23 times), and the other way round the moments with a stationary start far from the unit root, the
+  moments of case DT with c0 != 0, the linear form of case DG below the unit root and the envelope of case DG at c =
+  -5 to -20, where the classical engine is now 1.6 to 10 times faster. Also re-measured: the general engine's line
+  integral against its paths (1.03 to 4.1 times faster below the unit root at c0 = 0, slower at c = 2 for the trends),
+  the cost of `verified = true` (1 to 4.7 times the default, up to 24 where the default takes the paths), the
+  duration of the tests (about five minutes). The README examples print the values of this version.
 - **Documentation.** Documenter pages in `docs/` (`docs/make.jl`): the home page, installation, a guide to the case
   codes, the two engines, the choice between them, the rules of one evaluation and the devices of Bao and Kan (the
   content of the README), the statistics beyond the t-ratio, and the API reference from the docstrings; the workflow
