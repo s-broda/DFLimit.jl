@@ -205,15 +205,15 @@ function sigma2_ends!(Rb::Matrix{ComplexF64}, Ib::Matrix{ComplexF64}, e::Vector{
     end
     nothing
 end
-"""the transfer functions F at the point u = b - y of piece j (b its right end) at the exponent theta"""
+"""the transfer functions F at the point u = b - y of piece j (b its right end) at the exponent theta, with the Taylor
+coefficients a of the basis at u given (`taylor!`, shared by the two exponents)"""
 @inline function sigma2_point!(F::Vector{ComplexF64}, Rb::Matrix{ComplexF64}, e::Vector{ComplexF64}, a::Matrix{Float64}, P::Prep, j::Int,
-                               b::Float64, y::Float64, θ::ComplexF64)
+                               y::Float64, θ::ComplexF64)
     p = P.p; nj = P.nj; D = P.deg
     ey = exp(-θ * y)
     @inbounds for i in 1:1+nj; F[i] = ey * Rb[i, j]; end
     if p > 0
         ek!(e, θ * y, D)
-        taylor!(a, P.g[j], b - y - P.off[j])
         @inbounds for i in 1:p
             acc = zero(ComplexF64); yk = y
             for k in 0:D
@@ -255,8 +255,9 @@ function sigma2!(W::SeasWork, P::Prep, θ1::ComplexF64, θ2::ComplexF64)
             end
             for q in eachindex(W.z)
                 y = y0 + (y1 - y0) * W.z[q]; wq = (y1 - y0) * W.w[q]
-                sigma2_point!(W.F1, W.Rb1, W.e, W.a, P, j, b, y, θ1)
-                sigma2_point!(W.F2, W.Rb2, W.e, W.a, P, j, b, y, θ2)
+                P.p > 0 && taylor!(W.a, P.g[j], b - y - P.off[j])
+                sigma2_point!(W.F1, W.Rb1, W.e, W.a, P, j, y, θ1)
+                sigma2_point!(W.F2, W.Rb2, W.e, W.a, P, j, y, θ2)
                 for jj in 1:N
                     fj = wq * W.F2[jj]
                     for ii in 1:N
@@ -340,16 +341,19 @@ function seas_panels(edges::Vector{Float64}, n::Int)
     end
     x, wx
 end
-"""the rule of the grid: y up to YMAX in panels of HY, x = sqrt(w) up to XMAX in panels of HX1 up to X1 and HX2 beyond (the
-kernels oscillate in w where w is of the order of tau), NQ Gauss-Legendre nodes per panel"""
-const SEAS_RULE = (ymax = 32.0, xmax = 32.0, hy = 1.0, hx1 = 0.2, x1 = 8.0, hx2 = 0.5, n = 10)
+"""the rule of the grid: y up to ymax in panels of hy, x = sqrt(w) up to xmax in panels of hx1 up to x1 and hx2 beyond (the
+kernels oscillate in w where w is of the order of tau), n Gauss-Legendre nodes per panel.  The prototype's panels in y
+(the kernel e^{-q^2 y^2/(4t)} of t4 has the width 2 sqrt|t|/q in y: with panels of 1 the tail beyond q = 8 lost 1e-8 of
+the second moment, and F at x = 60 1.3e-10, with seasonal dummies at the unit root) and twice its panels in x (within
+1e-14 of the prototype's rule in t4, F and the moments of t4, at half the cost)."""
+const SEAS_RULE = (ymax = 32.0, xmax = 32.0, hy = 0.5, hx1 = 0.2, x1 = 8.0, hx2 = 0.5, n = 10)
 """
     seas_grid(SM, c; tau = nothing, rule = SEAS_RULE) -> SeasGrid
 
 The grid of the transform for the design of SM at c (tau = min(1, t_*/2), t_* the engine's first zero of D_V), on the
 threads by columns of w.
 """
-function seas_grid(SM::SeasModel, c::Float64; tau = nothing, rule = SEAS_RULE)
+function seas_grid(SM::SeasModel, c::Float64; tau = nothing, rule = SEAS_RULE, closed::Int = -2)
     P = SM.P
     τ = tau === nothing ? min(1.0, tstar(SM.Mo, c)[1] / 2) : Float64(tau)
     y, wy = seas_panels(collect(range(0.0, rule.ymax; length = round(Int, rule.ymax / rule.hy) + 1)), rule.n)
@@ -363,9 +367,16 @@ function seas_grid(SM::SeasModel, c::Float64; tau = nothing, rule = SEAS_RULE)
         Threads.@threads :dynamic for j in 1:nw
             W = SeasWork(P)
             for i in 1:ny
-                ld, μ = seas_parts(SM, c, complex(0.0, y[i]), complex(τ, w[j]), W)
-                d0[i, j] = exp(ld)
-                for k in 1:r; mu[k, i, j] = μ[k]; end
+                u = complex(0.0, y[i]); t = complex(τ, w[j])
+                if closed == -1
+                    d0[i, j], mu[1, i, j] = seas_none(u, t, c)
+                elseif closed == 0
+                    d0[i, j], mu[1, i, j], mu[2, i, j] = seas_dummies(u, t)
+                else
+                    ld, μ = seas_parts(SM, c, u, t, W)
+                    d0[i, j] = exp(ld)
+                    for k in 1:r; mu[k, i, j] = μ[k]; end
+                end
             end
         end
     end
@@ -374,12 +385,48 @@ function seas_grid(SM::SeasModel, c::Float64; tau = nothing, rule = SEAS_RULE)
 end
 const SEASCACHE = Dict{UInt64,SeasGrid}()
 const SEASORDER = UInt64[]
+"""
+    seas_none(u, t, c) -> (D(0, u, t), mu)
+
+The transform without deterministic terms in closed form: D(s, u, t) = D_0(s, t + u^2/2), D_0(s, t) = e^c {cosh theta -
+(s + c) sinh(theta)/theta}, theta^2 = c^2 - 2t, linear in s (one root)
+"""
+function seas_none(u::ComplexF64, t::ComplexF64, c::Float64)
+    θ = sqrt(complex(c * c - 2t - u * u))
+    sh = abs(θ) < 1e-4 ? 1 + θ * θ / 6 : sinh(θ) / θ
+    d0 = exp(c) * (cosh(θ) - c * sh)
+    d0, exp(c) * sh / d0
+end
+"""
+    seas_dummies(u, t) -> (D(0, u, t), mu_+, mu_-)
+
+Seasonal dummies at the unit root in closed form (Nabeya's formula in another form): D = sinc(a/2) sinc(b/2) {1 - (2t + s^2 +
+u^2) Omega}, a, b = u -+ sqrt(u^2 + 2t), Omega = {g(a) - g(b)}/(a - b), g(x) = 1/x - cot(x/2)/2; even in s, the roots +-s
+with s^2 = (1 - (2t + u^2) Omega)/Omega
+"""
+function seas_dummies(u::ComplexF64, t::ComplexF64)
+    q = sqrt(u * u + 2t); a = u + q; b = u - q
+    sc(x) = abs(x) < 1e-4 ? 1 - x * x / 24 : sin(x / 2) / (x / 2)
+    g(x) = abs(x) < 1e-3 ? x / 12 + x^3 / 720 : 1 / x - cot(x / 2) / 2
+    Om = abs(a - b) < 1e-6 ? complex(1 / 12) : (g(a) - g(b)) / (a - b)
+    pre = sc(a) * sc(b); d0 = pre * (1 - (2t + u * u) * Om)
+    s = sqrt(d0 / (pre * Om)); real(s) < 0 && (s = -s)
+    d0, 1 / s, -1 / s
+end
+"""the closed form of the grid for the design D at c: -1 without deterministic terms (any c), 0 seasonal dummies at the
+unit root, -2 none (the general transform)"""
+function seas_closed(D::Determ, c::Float64)
+    D.detrend == :onestep || return -2
+    nreg(D) == 0 && return -1
+    (c == 0 && length(D.br) == 2 && nreg(D) == 1 && size(D.C[1], 1) == 1 && D.C[1][1, 1] != 0) && return 0
+    -2
+end
 """the grid of the design at c, cached per (design, c, tau)"""
 function seas_grid_cached(D::Determ, c::Float64; tau = nothing)
     key = hash((:seasgrid, dkey(D), c, tau === nothing ? -1.0 : Float64(tau)))
     hit = lock(CPLOCK) do; get(SEASCACHE, key, nothing); end
     hit === nothing || return hit
-    G = seas_grid(SeasModel(prep_cached(D)), c; tau)
+    G = seas_grid(SeasModel(prep_cached(D)), c; tau, closed = seas_closed(D, c))
     lock(CPLOCK) do; cache_put!(SEASCACHE, SEASORDER, key, G); end
     G
 end
@@ -561,7 +608,8 @@ limited to 1, then the safeguarded search.
 
     hegy_t3_quantile(trend(0), 0.05)       # -3.3442, the 5% critical value with seasonal dummies
 """
-function hegy_t3_quantile(D::Determ, p::Real, c::Union{Real,AbstractVector{<:Real}} = 0.0; x0::Real = -2.0, tol::Real = 1e-10, c0::Real = 0.0, vol = nothing)
+hegy_t3_quantile(D::Determ, p::Real, c::Union{Real,AbstractVector{<:Real}} = 0.0; kw...) = t3_quantile(D, p, c; kw...)::Float64
+function t3_quantile(D::Determ, p::Real, c; x0::Real = -2.0, tol::Real = 1e-10, c0::Real = 0.0, vol = nothing)
     fn = "hegy_t3_quantile"
     0 < p < 1 || throw(ArgumentError("$fn: p must lie in (0, 1)"))
     search_args(fn, "x0", x0, tol)
@@ -636,7 +684,8 @@ quantile unless x0 is given), the step limited to 1, then the safeguarded search
 
     hegy_t4_quantile(trend(0), 0.975)      # 2.3193
 """
-function hegy_t4_quantile(D::Determ, p::Real, c::Real = 0.0; x0 = nothing, tol::Real = 1e-10)
+hegy_t4_quantile(D::Determ, p::Real, c::Real = 0.0; kw...) = t4_quantile(D, p, c; kw...)::Float64
+function t4_quantile(D::Determ, p::Real, c::Real; x0 = nothing, tol::Real = 1e-10)
     fn = "hegy_t4_quantile"
     0 < p < 1 || throw(ArgumentError("$fn: p must lie in (0, 1)"))
     deg = seas_degree(fn, D)
@@ -698,7 +747,8 @@ bracket found by doubling.
 
     hegy_f_quantile(trend(0), 0.95)        # 6.6455
 """
-function hegy_f_quantile(D::Determ, p::Real, c::Real = 0.0; tol::Real = 1e-9)
+hegy_f_quantile(D::Determ, p::Real, c::Real = 0.0; kw...) = f_quantile(D, p, c; kw...)::Float64
+function f_quantile(D::Determ, p::Real, c::Real; tol::Real = 1e-9)
     fn = "hegy_f_quantile"
     0 < p < 1 || throw(ArgumentError("$fn: p must lie in (0, 1)"))
     (tol > 0 && isfinite(tol)) || throw(ArgumentError("$fn: tol must be a positive finite number"))

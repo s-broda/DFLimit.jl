@@ -234,17 +234,21 @@ end
 P(rho tau_{c0} + rb Z <= x) and its density for 0 < rho < 1 at the finite points x, from the t-ratio's distribution
 function (`dist_cdf` of the design with its start, method = :auto, one call for all points; with verified = true its
 checked computation): P(T <= x) = int F((x - rb z)/rho) phi(z) dz, f_T(x) = -(1/rb) int F((x - rb z)/rho) z phi(z) dz.
-For c0 <= 0 the trapezoidal rule with step h in z (default 0.25/(1 + rb/rho)) on |z| <= zmax.  For c0 > 0 the
-distribution function of tau is not smooth at q_* = -2 sqrt(c0 a), where the parabola c0 v^2 + q v + a has a double root (a
-the shift of the model): Gauss-Legendre panels with n nodes, graded toward the point z at which (x - rb z)/rho = q_* from a
-smallest panel of 1e-8 and no longer than 4h.
+For c0 <= 0 the trapezoidal rule with step h in z (default 0.25/(1 + rb/rho), half that for a numerator of rank one, the
+design without deterministic terms with a zero or fixed start, where the rule converges more slowly: at rho^2 = 0.2 the
+longer step was off by 6e-9) on |z| <= zmax.  For c0 > 0 the distribution function of tau is not smooth at q_* = -2
+sqrt(c0 a), where the parabola c0 v^2 + q v + a has a double root (a the shift of the model): Gauss-Legendre panels with
+n nodes, graded toward the point z at which (x - rb z)/rho = q_* from a smallest panel of 1e-8 and no longer than 4h.  F is
+taken as 0 or 1 outside the bulk of tau (`tau_bulk`), where it is so to rounding: with a small rho the points (x - rb z)/rho
+reach far into the tails, where the engine is not asked (at x = -424 its value was -1.2e-8, which its range check refuses).
 """
 function mixture_both(D::Determ, x::Vector{Float64}, c::Float64, rho::Float64, c0::Float64, start::Symbol, gamma0::Float64;
                       h = nothing, zmax::Float64 = 8.5, n::Int = 12, verified::Bool = false)
     rb = sqrt(1 - rho^2)
-    hz = h === nothing ? 0.25 / (1 + rb / rho) : Float64(h)
+    Mo = startmodel(D, c, start, gamma0)
+    hz = h === nothing ? (Mo.r == 1 ? 0.125 : 0.25) / (1 + rb / rho) : Float64(h)
     zs = Float64[]; ws = Float64[]; first = Int[]
-    qstar = c0 > 0 ? -2 * sqrt(c0 * startmodel(D, c, start, gamma0).a) : NaN
+    qstar = c0 > 0 ? -2 * sqrt(c0 * Mo.a) : NaN
     gz, gw = glrule(n)
     for xv in x
         push!(first, length(zs) + 1)
@@ -265,13 +269,37 @@ function mixture_both(D::Determ, x::Vector{Float64}, c::Float64, rho::Float64, c
     push!(first, length(zs) + 1)
     q = similar(zs)
     for i in eachindex(x), k in first[i]:first[i+1]-1; q[k] = (x[i] - rb * zs[k]) / rho; end
-    Fq = dist_cdf(D, q, c; c0, start, gamma0, verified)
+    lo, hi = tau_bulk(c, c0, start, gamma0)
+    Fq = [qk < lo ? 0.0 : 1.0 for qk in q]
+    ib = findall(qk -> lo <= qk <= hi, q)
+    if !isempty(ib)
+        Fq[ib] = dist_cdf(D, q[ib], c; c0, start, gamma0, verified)
+        # (where the line integral, the engine's default for these designs at c0 = 0, returns a value that is not finite,
+        # the inversion on paths: case DK at c = 0 gives NaN at x = -7.8125 and below x = 1e-150 on the positive side)
+        nf = [ib[k] for k in eachindex(ib) if !isfinite(Fq[ib[k]])]
+        isempty(nf) || (Fq[nf] = dist_cdf(D, q[nf], c; c0, start, gamma0, verified, method = :paths))
+    end
     F = zeros(length(x)); f = zeros(length(x))
     for i in eachindex(x), k in first[i]:first[i+1]-1
         w = ws[k] * normpdf_(zs[k]) * clamp(Fq[k], 0.0, 1.0)
         F[i] += w; f[i] -= w * zs[k] / rb
     end
     F, f
+end
+
+"""
+    tau_bulk(c, c0, start, gamma0) -> (lo, hi)
+
+A generous bound on the bulk of tau_{c0} = tau_c + (c - c0) sqrt(V): m -+ 40 s with m = (c - c0) sqrt(E int J^2) and
+s = 1 + |c - c0| sqrt(E int J^2), E int J^2 of the process with its start (an upper bound on E V; the tails of the t-ratio's
+limit decay like those of a normal law, so that F is 0 or 1 to rounding beyond).
+"""
+function tau_bulk(c::Float64, c0::Float64, start::Symbol, gamma0::Real)
+    ej = abs(c) < 1e-6 ? 0.5 : (expm1(2c) - 2c) / (4c^2)
+    start == :stationary && (ej = -1 / (2c))
+    start == :fixed && (ej += gamma0^2 * (abs(c) < 1e-6 ? 1.0 : expm1(2c) / (2c)))
+    r = sqrt(ej); m = (c - c0) * r; s = 1 + abs(c - c0) * r
+    m - 40s, m + 40s
 end
 
 # ---------- the user-level computation with rho ----------
@@ -310,11 +338,12 @@ its step on the checked distribution function of tau, with a warning"""
 function cov_verified(D::Determ, x::Vector{Float64}, c::Float64, rho::Float64, c0::Float64, start::Symbol, gamma0::Float64, m::Symbol, vtol::Float64)
     F1, f1 = cov_both(D, x, c, rho, c0, start, gamma0, m)
     rb = sqrt(1 - rho^2)
+    hh = (startmodel(D, c, start, gamma0).r == 1 ? 0.0625 : 0.125) / (1 + rb / rho)          # (half the default step)
     F2, f2 = m === :lines ? cov_both(D, x, c, rho, c0, start, gamma0, :mixture) :
-                            cov_both(D, x, c, rho, c0, start, gamma0, :mixture; verified = true, h = 0.125 / (1 + rb / rho))
+                            cov_both(D, x, c, rho, c0, start, gamma0, :mixture; verified = true, h = hh)
     d = max(maximum(abs, F1 .- F2; init = 0.0), maximum(abs, f1 .- f2; init = 0.0))
     d <= vtol && return F1, f1
-    F3, f3 = m === :lines ? cov_both(D, x, c, rho, c0, start, gamma0, :mixture; verified = true, h = 0.125 / (1 + rb / rho)) : (F2, f2)
+    F3, f3 = m === :lines ? cov_both(D, x, c, rho, c0, start, gamma0, :mixture; verified = true, h = hh) : (F2, f2)
     @warn "verified: the two computations of the normal component differ by $(round(d, sigdigits = 2)) (above $vtol); the normal average on the checked distribution function is returned" D.name c c0 rho
     F3, f3
 end
@@ -350,7 +379,9 @@ end
 
 """the p-quantile with rho != 1 (Newton's method with the density, the step limited to 1, then `newton_safe`; rho = 0 the
 normal quantile; rho < 0 by the reflection)"""
-function cov_quantile(D::Determ, p::Real, c::Float64, start::Symbol, gamma0::Real, gls, rho::Float64; x0::Real, tol::Real, method::Symbol = :auto, kw...)
+cov_quantile(D::Determ, p::Real, c::Float64, start::Symbol, gamma0::Real, gls, rho::Float64; kw...) =
+    cov_quantile_(D, p, c, start, gamma0, gls, rho; kw...)::Float64
+function cov_quantile_(D::Determ, p::Real, c::Float64, start::Symbol, gamma0::Real, gls, rho::Float64; x0::Real, tol::Real, method::Symbol = :auto, kw...)
     fn = "dist_quantile"
     cov_args(fn, D, start, gls, rho, method)
     other = [string(k) for k in keys(kw) if k !== :c0]
@@ -360,7 +391,7 @@ function cov_quantile(D::Determ, p::Real, c::Float64, start::Symbol, gamma0::Rea
     rho == 0 && return sqrt(2) * erfinv(2 * Float64(p) - 1)
     if rho < 0
         rho == -1 && return -dist_quantile(D, 1 - p, c; x0 = -x0, tol, c0, start, gamma0)
-        return -cov_quantile(D, 1 - p, c, start, gamma0, gls, -rho; x0 = -x0, tol, method, c0)
+        return -cov_quantile_(D, 1 - p, c, start, gamma0, gls, -rho; x0 = -x0, tol, method, c0)
     end
     m = cov_method(fn, method, rho, c, start == :fixed && gamma0 != 0)
     FF(y) = ((F, f) = cov_both(D, [Float64(y)], c, rho, c0, start, Float64(gamma0), m); (F[1], f[1]))

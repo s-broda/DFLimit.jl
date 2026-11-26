@@ -989,6 +989,17 @@ function shift_functionals(P::Prep, alpha::AbstractVector)
 end
 
 """
+    TransformModel
+
+A model whose transform the outer contour follows (`cpath`, `rootpath_sparse`, `linecpath`, `fixed_phi`): the engine's
+`Model` (the Ornstein-Uhlenbeck process with a constant c) or the volatility model `VolModel` (c and the innovation
+standard deviation piecewise constant).  It supplies `MWork(M)`, `mgfparts(M, c, t, W) -> (theta, log D_V, mu, fx)`,
+`tstar(M, c)`, `dense_la(M)`, the fields r, rp, rm and start, and `inner_model(M)`, the zero-start `Model` whose shift and
+root counts the inner integrals on the paths use (the `Mo` of the `CPath`).
+"""
+abstract type TransformModel end
+
+"""
     Model
 
 A design with a start for the Ornstein-Uhlenbeck process: :zero (J(0) = 0), :fixed (J(0) = g0) or :stationary (J(0) ~
@@ -1009,17 +1020,6 @@ and V is unchanged (from w = d(1) J(1) - d(0) J(0) - int d' J - sum_i Delta_i J(
   `fixparts`).  kappa is exactly 0 or 1/2 (`fixed_shift`): 0 when the span of d contains a continuous phi with phi(0) != 0
   and phi' in the span (the constant, for instance: a = 1/2), 1/2 otherwise (no deterministic terms: a = (1 + g0^2)/2).
 """
-abstract type TransformModel end
-"""
-    TransformModel
-
-A model whose transform the outer contour follows (`cpath`, `rootpath_sparse`, `linecpath`, `fixed_phi`): the engine's
-`Model` (the Ornstein-Uhlenbeck process with a constant c) or the volatility model `VolModel` (c and the innovation
-standard deviation piecewise constant).  It supplies `MWork(M)`, `mgfparts(M, c, t, W) -> (theta, log D_V, mu, fx)`,
-`tstar(M, c)`, `dense_la(M)`, the fields r, rp, rm and start, and `inner_model(M)`, the zero-start `Model` whose shift and
-root counts the inner integrals on the paths use (the `Mo` of the `CPath`).
-"""
-TransformModel
 struct Model <: TransformModel
     P::Prep
     start::Symbol
@@ -4003,14 +4003,15 @@ where that does not converge in 30 steps (or leaves the finite numbers), the saf
 and hfac as in `dist_cdf` (the search by the line integral: `line_quantile`); the keywords vol and rho (and c a vector with
 vol) as in `dist_cdf` (`ext_quantile`).
 """
-function dist_quantile(D::Determ, p::Real, c::Union{Real,AbstractVector{<:Real}} = 0.0; x0::Real = -2.0, tol::Real = 1e-9, start::Symbol = :zero,
+dist_quantile(D::Determ, p::Real, c::Union{Real,AbstractVector{<:Real}} = 0.0; kw...) = dist_quantile_(D, p, c; kw...)::Float64
+function dist_quantile_(D::Determ, p::Real, c; x0::Real = -2.0, tol::Real = 1e-9, start::Symbol = :zero,
                        gamma0::Real = 0.0, gls = nothing, phi = nothing, hfac = nothing, method::Symbol = :auto, rule::Symbol = :auto,
                        vol = nothing, rho::Real = 1.0, kw...)
     0 < p < 1 || throw(ArgumentError("dist_quantile: p must lie in (0, 1)"))
     search_args("dist_quantile", "x0", x0, tol)
     if vol !== nothing || rho != 1 || !(c isa Real)
         x = ext_quantile(D, p, c; x0, tol, start, gamma0, gls, phi, hfac, method, rule, vol, rho, kw...)
-        x === nothing || return x
+        x === nothing || return x::Float64
         c = c isa Real ? c : c[1]                                                   # (one regime: the engine itself)
     end
     check_cmax(D, c, start, gamma0, "the quantiles of the t-ratio (dist_quantile)")

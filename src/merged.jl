@@ -447,8 +447,58 @@ end
 """whether the classical quantile search takes F and f in one evaluation where the general engine computes (`route_dist2`;
 false: two evaluations, as before November 2026, kept for checking)"""
 const DIST2 = Ref(true)
+"""the keywords of the extensions of the limit: (vol, rho, the other keywords)"""
+function ext_split(kw)
+    vol = get(kw, :vol, nothing); rho = get(kw, :rho, 1.0)
+    vol, rho, (; (p for p in pairs(kw) if !(first(p) in (:vol, :rho)))...)
+end
+"""
+    ext_dist(kind, x, S, c; c0, method, verified, engine, vol, rho, kw...)
+
+The t-ratio's F (kind = 2) or f (kind = 1) with the extensions of the limit (a volatility path vol, with c a number or a
+vector of one value per regime; a normal component rho), which the general engine computes (`DFDet.dist_cdf` with vol and
+rho): engine = :classical refuses.
+"""
+function ext_dist(kind::Int, x, S::Spec, c; c0::Real = 0.0, method::Symbol = :auto, verified::Bool = false, engine::Symbol = :auto,
+                  vol = nothing, rho::Real = 1.0, kw...)
+    engine in (:auto, :classical, :general) || throw(ArgumentError("engine must be :auto, :classical or :general"))
+    engine === :classical && throw(ArgumentError("engine = :classical: the extensions of the limit (the keywords vol and rho) are computed by the general engine"))
+    method = method === :single ? :line : method
+    xs = xvec(x)
+    v = kind == 2 ? DFDet.dist_cdf(S.D, xs, c; c0 = Float64(c0), start = S.start, gamma0 = S.g0, gls = S.gls, method, verified, vol, rho, kw...) :
+                    DFDet.dist_pdf(S.D, xs, c; c0 = Float64(c0), start = S.start, gamma0 = S.g0, gls = S.gls, method, verified, vol, rho, kw...)
+    kind == 1 && (v[v .< 0] .= 0.0)
+    outshape(v, x)
+end
+"""
+    ext_icdf(p, S, c; tol, c0, method, engine, vol, rho, kw...)
+
+The quantiles with the extensions (`DFDet.dist_quantile` with vol and rho), started at the normal approximation from the
+moments of the t-ratio (at the mean of the c of the regimes; with rho, those of rho tau + rb Z), or at -2 where there are
+none.
+"""
+function ext_icdf(p, S::Spec, c; tol::Real = 1e-10, c0::Real = 0.0, method::Symbol = :auto, engine::Symbol = :auto, vol = nothing,
+                  rho::Real = 1.0, kw...)
+    engine in (:auto, :classical, :general) || throw(ArgumentError("engine must be :auto, :classical or :general"))
+    engine === :classical && throw(ArgumentError("engine = :classical: the extensions of the limit (the keywords vol and rho) are computed by the general engine"))
+    method = method === :single ? :line : method
+    cm = c isa Real ? Float64(c) : sum(c) / length(c)
+    m = nothing
+    if isfinite(cm) && isfinite(rho) && abs(rho) <= 1 && S.gls === nothing && S.D.detrend != :first
+        cv = S.case !== nothing && S.case != "DG" && classical_valid(S, cm, c0, :auto)
+        cv && (m = mom_start(2, S.case, cm; c0, g0 = S.g0))
+        m === nothing && (m = try; DFDet.dist_moments(S.D, cm; p = 2, c0 = Float64(c0), gkw(S)...)[1]; catch e; DFDet.nofallback(e) && rethrow(); nothing; end)
+    end
+    mu, sd = m === nothing ? (-2.0 * rho, 1.0) : (rho * m[1], sqrt(max(rho^2 * (m[2] - m[1]^2) + 1 - rho^2, 1e-6)))
+    one(pk) = begin
+        0 < pk < 1 || throw(ArgumentError("p must lie in (0, 1)"))
+        DFDet.dist_quantile(S.D, Float64(pk), c; x0 = mu + sd * sqrt(2) * erfinv(2pk - 1), tol, c0 = Float64(c0), method, vol, rho, gkw(S)..., kw...)
+    end
+    p isa Number ? one(p) : map(one, p)
+end
 function route_dist(engine::Symbol, kind::Int, x, cas::AbstractString, c::Real; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto,
                     verified::Bool = false, kw...)
+    DX.ext_keywords(kw) && return ext_dist(kind, x, case_spec(cas, g0), c; c0, method, verified, engine, kw...)
     S = case_spec(cas, g0)
     # (a representation of the classical engine named by method, its own keywords, or its checked computation: the
     # classical engine, as before the merge)
@@ -481,6 +531,7 @@ function gen_icdf(p, S::Spec, c::Real; tol::Real = 1e-10, c0::Real = 0.0, method
     p isa Number ? one(p) : map(one, p)
 end
 function route_icdf(engine::Symbol, p, cas::AbstractString, c::Real; tol::Real = 1e-10, c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, kw...)
+    DX.ext_keywords(kw) && return ext_icdf(p, case_spec(cas, g0), c; tol, c0, method, engine, kw...)
     S = case_spec(cas, g0)
     if engine === :auto
         # (otherwise the classical search, with each evaluation routed)
@@ -595,16 +646,33 @@ for (f, kind) in ((:ltratio_cdf, 2), (:ltratio_pdf, 1))
     @eval function $f(x, D::DFDet.Determ, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing, method::Symbol = :auto,
                       verified::Bool = false, engine::Symbol = :auto, kw...)
         S = design_spec(D; g0, start, gls)
+        DX.ext_keywords(kw) && return ext_dist($kind, x, S, c; c0, method, verified, engine, kw...)
+        kw = DX.ext_strip(kw)
         classical_or_nothing(S, engine, c, c0, method) && return DX.ltratio_dist($kind, x, S.case, c; c0, g0 = S.g0, method, verified, engine, kw...)
         outshape(gen_dist($kind, xvec(x), S, c; c0, verified, method = genmethod(method), kw...), x)
     end
+    # c a vector: one value per regime of a volatility path (the keyword vol), for a design and for a case string
+    @eval $f(x, D::DFDet.Determ, c::AbstractVector{<:Real}; c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing, method::Symbol = :auto,
+             verified::Bool = false, engine::Symbol = :auto, kw...) =
+        ext_dist($kind, x, design_spec(D; g0, start, gls), c; c0, method, verified, engine, kw...)
+    @eval $f(x, cas::AbstractString, c::AbstractVector{<:Real}; c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto, verified::Bool = false,
+             engine::Symbol = :auto, kw...) =
+        ext_dist($kind, x, case_spec(cas, g0), c; c0, method, verified, engine, kw...)
 end
 function ltratio_icdf(p, D::DFDet.Determ, c::Real = 0; tol::Real = 1e-10, c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing,
                       method::Symbol = :auto, engine::Symbol = :auto, kw...)
     S = design_spec(D; g0, start, gls)
+    DX.ext_keywords(kw) && return ext_icdf(p, S, c; tol, c0, method, engine, kw...)
+    kw = DX.ext_strip(kw)
     classical_or_nothing(S, engine, c, c0, method) && return ltratio_icdf(p, S.case, c; tol, c0, g0 = S.g0, method, engine, kw...)
     gen_icdf(p, S, c; tol, c0, method = genmethod(method), kw...)
 end
+ltratio_icdf(p, D::DFDet.Determ, c::AbstractVector{<:Real}; tol::Real = 1e-10, c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing,
+             method::Symbol = :auto, engine::Symbol = :auto, kw...) =
+    ext_icdf(p, design_spec(D; g0, start, gls), c; tol, c0, method, engine, kw...)
+ltratio_icdf(p, cas::AbstractString, c::AbstractVector{<:Real}; tol::Real = 1e-10, c0::Real = 0.0, g0::Real = 0.0, method::Symbol = :auto,
+             engine::Symbol = :auto, kw...) =
+    ext_icdf(p, case_spec(cas, g0), c; tol, c0, method, engine, kw...)
 function ltratio_mom(p::Int, D::DFDet.Determ, c::Real = 0; c0::Real = 0.0, g0::Real = 0.0, start = nothing, gls = nothing, engine::Symbol = :auto, kw...)
     S = design_spec(D; g0, start, gls)
     classical_or_nothing(S, engine, c, c0, :auto) && S.case != "DG" && return ltratio_mom(p, S.case, c; c0, g0 = S.g0, engine, kw...)

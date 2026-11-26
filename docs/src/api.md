@@ -95,6 +95,29 @@ msb_cdf
 msb_quantile
 ```
 
+## The extensions of the limit
+
+Volatility and persistence regimes (the keyword `vol` of the t-ratio functions, [Volatility and persistence
+regimes](@ref)), a normal component (the keyword `rho`, [A normal component: covariates and the predictive
+regression](@ref)) and the statistics of a pair of complex unit roots ([Seasonal unit roots](@ref)).
+
+```@docs
+volpath
+VolPath
+cadf_c0
+predictive_c0
+hegy_t3_cdf
+hegy_t3_pdf
+hegy_t3_quantile
+hegy_t4_cdf
+hegy_t4_pdf
+hegy_t4_quantile
+hegy_f_cdf
+hegy_f_quantile
+DFLimit.DFDet.TransformModel
+DFLimit.DFDet.VolModel
+```
+
 ## The choice of engine
 
 ```@docs

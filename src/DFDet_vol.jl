@@ -101,7 +101,8 @@ The transform model of a design with volatility regimes: the design refined at t
 its zero-start model Mi for the inner integrals), np pieces of lengths L with omega^2 and c on each, the extended vector
 ell = (J(1), J at the jumps of d, z, J at the regime boundaries that are not jumps of d) of dimension Ne, the position
 bpos[j] in ell of J at the boundary between pieces j and j + 1 (0: not in ell), the padded matrices A, B and the
-eigenvectors Lx of A (eigenvalues Dv), and the static matrices sd (`SData`, nothing for Ne > STATIC_MAX).
+eigenvectors Lx of A (eigenvalues Dv), the start (:zero, g0 = 0: the fields the outer contour reads), and the static
+matrices sd (`SData`, nothing for Ne > STATIC_MAX).
 """
 struct VolModel{SD} <: TransformModel
     D::Determ
@@ -119,6 +120,7 @@ struct VolModel{SD} <: TransformModel
     Lx::Matrix{Float64}; Dv::Vector{Float64}
     r::Int; rp::Int; rm::Int
     start::Symbol
+    g0::Float64
     sd::SD
 end
 inner_model(VM::VolModel) = VM.Mi
@@ -144,7 +146,7 @@ function vol_model_(D0::Determ, V::VolPath, cr::Vector{Float64})
     A = zeros(Ne, Ne); B = zeros(Ne, Ne); Lx = zeros(Ne, P.r)
     A[1:P.N, 1:P.N] .= P.A; B[1:P.N, 1:P.N] .= P.B; Lx[1:P.N, :] .= P.L
     sd = sdata(A, B, Lx, copy(P.Dv), zeros(Ne))
-    VolModel(D, P, model(P), V, cr, np, L, om2, c, Ne, bpos, A, B, Lx, copy(P.Dv), P.r, P.rp, P.rm, :zero, sd)
+    VolModel(D, P, model(P), V, cr, np, L, om2, c, Ne, bpos, A, B, Lx, copy(P.Dv), P.r, P.rp, P.rm, :zero, 0.0, sd)
 end
 """the volatility model of the design D, the regimes V and the c of each regime, cached"""
 function vol_model(D::Determ, V::VolPath, cr::Vector{Float64})
@@ -522,7 +524,8 @@ end
 
 """the p-quantile with a volatility path (as `dist_quantile`: Newton's method with the density, the step limited to 1, then
 `newton_safe`)"""
-function vol_quantile(D::Determ, p::Real, VM::VolModel; x0::Real, tol::Real, phi, hfac, rule::Symbol, kw...)
+vol_quantile(D::Determ, p::Real, VM::VolModel; kw...) = vol_quantile_(D, p, VM; kw...)::Float64
+function vol_quantile_(D::Determ, p::Real, VM::VolModel; x0::Real, tol::Real, phi, hfac, rule::Symbol, kw...)
     check_rule(rule)
     c0 = Float64(get(kw, :c0, 0.0))
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
