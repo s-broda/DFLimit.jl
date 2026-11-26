@@ -421,14 +421,14 @@ pkg> add DFLimit
 or, equivalently, `using Pkg; Pkg.add("DFLimit")`. The development version, which may hold changes that are not yet
 released, comes from the GitHub repository: `pkg> add DFLimit#main` (or
 `Pkg.add(url = "https://github.com/s-broda/DFLimit.jl")`), or, from a local clone,
-`Pkg.develop(path = "/path/to/DFLimit.jl")`. The dependencies (SpecialFunctions, QuadGK, StaticArrays, PrecompileTools and standard
-libraries) are installed with it. The first `using DFLimit` precompiles the package, which takes about half a minute: it runs a few of
-the functions once, so that their first call in a session does not wait several seconds for compilation.
-`Pkg.test("DFLimit")` runs the tests (about six minutes; they compare the values with values stored by the companion
-paper's code, and end with the engine's own checks in `test/engine/`). The longer checks of the engine and the scripts that
-write its stored values are in `dev/` (see `dev/README.md`). The documentation is built with Documenter from `docs/`:
-`julia --project=docs -e 'using Pkg; Pkg.develop(path = "."); Pkg.instantiate()'`, then
-`julia --project=docs docs/make.jl`, which writes the pages to `docs/build`.
+`Pkg.develop(path = "/path/to/DFLimit.jl")`. The dependencies (SpecialFunctions, QuadGK, StaticArrays, PrecompileTools
+and standard libraries) are installed with it. The first `using DFLimit` precompiles the package, which takes about half
+a minute: it runs a few of the functions once, so that their first call in a session does not wait several seconds for
+compilation. `Pkg.test("DFLimit")` runs the tests (about five minutes on four threads; they compare the values with
+values stored by the companion paper's code, and end with the engine's own checks in `test/engine/`). The longer checks
+of the engine and the scripts that write its stored values are in `dev/` (see `dev/README.md`). The documentation is
+built with Documenter from `docs/`: `julia --project=docs -e 'using Pkg; Pkg.develop(path = "."); Pkg.instantiate()'`,
+then `julia --project=docs docs/make.jl`, which writes the pages to `docs/build`.
 
 ## Other implementations
 

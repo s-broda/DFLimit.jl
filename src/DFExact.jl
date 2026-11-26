@@ -6404,7 +6404,7 @@ R = U + 1/2, and {ADFmax <= x} = {|R| <= 1/2 + x sqrt(V)}, a region between two 
 the companion paper), by the conditional integral (`tr_adfmax`, whose options are passed on).  x may be an array; F = 0 at -Inf, 1 at
 Inf, NaN at NaN.  Accurate to about 1e-11.  As ADFMAX_CDF of the MATLAB programs (which also returns the error estimates).
 
-    adfmax_cdf(-2.43542, "DU")                      # 0.05 (the quantiles of the ADFmax statistic in the companion paper)
+    adfmax_cdf(-2.43542, "DU")                      # 0.05 (the ADFmax quantiles of the companion paper)
 """
 adfmax_cdf(x, cas::AbstractString, c::Real = 0; kw...) = adfmax_vals(false, x, cas, c; kw...)
 """
