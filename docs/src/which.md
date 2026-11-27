@@ -83,7 +83,7 @@ below, except case DG, which the line integral does not cover) and its paths abo
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
 | the extensions of the limit (the keywords `vol` and `rho` != 1), any design | general; `rho = -1` for a classical case by the rule at -x | | | | the classical engine refuses them; `rho = -1` is the t-ratio's own law reflected, which the rule's cells cover; the normal average of 0 < \|rho\| < 1 calls the general engine's distribution function at all its points in one call, which shares the outer contour over them (the rule's cells were measured on five points) |
 
-Where the classical engine computes, its values are those of 0.5.0 bit for bit; where the rule takes the general engine
+Where the classical engine computes, its values are those of `engine = :classical` bit for bit; where the rule takes the general engine
 for a case string, the values move within the differences above (in the cells moved on November 26, 2026 within 1e-7). The borders were swept: the stationary start at c =
 -3e-3 (cases SU, ST: the general engine within 4e-11 of the classical at c = -3e-3, off by 8e-10 at c = -1e-3), the
 moments next to zero (case SK down to c = -3e-3, cases SU, ST down to c = -1), the power envelope (case DK within 3e-12

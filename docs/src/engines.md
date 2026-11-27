@@ -34,7 +34,7 @@ The design `D` is `trend(p)` (p = -1: no deterministic terms, 0: an intercept, 1
 first); the start is `g0` (a fixed start J(0) = g0) or `start = :stationary`, and `gls = cbar` GLS-detrends at abar =
 1 + cbar/n. A design that is a classical case is that case: `ltratio_cdf(x, trend(0), c)` is `ltratio_cdf(x, "DU",
 c)`, `trend(1)` with `start = :stationary` is case ST and with `gls = -13.5` case DG. The case strings keep the classical
-engine's checks of the arguments (the range of c, the region of the fixed start), as in 0.5.0; a design beyond them goes
+engine's checks of the arguments (the range of c, the region of the fixed start), as in 0.4.0; a design beyond them goes
 to the general engine. Every call takes the engine of `autoengine` (`engine = :auto`); `engine = :classical` forces the
 classical engine (an `ArgumentError` for a design it does not have) and `engine = :general` the general one (without the
 classical checks; `method` then names the general engine's representation, `:auto`, `:line` or `:paths`). A `method`

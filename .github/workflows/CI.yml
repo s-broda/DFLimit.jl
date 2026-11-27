@@ -1,5 +1,7 @@
-# Pkg.test() of DFLimit with coverage, uploaded to Codecov, on every push to main, on tags and on pull requests (and by
-# hand: Actions tab, "Run workflow"). The oldest supported Julia (the julia entry of [compat]) and the current release on
+# Pkg.test() of DFLimit on every push to main, on tags and on pull requests (and by hand: Actions tab, "Run workflow"),
+# with coverage, uploaded to Codecov, in the job of the oldest supported Julia (the julia entry of [compat]) on Linux; the
+# other jobs run the same tests without coverage (with coverage the current Julia took more than twice as long as the
+# oldest, and the jobs exceeded the time limit: November 27, 2026). The oldest supported Julia and the current release on
 # Linux, the current release on macOS (Apple silicon) and on Windows; and the current release on x86-64 Linux with
 # IntelVectorMath loaded, which runs the same tests through the package extension DFLimitIntelVectorMathExt (MKL's
 # vector exponential, sine and cosine in the batched sums of the line integral). A push whose head commit message
@@ -24,7 +26,9 @@ jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }}${{ matrix.ivm && ' - IntelVectorMath' || '' }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # (with coverage and bounds checking the suite took 53 minutes with the oldest Julia on Ubuntu and more than 60 with
+    # the current one, about 2.1 times slower, on every runner after the extensions were merged, November 27, 2026)
+    timeout-minutes: 120
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
       contents: read
@@ -59,8 +63,12 @@ jobs:
           open(io -> TOML.print(io, p), "Project.toml", "w")
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: ${{ matrix.version == 'min' }}
       - uses: julia-actions/julia-processcoverage@v1
+        if: matrix.version == 'min'
       - uses: codecov/codecov-action@v7
+        if: matrix.version == 'min'
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
