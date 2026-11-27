@@ -109,7 +109,7 @@ The design `D` is `trend(p)` (p = -1: no deterministic terms, 0: an intercept, 1
 first); the start is `g0` (a fixed start J(0) = g0) or `start = :stationary`, and `gls = cbar` GLS-detrends at abar =
 1 + cbar/n. A design that is a classical case is that case: `ltratio_cdf(x, trend(0), c)` is `ltratio_cdf(x, "DU",
 c)`, `trend(1)` with `start = :stationary` is case ST and with `gls = -13.5` case DG. The case strings keep the classical
-engine's checks of the arguments (the range of c, the region of the fixed start), as in 0.5.0; a design beyond them goes
+engine's checks of the arguments (the range of c, the region of the fixed start), as in 0.4.0; a design beyond them goes
 to the general engine. Every call takes the engine of `autoengine` (`engine = :auto`); `engine = :classical` forces the
 classical engine (an `ArgumentError` for a design it does not have) and `engine = :general` the general one (without the
 classical checks; `method` then names the general engine's representation, `:auto`, `:line` or `:paths`). A `method`
@@ -231,7 +231,7 @@ below, except case DG, which the line integral does not cover) and its paths abo
 | every design beyond the classical cases or beyond the classical engine's checks | general | | | | the only engine |
 | the extensions of the limit (the keywords `vol` and `rho` != 1), any design | general; `rho = -1` for a classical case by the rule at -x | | | | the classical engine refuses them; `rho = -1` is the t-ratio's own law reflected, which the rule's cells cover; the normal average of 0 < \|rho\| < 1 calls the general engine's distribution function at all its points in one call, which shares the outer contour over them (the rule's cells were measured on five points) |
 
-Where the classical engine computes, its values are those of 0.5.0 bit for bit; where the rule takes the general engine
+Where the classical engine computes, its values are those of `engine = :classical` bit for bit; where the rule takes the general engine
 for a case string, the values move within the differences above (in the cells moved on November 26, 2026 within 1e-7). The borders were swept: the stationary start at c =
 -3e-3 (cases SU, ST: the general engine within 4e-11 of the classical at c = -3e-3, off by 8e-10 at c = -1e-3), the
 moments next to zero (case SK down to c = -3e-3, cases SU, ST down to c = -1), the power envelope (case DK within 3e-12
@@ -404,7 +404,7 @@ integrals around the roots, the rules of one evaluation, the checked computation
 |---|---|
 | `ltratio_cdf(x, cas, c; vol)`, `ltratio_pdf`, `ltratio_icdf`, `dist_cdf(D, xs, c; vol)`, `dist_pdf`, `dist_quantile` | the t-ratio when the innovation standard deviation, and with c a vector of one value per regime the local-to-unity parameter, is piecewise constant between known dates: `vol = volpath(breaks, omega)` |
 | the same functions with `rho` and `c0`; `cadf_c0(c, rho, R)`, `predictive_c0(c, rho, b)` | rho tau_{c0} + sqrt(1 - rho^2) Z (Z standard normal and independent): the limit of the covariate-augmented t-ratio of Hansen (1995) and of the t-ratio of the slope in a predictive regression with a regressor local to unity |
-| `hegy_t3_cdf(D, xs, c; c0, vol)`, `hegy_t3_pdf`, `hegy_t3_quantile`, `hegy_t4_cdf`, `hegy_t4_pdf`, `hegy_t4_quantile`, `hegy_f_cdf`, `hegy_f_quantile` | the two t-ratios and the F statistic of the regression of Hylleberg, Engle, Granger and Yoo at a harmonic frequency (a pair of complex unit roots) |
+| `hegy_t3_cdf(D, xs, c; c0, vol)`, `hegy_t3_pdf`, `hegy_t3_quantile` | the first t-ratio, of Dickey-Fuller shape, of the regression of Hylleberg, Engle, Granger and Yoo at a harmonic frequency (a pair of complex unit roots) |
 
 A volatility path covers any design with a zero start, least squares detrending and c <= 0; the volatility transform is
 the engine's with a diagonal tilt at the regime boundaries, so the outer contour, the inner integrals and the rules are
@@ -418,10 +418,9 @@ integral at the points x < 0 with c0 > 0 on the vertical line). The outer contou
 roots leaves its side of the imaginary axis (the volatility transform needs it); for the engine's designs this changes
 no path (464 configurations of ten designs with zero, fixed, stationary starts and GLS detrending, c from -480 to 14,
 `scratch/next/contour_scan.jl` of the branch next). The first seasonal
-t-ratio, of Dickey-Fuller shape, is a single integral of residues over the engine's outer contour for any design; the
-second and the F statistic are double integrals on lines for the polynomial seasonal trends (none, seasonal dummies,
-seasonal dummies and seasonal trends; without seasonal terms the second t-ratio is exactly standard normal). The values
-of the three prototypes (in the repository df-deterministics), checked there against simulations of the regressions,
+t-ratio, of Dickey-Fuller shape, is a single integral of residues over the engine's outer contour for any design (the
+second t-ratio and the F statistic of the same regression are not part of this release). The values of the three
+prototypes (in the repository df-deterministics), checked there against simulations of the regressions,
 independent quadrature and published tables, are reproduced to their printed digits, and so is the companion paper's
 table of the sizes of the predictive regression's t-tests.
 
@@ -432,8 +431,8 @@ julia> ltratio_cdf(-2.8615688636519616, "DU"; vol = volpath([0.1], [1.0, 3.0])) 
 julia> ltratio_icdf(0.05, "DU"; rho = sqrt(0.5))     # the 5% value of Hansen's covariate-augmented test, rho^2 = 0.5
 -2.5867469344813205
 
-julia> hegy_f_quantile(trend(0), 0.95)                # the 5% value of the F statistic with seasonal dummies
-6.64548083810789
+julia> hegy_t3_quantile(trend(0), 0.05)              # the 5% value of the first seasonal t-ratio with seasonal dummies
+-3.3442470388202103
 ```
 
 ## Example

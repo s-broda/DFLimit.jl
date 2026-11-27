@@ -60,24 +60,19 @@ errmsg(f) = try; f(); ""; catch e; e isa ArgumentError ? e.msg : "other: " * spr
         elseif tag == "cquant"
             D = designs[parse(Int, v[2])]; c, c0, rho, p, x, tol = num.(v[5:10])
             @test abs(dist_quantile(D, p, c; c0, rho) - x) <= tol
-        elseif tag == "sdval"
-            D = designs[parse(Int, v[2])]; c = num(v[3])
-            d = DD.seas_dval(DD.SeasModel(DD.prep(D)), cpx(v, 4), cpx(v, 6), cpx(v, 8); c)
-            @test abs(d - cpx(v, 10)) <= num(v[12])
         elseif tag == "sval"
             D = designs[parse(Int, v[3])]; c = num(v[4]); c0 = num(v[5]); vid = parse(Int, v[6])
             x, k = vecs(v, 7); ref, k = vecs(v, k)
             f = v[2]
             val = f == "t3cdf" ? (vid == 0 ? hegy_t3_cdf(D, x, c; c0) : hegy_t3_cdf(D, x, [c, c]; c0, vol = vols[vid])) :
-                  f == "t3pdf" ? (vid == 0 ? hegy_t3_pdf(D, x, c; c0) : hegy_t3_pdf(D, x, [c, c]; c0, vol = vols[vid])) :
-                  f == "t4cdf" ? hegy_t4_cdf(D, x, c) : f == "t4pdf" ? hegy_t4_pdf(D, x, c) : hegy_f_cdf(D, x, c)
+                                 (vid == 0 ? hegy_t3_pdf(D, x, c; c0) : hegy_t3_pdf(D, x, [c, c]; c0, vol = vols[vid]))
             @test maximum(abs, val .- ref) <= num(v[k])
         elseif tag == "squant"
             D = designs[parse(Int, v[3])]; c, p, x, tol = num.(v[4:7])
-            q = v[2] == "t3" ? hegy_t3_quantile(D, p, c) : v[2] == "t4" ? hegy_t4_quantile(D, p, c) : hegy_f_quantile(D, p, c)
+            q = hegy_t3_quantile(D, p, c)
             @test abs(q - x) <= tol
         end
     end
-    @test get(counts, "vval", 0) == 20 && get(counts, "cval", 0) == 20 && get(counts, "sval", 0) == 27
-    @test length([v for v in lines if v[1] == "err"]) == 17
+    @test get(counts, "vval", 0) == 20 && get(counts, "cval", 0) == 20 && get(counts, "sval", 0) == 12 && get(counts, "squant", 0) == 2
+    @test length([v for v in lines if v[1] == "err"]) == 15 && !haskey(counts, "sdval")
 end

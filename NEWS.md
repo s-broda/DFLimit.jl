@@ -94,10 +94,10 @@
   covariate-augmented t-ratio of Hansen (1995) and of the t-ratio of the slope in a predictive regression, with the local
   null values `cadf_c0(c, rho, R)` and `predictive_c0(c, rho, b)` (the inversion on two lines with the normal component in
   the kernel, or the normal average of the t-ratio's distribution function; `src/DFDet_cov.jl`). The functions
-  `hegy_t3_cdf`, `hegy_t3_pdf`, `hegy_t3_quantile`, `hegy_t4_cdf`, `hegy_t4_pdf`, `hegy_t4_quantile`, `hegy_f_cdf`,
-  `hegy_f_quantile`: the two t-ratios and the F statistic of the regression of Hylleberg, Engle, Granger and Yoo at a
-  harmonic frequency (the first for any design and with a volatility path, the others for the polynomial seasonal
-  trends; `src/DFDet_seas.jl`). They reproduce the values of the prototypes of the repository df-deterministics and the
+  `hegy_t3_cdf`, `hegy_t3_pdf`, `hegy_t3_quantile`: the first t-ratio of the regression of Hylleberg, Engle, Granger and
+  Yoo at a harmonic frequency, of Dickey-Fuller shape, for any design and with a volatility path (`src/DFDet_seas.jl`;
+  the second t-ratio and the F statistic of the regression are not part of this release). They reproduce the values of
+  the prototypes of the repository df-deterministics and the
   companion paper's table of the predictive regression to their printed digits (`test/extensions/`); the reference
   values for the ports are `test/ref/ext_ref.txt` (`dev/ext_ref.jl`).
 - **The engine's outer contour for any transform.** The path builder of the general engine (`cpath`, `rootpath_sparse`,

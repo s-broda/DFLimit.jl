@@ -3665,7 +3665,6 @@ function empty_caches!()
         empty!(CPCACHE); empty!(CPORDER); empty!(LINECACHE); empty!(LINEORDER); empty!(PREPCACHE); empty!(PREPORDER)
         empty!(LMCACHE); empty!(LMORDER)                        # (the providers of the line integral, DFDet_line.jl)
         empty!(VOLCACHE); empty!(VOLORDER)                      # (the volatility models and paths, DFDet_vol.jl)
-        empty!(SEASCACHE); empty!(SEASORDER)                    # (the grids of the seasonal transform, DFDet_seas.jl)
     end
     nothing
 end

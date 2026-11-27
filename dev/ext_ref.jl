@@ -12,9 +12,10 @@
 #   vquant did vid nc c.. c0 p x tol               dist_quantile with vol (x0 = -2)
 #   cval func did start g0 c c0 rho method n x.. n v.. tol   func = cdf | pdf with rho (start 0 zero, 1 fixed, 2 stationary)
 #   cquant did start g0 c c0 rho p x tol           dist_quantile with rho (x0 = -2)
-#   sdval did c s u t D tol                        the seasonal transform D(s,u,t) at complex points
-#   sval func did c c0 vid n x.. n v.. tol         func = t3cdf | t3pdf | t4cdf | t4pdf | fcdf (vid 0: no volatility path)
-#   squant func did c p x tol                      func = t3 | t4 | f
+#   sval func did c c0 vid n x.. n v.. tol         func = t3cdf | t3pdf (vid 0: no volatility path)
+#   squant func did c p x tol                      func = t3
+# (until November 27, 2026 also the tags sdval, the seasonal transform D(s,u,t), and the functions t4cdf, t4pdf, fcdf,
+# t4, f of the second t-ratio and the F statistic, which are not part of the release 0.5.0)
 #   err func | fragment                            an ArgumentError of func whose message contains the fragment (see the
 #                                                   lines for the arguments, in words)
 using DFLimit, Printf, Logging
@@ -82,14 +83,7 @@ for (did, c, c0, rho, p) in ((2, 0.0, 0.0, sqrt(0.5), 0.05), (3, 0.0, 0.0, sqrt(
     line("cquant", string(did), "0", 0.0, c, c0, rho, p, dist_quantile(designs[did], p, c; c0, rho), 1e-7)
 end
 
-# the seasonal statistics
-for (did, c) in ((1, 0.0), (2, 0.0), (3, -3.0), (5, -2.0))
-    SM = DG.SeasModel(DG.prep(designs[did]))
-    for (s, u, t) in ((0.3 + 0.0im, 0.0im, 0.5 + 0.0im), (0.2 + 0.0im, 0.4 + 0.0im, 0.3 + 0.0im), (0.2 + 1.0im, 0.3im, 0.4 + 2.0im), (0.0im, 2.0im, 1.0 + 30.0im))
-        d = DG.seas_dval(SM, s, u, t; c)
-        line("sdval", string(did), c, s, u, t, d, 1e-10 * abs(d))
-    end
-end
+# the first seasonal t-ratio
 for (did, c, c0, vid) in ((1, 0.0, 0.0, 0), (2, 0.0, 0.0, 0), (3, -5.0, 0.0, 0), (4, 0.0, 0.0, 0), (2, -5.0, -2.0, 0), (2, 0.0, 0.0, 1))
     D = designs[did]; k = vid == 0 ? (; c0) : (; c0, vol = vp(vid))
     c_ = vid == 0 ? c : [c, c]
@@ -97,19 +91,9 @@ for (did, c, c0, vid) in ((1, 0.0, 0.0, 0), (2, 0.0, 0.0, 0), (3, -5.0, 0.0, 0),
     line("sval", "t3cdf", string(did), c, c0, string(vid), string(length(xs)), xs..., string(length(F)), F..., 1e-10)
     line("sval", "t3pdf", string(did), c, c0, string(vid), string(length(xs)), xs..., string(length(f)), f..., 1e-10)
 end
-q4 = [0.5, 1.0, 1.645, 2.5]; xF = [1.0, 3.0, 6.0, 10.0]
-for (did, c) in ((1, 0.0), (2, 0.0), (3, 0.0), (2, -5.0), (3, -10.0))
-    D = designs[did]
-    F4 = hegy_t4_cdf(D, q4, c); f4 = hegy_t4_pdf(D, q4, c); FF = hegy_f_cdf(D, xF, c)
-    line("sval", "t4cdf", string(did), c, 0.0, "0", string(length(q4)), q4..., string(length(F4)), F4..., 1e-9)
-    line("sval", "t4pdf", string(did), c, 0.0, "0", string(length(q4)), q4..., string(length(f4)), f4..., 1e-9)
-    line("sval", "fcdf", string(did), c, 0.0, "0", string(length(xF)), xF..., string(length(FF)), FF..., 1e-9)
-end
 for (did, c) in ((2, 0.0), (3, 0.0))
     D = designs[did]
     line("squant", "t3", string(did), c, 0.05, hegy_t3_quantile(D, 0.05, c), 1e-7)
-    line("squant", "t4", string(did), c, 0.975, hegy_t4_quantile(D, 0.975, c), 1e-7)
-    line("squant", "f", string(did), c, 0.95, hegy_f_quantile(D, 0.95, c), 1e-7)
 end
 
 # argument errors (the fragment of the message; the arguments in words)
@@ -129,9 +113,7 @@ for (fn, words, f, frag) in (
         ("dist_cdf", "rho = 0.5, gls = -13.5", () -> dist_cdf(designs[3], [-2.0], -5.0; rho = 0.5, gls = -13.5), "GLS detrending"),
         ("dist_cdf", "rho = 0.5, method lines, fixed start", () -> dist_cdf(designs[2], [-2.0], -5.0; rho = 0.5, start = :fixed, gamma0 = 1.0, method = :lines), "zero or a stationary start"),
         ("cadf_c0", "rho = 0", () -> cadf_c0(-5.0, 0.0), "not be 0"),
-        ("hegy_t4_cdf", "perron A 0.5", () -> hegy_t4_cdf(designs[4], [1.0]), "polynomial seasonal trends"),
-        ("hegy_t3_cdf", "c = 1", () -> hegy_t3_cdf(designs[2], [1.0], 1.0), "must be at most 0"),
-        ("hegy_f_cdf", "c = -30", () -> hegy_f_cdf(designs[2], [1.0], -30.0), "must be at least -20"))
+        ("hegy_t3_cdf", "c = 1", () -> hegy_t3_cdf(designs[2], [1.0], 1.0), "must be at most 0"))
     m = errmsg(f)
     occursin(frag, m) || error("ext_ref: $fn ($words) gave \"$m\", without \"$frag\"")
     println(io, "err $fn $words | $frag")
