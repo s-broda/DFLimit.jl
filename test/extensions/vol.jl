@@ -4,6 +4,7 @@
 # dummy boundary; the reference values of the prototype (df-deterministics, extensions/volatility, CHECKS.md: the table
 # of the note at eight decimals, the quantiles of its simulations at four, the power under changing persistence);
 # the checked computation, the density against the distribution function, argument errors and type stability.
+# (GLS detrending, the statistic that detrends first and a fixed or stationary start under regimes: regimes.jl.)
 using DFLimit, Test, LinearAlgebra, Logging
 const DD = DFLimit.DFDet
 errmsg(f) = try; f(); ""; catch e; e isa ArgumentError ? e.msg : "other: " * sprint(showerror, e); end
@@ -175,10 +176,6 @@ const V3 = volpath([0.2, 0.7], [2.0, 1.0, 0.5]); const C3 = [-3.0, 0.0, -10.0]
         @test occursin("at most 0", errmsg(() -> dist_cdf(trend(0), x, 1.0; vol = V2)))
         @test occursin("at most 0", errmsg(() -> dist_cdf(trend(0), x, [0.0, 1.0]; vol = V2)))
         @test occursin("at least -480", errmsg(() -> dist_cdf(trend(0), x, -500.0; vol = V2)))
-        @test occursin("zero start only", errmsg(() -> dist_cdf(trend(0), x, -5.0; vol = V2, start = :stationary)))
-        @test occursin("zero start only", errmsg(() -> dist_cdf(trend(0), x, -5.0; vol = V2, start = :fixed, gamma0 = 1.0)))
-        @test occursin("GLS detrending", errmsg(() -> dist_cdf(trend(1), x, -5.0; vol = V2, gls = -13.5)))
-        @test occursin("detrend_first", errmsg(() -> dist_cdf(detrend_first(trend(1)), x, -5.0; vol = V2)))
         @test occursin("method must be :auto or :paths", errmsg(() -> dist_cdf(trend(0), x, -5.0; vol = V2, method = :line)))
         @test occursin("rho and vol together", errmsg(() -> dist_cdf(trend(0), x, -5.0; vol = V2, rho = 0.5)))
         @test occursin("must be a volatility path", errmsg(() -> dist_cdf(trend(0), x, -5.0; vol = [0.3])))
@@ -187,7 +184,7 @@ const V3 = volpath([0.2, 0.7], [2.0, 1.0, 0.5]); const C3 = [-3.0, 0.0, -10.0]
     end
     @testset "type stability" begin
         VM = DD.vol_model(trend(1), V2, [0.0, -5.0]); W = DD.MWork(VM)
-        @inferred DD.mgfparts(VM, 0.0, 1.0 + 2.0im, W)
+        @inferred Tuple{ComplexF64,ComplexF64,Vector{ComplexF64},Union{Nothing,DD.FixT}} DD.mgfparts(VM, 0.0, 1.0 + 2.0im, W)
         @inferred DD.sigma_vol!(W, VM)
         @inferred dist_cdf(trend(0), [-2.0], 0.0; vol = V2)
         @inferred dist_pdf(trend(0), [-2.0], [0.0, -1.0]; vol = V2)

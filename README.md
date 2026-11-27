@@ -402,13 +402,15 @@ integrals around the roots, the rules of one evaluation, the checked computation
 
 | call | computes |
 |---|---|
-| `ltratio_cdf(x, cas, c; vol)`, `ltratio_pdf`, `ltratio_icdf`, `dist_cdf(D, xs, c; vol)`, `dist_pdf`, `dist_quantile` | the t-ratio when the innovation standard deviation, and with c a vector of one value per regime the local-to-unity parameter, is piecewise constant between known dates: `vol = volpath(breaks, omega)` |
+| `ltratio_cdf(x, cas, c; vol)`, `ltratio_pdf`, `ltratio_icdf`, `dist_cdf(D, xs, c; vol)`, `dist_pdf`, `dist_quantile` | the t-ratio when the innovation standard deviation, and with c a vector of one value per regime the local-to-unity parameter, is piecewise constant between known dates: `vol = volpath(breaks, omega)`, with `gls`, `detrend_first` and `start` as without it |
 | the same functions with `rho` and `c0`; `cadf_c0(c, rho, R)`, `predictive_c0(c, rho, b)` | rho tau_{c0} + sqrt(1 - rho^2) Z (Z standard normal and independent): the limit of the covariate-augmented t-ratio of Hansen (1995) and of the t-ratio of the slope in a predictive regression with a regressor local to unity |
 | `hegy_t3_cdf(D, xs, c; c0, vol)`, `hegy_t3_pdf`, `hegy_t3_quantile` | the first t-ratio, of Dickey-Fuller shape, of the regression of Hylleberg, Engle, Granger and Yoo at a harmonic frequency (a pair of complex unit roots) |
 
-A volatility path covers any design with a zero start, least squares detrending and c <= 0; the volatility transform is
-the engine's with a diagonal tilt at the regime boundaries, so the outer contour, the inner integrals and the rules are
-the engine's. With rho the default computation is the inversion on two lines with the normal component in the kernel
+A volatility path covers any design with c <= 0, with least squares detrending and a zero or a stationary start
+(`start = :stationary`, the stationary start of the first regime), and with a zero start GLS detrending (`gls`) and the
+statistic that detrends first (`detrend_first`); for a fixed start under regimes the transform is computed
+(`DFDet.vol_qf`) and the distribution is not. The volatility transform is the engine's
+with a diagonal tilt at the regime boundaries, so the outer contour, the inner integrals and the rules are the engine's. With rho the default computation is the inversion on two lines with the normal component in the kernel
 (`method = :lines`), the normal average of the t-ratio's distribution function (`method = :mixture`) near |rho| = 1, with a
 fixed start and above the unit root; rho = 1 is the t-ratio itself, a negative rho its reflection. The extensions take the
 general engine whatever the rule `autoengine` (`engine = :classical` refuses them), except `rho = -1` for a classical

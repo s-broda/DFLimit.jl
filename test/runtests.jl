@@ -604,8 +604,10 @@ end
 end
 Base.include(Module(), joinpath(@__DIR__, "general", "line.jl"))   # the line integral of the general designs of rank one or two
 # the extensions of the limit: volatility and persistence regimes, a normal component (covariates, the predictive
-# regression), seasonal unit roots; and the reference values of the ports (test/ref/ext_ref.txt, dev/ext_ref.jl)
-for f in ("vol.jl", "cov.jl", "seas.jl", "ref.jl")
+# regression), seasonal unit roots; the reference values of the ports (test/ref/ext_ref.txt, dev/ext_ref.jl); and the
+# regimes with GLS detrending, detrending first and a normal or fixed start against the prototype of the lead paper
+# (test/ref/regime_ref.txt, dev/regime_ref.jl)
+for f in ("vol.jl", "cov.jl", "seas.jl", "ref.jl", "regimes.jl")
     Base.include(Module(), joinpath(@__DIR__, "extensions", f))
 end
 Base.include(Module(), joinpath(@__DIR__, "kan.jl"))               # the devices of Bao and Kan (src/DFKan*.jl) and the functions that take them

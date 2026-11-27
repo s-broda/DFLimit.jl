@@ -601,8 +601,9 @@ The two largest eigenvalues of the operator of the quadratic form V = int J^2 + 
 GLS detrending V_g is not the norm of an orthogonal projection of J, so `eigtop` does not apply): Nystrom nodes as in
 `eigtop`, the vector X = (J at the nodes, J(1), J(lambda_i)) with its covariance C (zero start), ell = Lambda X (z by the
 quadrature of int g J), V = X' (W + Lambda' B Lambda) X, and the eigenvalues of C^{1/2} (W + Lambda' B Lambda) C^{1/2}.
+kern: another covariance kernel (r, u) -> Cov(J(r), J(u)) in place of the Ornstein-Uhlenbeck one (the volatility model).
 """
-function eigtop_q(P::Prep, c::Real; m::Int = 48)
+function eigtop_q(P::Prep, c::Real; m::Int = 48, kern = nothing)
     z, w = glrule(m)
     rs = Float64[]; ws = Float64[]; pj = Int[]
     for j in 1:length(P.br)-1
@@ -613,7 +614,7 @@ function eigtop_q(P::Prep, c::Real; m::Int = 48)
     end
     n = length(rs); c = Float64(c)
     pts = [rs; 1.0; P.jl]; M = length(pts)
-    Kc(r, u) = oukernel(c, r, u)
+    Kc(r, u) = kern === nothing ? oukernel(c, r, u) : kern(r, u)
     C = [Kc(pts[i], pts[j]) for i in 1:M, j in 1:M]
     Lam = zeros(P.N, M); Lam[1, n+1] = 1
     for i in 1:P.nj; Lam[1+i, n+1+i] = 1; end
@@ -1362,10 +1363,22 @@ function fixparts_s(Mo::Model, c::Float64, t::ComplexF64, W::MWork, sd::SData{N,
     sigma!(W.S, P, θ, W.sw)
     S = SMatrix{N,N,ComplexF64}(W.S); h = SVector{N,ComplexF64}(W.sw.h)
     F = slu(buildM_s(sd, S, c, zero(ComplexF64), t, θ))
+    Qm = MMatrix{N,N,ComplexF64}(t * sd.B); @inbounds Qm[1, 1] += γ
+    H, fx = fixdata_s(sd, S, h, SMatrix(Qm), F, γ)
+    θ, c + θ + slogdet(F), eigs_s(H), fx
+end
+"""
+    fixdata_s(sd, S, h, Q0, F, g) -> (H, FixT)
+
+The data of the fixed start at one t (`fixparts`) from the covariance S of ell under the tilted process, the mean h of ell
+under that process started at one, the tilt Q0 of the zero start (t B + gamma E11; with volatility regimes t B + Gamma),
+the factorization F of M0 = I - 2 Q0 S and the coefficient -g of J(0)^2 in Girsanov's exponent (gamma; with regimes that
+of the first piece).  Static arrays; shared by the engine's transform and that of the regimes.
+"""
+@inline function fixdata_s(sd::SData{N,R}, S::SMatrix{N,N,ComplexF64}, h::SVector{N,ComplexF64}, Q0::SMatrix{N,N,ComplexF64}, F, γ::ComplexF64) where {N,R}
     L = sd.L; Lt = transpose(L); Dv = sd.Dv; yb = sd.yb
     X = ssolve(F, SMatrix{N,R,ComplexF64}(L))
     H = 2 .* (Dv .* (Lt * (S * X)))
-    Qm = MMatrix{N,N,ComplexF64}(t * sd.B); @inbounds Qm[1, 1] += γ; Q0 = SMatrix(Qm)
     mt = h + yb
     v0 = Q0 * (h - yb); qt = -2 * (Q0 * yb)
     a0 = ssolve(F, v0); aq = ssolve(F, qt)
@@ -1376,7 +1389,7 @@ function fixparts_s(Mo::Model, c::Float64, t::ComplexF64, W::MWork, sd::SData{N,
     p2 = Lt * ssolvet(F, Sq)
     w2 = Dv .* (Lt * (S * aq))
     mm = Lt * (ssolvet(F, h) + yb)
-    θ, c + θ + slogdet(F), eigs_s(H), FixT(cf, Matrix(H), Vector(w1), Vector(p1), Vector(w2), Vector(p2), Vector(mm))
+    H, FixT(cf, Matrix(H), Vector(w1), Vector(p1), Vector(w2), Vector(p2), Vector(mm))
 end
 """`logmgf_spart` with static arrays"""
 function logmgf_spart_s(Mo::Model, c::Float64, s::ComplexF64, t::ComplexF64, θ::ComplexF64, fx, W::MWork, Bf::Matrix{ComplexF64},
@@ -1413,23 +1426,27 @@ function fixparts(Mo::Model, c::Float64, t::ComplexF64, W::MWork)
     M0 = buildM!(W, P, c, zero(ComplexF64), t, θ)
     F = lu(M0)
     ld = logdet(F)
-    S = W.S; h = W.sw.h; L = P.L; Lt = transpose(P.L)
-    X = F \ complex.(L)
-    H = 2 .* (Diagonal(P.Dv) * (Lt * (S * X)))
-    μ = eigvals(H)
-    yb = Mo.yb
     Q0 = t .* P.B; Q0[1, 1] += γ
+    fx = fixdata(W.S, W.sw.h, Q0, F, γ, P.L, P.Dv, Mo.yb)
+    θ, c + θ + ld, eigvals(fx.H), fx
+end
+"""`fixdata_s` with dense matrices: the eigenvectors L and eigenvalues Dv of A and the shift yb given"""
+function fixdata(S::Matrix{ComplexF64}, h::Vector{ComplexF64}, Q0::Matrix{ComplexF64}, F, γ::ComplexF64, L::Matrix{Float64}, Dv::Vector{Float64},
+                 yb::Vector{Float64})
+    Lt = transpose(L)
+    X = F \ complex.(L)
+    H = 2 .* (Diagonal(Dv) * (Lt * (S * X)))
     mt = h .+ yb
     v0 = Q0 * (h .- yb); qt = -2 .* (Q0 * yb)
     a0 = F \ v0; aq = F \ qt
     Sq = S * qt
     cf = -γ + transpose(yb) * (Q0 * yb) + transpose(mt) * a0 + transpose(qt) * (S * aq) / 2
     p1 = Lt * (transpose(F) \ mt)
-    w1 = 2 .* P.Dv .* (Lt * (S * a0)) .+ P.Dv .* (Lt * mt)
+    w1 = 2 .* Dv .* (Lt * (S * a0)) .+ Dv .* (Lt * mt)
     p2 = Lt * (transpose(F) \ Sq)
-    w2 = P.Dv .* (Lt * (S * aq))
+    w2 = Dv .* (Lt * (S * aq))
     mm = Lt * ((transpose(F) \ h) .+ yb)
-    θ, c + θ + ld, μ, FixT(cf, H, w1, p1, w2, p2, mm)
+    FixT(cf, H, w1, p1, w2, p2, mm)
 end
 
 """work space of `fixE1`: the r x (r + 2) augmented matrix"""
@@ -3858,8 +3875,10 @@ default, by `path_region`; :present the rule until November 2026, also taken by 
 the outer step) and the keywords n, ntail (the nodes of the U-shapes) override it.
 
 Two extensions of the limit (`ext_eval`).  vol = volpath(breaks, omega): the innovation standard deviation and, with c a
-vector of one value per regime, the local-to-unity parameter piecewise constant between known dates (zero start, least
-squares detrending, every c <= 0; the inversion on paths of the volatility transform).  rho (default 1): the limit
+vector of one value per regime, the local-to-unity parameter piecewise constant between known dates (every c <= 0; the
+inversion on paths of the volatility transform; gls, `detrend_first` and start = :stationary as without vol, the
+stationary start being that of the first regime, J(0) ~ N(0, omega_1^2/(-2 c_1)); a fixed start is refused with more than
+one regime).  rho (default 1): the limit
 rho tau_{c0} + sqrt(1 - rho^2) Z, Z standard normal and independent of tau_{c0} = (U - c0 V)/sqrt(V), the limit of the
 covariate-augmented t-ratio of Hansen (1995) at c0 = `cadf_c0(c, rho, R)` and of the t-ratio of the slope in a predictive
 regression with a regressor local to unity at c0 = `predictive_c0(c, rho, b)`; method then :auto, :lines (the inversion on

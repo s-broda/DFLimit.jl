@@ -55,7 +55,7 @@
 - **Three extensions of the limit** (the general engine; pages "Extensions of the limit" of the documentation). The
   keyword `vol = volpath(breaks, omega)` of `ltratio_cdf`, `ltratio_pdf`, `ltratio_icdf`, `dist_cdf`, `dist_pdf`,
   `dist_quantile`: the innovation standard deviation, and with c a vector of one value per regime the local-to-unity
-  parameter, piecewise constant between known dates (any design, zero start, least squares detrending, c <= 0;
+  parameter, piecewise constant between known dates (any design, c <= 0, and the variants of the next entry;
   `src/DFDet_vol.jl`). The keyword `rho` of the same functions: the limit rho tau_{c0} + sqrt(1 - rho^2) Z of the
   covariate-augmented t-ratio of Hansen (1995) and of the t-ratio of the slope in a predictive regression, with the local
   null values `cadf_c0(c, rho, R)` and `predictive_c0(c, rho, b)` (the inversion on two lines with the normal component in
@@ -66,6 +66,24 @@
   the prototypes of the repository df-deterministics and the
   companion paper's table of the predictive regression to their printed digits (`test/extensions/`); the reference
   values for the ports are `test/ref/ext_ref.txt` (`dev/ext_ref.jl`).
+- **The regimes with GLS detrending, with the statistic that detrends first and with a stationary start.** The keyword
+  `vol` now goes with `gls = cbar`, with `detrend_first(D)` and with `start = :stationary` (the stationary start of the
+  first regime, J(0) ~ N(0, omega_1^2/(-2 c_1)); the case strings `"SU"`, `"ST"` and `"DG"` of the classical functions
+  take `vol` with it), where it was the zero start with least squares detrending in the one-step regression before.
+  GLS detrending and detrending first change the matrices of the numerator and the denominator alone, on the design
+  refined at the regime boundaries; a normal start is one more functional, as in the engine. These variants were computed
+  until now by a prototype among the replication code of the lead paper (`paper/VolDF.jl` of df-deterministics, removed
+  there); its values are the fixture `test/ref/regime_ref.txt` (`dev/regime_ref.jl`), among them the numbers behind the
+  paper's table of sizes under a variance break and its p-values for the Treasury bill rate, and the package reproduces
+  them to rounding on the prototype's contour (the distribution function within 2e-15, the determinant, the roots and t_*
+  within 1e-13; `test/extensions/regimes.jl`). The stationary start, which the prototype did not invert, is checked
+  against the engine at a constant variance, against the finite-sample transform of the regression and as the average
+  of the fixed start over a normal one. The parts of the transform under regimes are functions of the general engine:
+  `DFDet.vol_model(D, V, c; start, g0, gls, v0)` (v0: a normal start of any variance), `vol_dval`, `vol_roots`,
+  `vol_path`, and `vol_qf`, the exponent of a fixed start. The distribution with a fixed start is not computed under
+  regimes (`start = :fixed` with a nonzero `gamma0` and more than one regime raises an `ArgumentError`): the engine's
+  paths of a fixed start are laid for a constant variance and persistence, and under regimes they lost accuracy or
+  failed for starts of moderate size.
 - **The engine's outer contour for any transform.** The path builder of the general engine (`cpath`, `rootpath_sparse`,
   `linecpath`, `fixed_phi`) takes a transform model (`DFDet.TransformModel`: the engine's `Model` or the volatility
   model), `verify_eval` the variant contours of the model, `eigtop` a covariance kernel. The hyperbola is now steepened

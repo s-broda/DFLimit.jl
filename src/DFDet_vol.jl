@@ -23,13 +23,28 @@
 # downstream of log D_V(t) and the reciprocal roots mu_k(t) is the engine's code: the outer contour and the continuation of
 # the roots (`cpath_` on a `VolModel`, a `TransformModel`), the inner integrals (`contour_eval`), the rules of one
 # evaluation, the checked computation, the quantile search.
+#
+# The variants of the engine carry over, each through the part of the transform that it changes.  GLS detrending and
+# the statistic that detrends first change the matrices A and B alone (`prep_gls`, `detrend_first`): the functionals are
+# those of the prepared design on the refined partition, and the law of the path enters as above.  A normal start, J(0)
+# centred normal with variance v0 and independent of W (the stationary start of the first regime: v0 = omega_1^2/(-2 c_1),
+# c_1 < 0), joins the functionals: with h the mean of ell under the tilted process started at one, the covariance of
+# (ell, J(0)) is [Sigma + v0 h h', v0 h; v0 h', v0], the matrices are those of the engine's stationary start (A bordered
+# by b/2 and -1/2, B by zeros), and Gamma gains -g_1 at the start.  A fixed start J(0) = g0 shifts the mean: log M =
+# log M_0 + g0^2 Q(s,t) with the exponent Q of the engine's fixed start (`fixdata_s`) at the tilt t B + Gamma and with g_1
+# in place of gamma.  J(0) is in the units of the path, whose innovation variance averages one over the sample.  The
+# transform of the fixed start is computed (`vol_qf`; the model carries its data along the outer contour); the user-level
+# functions refuse its inversion (`VOL_FIXED_MSG`), since the engine's paths for a fixed start, laid for a constant
+# variance and persistence, are not dependable under regimes (November 2026: with an intercept and a persistence that
+# changes, or far from the unit root, no angle of the outer contour gave a value).
 
 """
     VolPath
 
 Volatility regimes: boundaries 0 = lam[1] < lam[2] < ... < lam[end] = 1, and on regime i (lam[i] < r <= lam[i+1]) the
 standard deviation om[i] of the innovations, scaled so that the integral of omega^2 is one.  Built by `volpath`; the
-keyword `vol` of `dist_cdf`, `dist_pdf`, `dist_quantile`, `ltratio_cdf`, `ltratio_pdf`, `ltratio_icdf` and `hegy_t3_cdf`.
+keyword `vol` of `dist_cdf`, `dist_pdf`, `dist_quantile`, `ltratio_cdf`, `ltratio_pdf`, `ltratio_icdf` and `hegy_t3_cdf`,
+beside their keywords for the detrending and the start.
 """
 struct VolPath
     lam::Vector{Float64}
@@ -97,12 +112,17 @@ vol_regime(V::VolPath, r::Real) = (i = 1; while i < nregimes(V) && r > V.lam[i+1
 """
     VolModel
 
-The transform model of a design with volatility regimes: the design refined at the regime boundaries (D, prepared P,
-its zero-start model Mi for the inner integrals), np pieces of lengths L with omega^2 and c on each, the extended vector
-ell = (J(1), J at the jumps of d, z, J at the regime boundaries that are not jumps of d) of dimension Ne, the position
-bpos[j] in ell of J at the boundary between pieces j and j + 1 (0: not in ell), the padded matrices A, B and the
-eigenvectors Lx of A (eigenvalues Dv), the start (:zero, g0 = 0: the fields the outer contour reads), and the static
-matrices sd (`SData`, nothing for Ne > STATIC_MAX).
+The transform model of a design with volatility regimes: the design refined at the regime boundaries (D; prepared P, by
+least squares or, with GLS detrending, by `prep_gls`; Mi the engine's model of P with the start, for the inner
+integrals), np pieces of lengths L with omega^2 and c on each, the extended vector ell = (J(1), J at the jumps of d, z, J
+at the regime boundaries that are not jumps of d) of dimension Ne, the position bpos[j] in ell of J at the boundary
+between pieces j and j + 1 (0: not in ell), the padded matrices A, B and the eigenvectors Lx of A (eigenvalues Dv), the
+start and the static matrices sd (`SData`, nothing for N > STATIC_MAX).
+
+The start: :zero; :fixed, J(0) = g0, with the shift yb of the engine's fixed start padded with zeros; :stationary, a
+normal start with the variance v0 (that of the stationary law of the first regime unless `vol_model` is given another),
+where J(0) is one more functional: N = Ne + 1 and A, B, Lx, Dv are the matrices of the engine's stationary start.
+Otherwise N = Ne.
 """
 struct VolModel{SD} <: TransformModel
     D::Determ
@@ -121,14 +141,18 @@ struct VolModel{SD} <: TransformModel
     r::Int; rp::Int; rm::Int
     start::Symbol
     g0::Float64
+    N::Int
+    v0::Float64
+    yb::Vector{Float64}
     sd::SD
 end
 inner_model(VM::VolModel) = VM.Mi
 dense_la(VM::VolModel) = VM.sd === nothing
 
-function vol_model_(D0::Determ, V::VolPath, cr::Vector{Float64})
+function vol_model_(D0::Determ, V::VolPath, cr::Vector{Float64}, start::Symbol, g0::Float64, gls, v0::Float64)
     D = vol_refine(D0, V.lam)
-    P = prep_cached(D)
+    P = prep_cached(D, gls)
+    Mi = model(P, start, g0)                 # (refuses a start with GLS detrending or with the statistic that detrends first)
     np = length(P.br) - 1
     L = diff(P.br)
     reg = [vol_regime(V, (P.br[j] + P.br[j+1]) / 2) for j in 1:np]
@@ -145,18 +169,46 @@ function vol_model_(D0::Determ, V::VolPath, cr::Vector{Float64})
     end
     A = zeros(Ne, Ne); B = zeros(Ne, Ne); Lx = zeros(Ne, P.r)
     A[1:P.N, 1:P.N] .= P.A; B[1:P.N, 1:P.N] .= P.B; Lx[1:P.N, :] .= P.L
-    sd = sdata(A, B, Lx, copy(P.Dv), zeros(Ne))
-    VolModel(D, P, model(P), V, cr, np, L, om2, c, Ne, bpos, A, B, Lx, copy(P.Dv), P.r, P.rp, P.rm, :zero, 0.0, sd)
+    if Mi.start == :stationary
+        # a normal start: J(0) the last functional, the matrices of the engine's stationary start (`model`)
+        isnan(v0) && (v0 = om2[1] / (-2 * c[1]))
+        (isfinite(v0) && v0 > 0) || throw(ArgumentError("the variance of a normal start must be positive and finite (the stationary start of the first regime needs c < 0 there)"))
+        N = Ne + 1
+        Ax = zeros(N, N); Bx = zeros(N, N)
+        Ax[1:Ne, 1:Ne] .= A; Bx[1:Ne, 1:Ne] .= B
+        for i in 1:P.N; Ax[i, N] = P.b[i] / 2; Ax[N, i] = P.b[i] / 2; end
+        Ax[N, N] = -0.5
+        Ae = eigen(Symmetric(Ax))
+        keep = abs.(Ae.values) .> 1e-10 * maximum(abs, Ae.values)
+        Dv = Ae.values[keep]; Lv = Ae.vectors[:, keep]
+        (length(Dv), count(>(0), Dv), count(<(0), Dv)) == (Mi.r, Mi.rp, Mi.rm) ||
+            error("vol_model: internal error: the inertia of the numerator with the start differs from that of the engine's model")
+        return VolModel(D, P, Mi, V, cr, np, L, om2, c, Ne, bpos, Ax, Bx, Lv, Dv, Mi.r, Mi.rp, Mi.rm, :stationary, 0.0, N, v0, zeros(N),
+                        sdata(Ax, Bx, Lv, Dv, zeros(N)))
+    end
+    yb = zeros(Ne); yb[1:P.N] .= Mi.yb
+    VolModel(D, P, Mi, V, cr, np, L, om2, c, Ne, bpos, A, B, Lx, copy(P.Dv), P.r, P.rp, P.rm, Mi.start, Mi.g0, Ne, 0.0, yb,
+             sdata(A, B, Lx, copy(P.Dv), yb))
 end
-"""the volatility model of the design D, the regimes V and the c of each regime, cached"""
-function vol_model(D::Determ, V::VolPath, cr::Vector{Float64})
-    key = hash((:volmodel, dkey(D), V.lam, V.om, cr))
+"""
+    vol_model(D, V, cr; start = :zero, g0 = 0, gls = nothing, v0 = NaN) -> VolModel
+
+The volatility model of the design D (with `detrend_first`: the statistic that detrends first), the regimes V and the c
+of each regime, cached.  start: :zero, :fixed (J(0) = g0) or :stationary (a normal start; its variance v0 that of the
+stationary law of the first regime, om_1^2/(-2 c_1), unless given); gls = cbar: GLS detrending (zero start).  The
+transform's building blocks take the model: `vol_dval`, `vol_qf`, `vol_roots`, `tstar`, `vol_path`.
+"""
+function vol_model(D::Determ, V::VolPath, cr::Vector{Float64}; start::Symbol = :zero, g0::Real = 0.0, gls = nothing, v0::Real = NaN)
+    start in (:zero, :fixed, :stationary) || throw(ArgumentError("start must be :zero, :fixed or :stationary"))
+    key = hash((:volmodel, dkey(D), V.lam, V.om, cr, start, Float64(g0), gls === nothing ? NaN : Float64(gls), Float64(v0)))
     hit = lock(CPLOCK) do; get(VOLCACHE, key, nothing); end
     hit === nothing || return hit::VolModel
-    VM = blas1(() -> vol_model_(D, V, cr))
+    VM = blas1(() -> vol_model_(D, V, cr, start, Float64(g0), gls, Float64(v0)))
     lock(CPLOCK) do; cache_put!(VOLCACHE, VOLORDER, key, VM); end
     VM
 end
+vol_model(D::Determ, V::VolPath, c::Real; kw...) = vol_model(D, V, fill(Float64(c), nregimes(V)); kw...)
+vol_model(D::Determ, V::VolPath, c::AbstractVector{<:Real}; kw...) = vol_model(D, V, regime_c("vol_model", V, c); kw...)
 const VOLCACHE = Dict{UInt64,Any}()
 const VOLORDER = UInt64[]
 
@@ -174,12 +226,16 @@ struct VolWork
     th::Vector{ComplexF64}
     v::Vector{ComplexF64}
     gam::Vector{ComplexF64}
+    h::Vector{ComplexF64}       # the mean of ell under the tilted process started at one (`vol_start!`; a normal or fixed start)
+    Sx::Matrix{ComplexF64}      # the covariance with a normal start, of (ell, J(0)); otherwise S itself
 end
 function MWork(VM::VolModel; nq::Int = 24)
     P = VM.P; z, w = glrule(nq)
+    S = zeros(ComplexF64, VM.Ne, VM.Ne)
     VolWork(zeros(ComplexF64, P.deg + 1), zeros(P.deg + 1, max(P.p, 1)), zeros(ComplexF64, VM.Ne), zeros(ComplexF64, VM.Ne, VM.np),
-            zeros(ComplexF64, max(P.p, 1), VM.np), z, w, zeros(ComplexF64, VM.Ne, VM.Ne), zeros(ComplexF64, VM.Ne, VM.Ne),
-            zeros(ComplexF64, VM.np), zeros(ComplexF64, VM.np), zeros(ComplexF64, VM.Ne))
+            zeros(ComplexF64, max(P.p, 1), VM.np), z, w, S, zeros(ComplexF64, VM.N, VM.N),
+            zeros(ComplexF64, VM.np), zeros(ComplexF64, VM.np), zeros(ComplexF64, VM.N), zeros(ComplexF64, VM.Ne),
+            VM.N == VM.Ne ? S : zeros(ComplexF64, VM.N, VM.N))
 end
 
 """
@@ -280,8 +336,29 @@ function sigma_vol!(W::VolWork, VM::VolModel)
     S
 end
 
+"""
+    vol_start!(W, VM) -> W.h
+
+The mean of ell under the tilted process started at one, the functionals of the path exp(-int_0^r theta): its values at
+one and at the boundaries in ell, and int g(r) exp(-int_0^r theta) dr piece by piece in closed form, from the integrals of
+g against e^{-theta_j y} over the pieces that `sigma_vol!` has left in W.Ib (so that nothing is lost far out on a contour).
+"""
+function vol_start!(W::VolWork, VM::VolModel)
+    P = VM.P; h = W.h; θ = W.th; np = VM.np; iz0 = 1 + P.nj
+    fill!(h, 0)
+    E = one(ComplexF64)                          # exp(-int theta) up to the left end of the piece
+    @inbounds for m in 1:np
+        for i in 1:P.p; h[iz0+i] += E * W.Ib[i, m]; end
+        E *= exp(-θ[m] * VM.L[m])
+        pos = m == np ? 1 : VM.bpos[m]
+        pos > 0 && (h[pos] = E)
+    end
+    h
+end
+
 """the theta_j at t (principal square roots, times sgn[j] if given), Sigma into W.S and the diagonal tilt Gamma into W.gam
-(g_last at J(1), g_j - g_{j+1} at the boundary between pieces j and j + 1, g_j = (c_j + theta_j)/(2 omega_j^2)); returns
+(g_last at J(1), g_j - g_{j+1} at the boundary between pieces j and j + 1, g_j = (c_j + theta_j)/(2 omega_j^2); with a
+normal start -g_1 at J(0), and the covariance of (ell, J(0)) into W.Sx; with a fixed start the mean h into W.h); returns
 the exponent sum_j (c_j + theta_j) L_j"""
 function vol_tilt!(W::VolWork, VM::VolModel, t::ComplexF64, sgn = nothing)
     θ = W.th
@@ -300,6 +377,12 @@ function vol_tilt!(W::VolWork, VM::VolModel, t::ComplexF64, sgn = nothing)
             pos = VM.bpos[j]
             pos > 0 && (W.gam[pos] += g(j) - g(j + 1))
         end
+    end
+    if VM.start == :stationary
+        W.gam[VM.N] = -g(1)
+        statsigma!(W.Sx, W.S, vol_start!(W, VM), VM.v0)
+    elseif VM.start == :fixed
+        vol_start!(W, VM)
     end
     ex
 end
@@ -331,58 +414,109 @@ function tilt_parts_dense(M0::Matrix{ComplexF64}, Q0::AbstractMatrix, S::Matrix{
 end
 
 """
-    mgfparts(VM::VolModel, c, t, W) -> (theta_last, log D_V, mu, nothing)
+    mgfparts(VM::VolModel, c, t, W) -> (theta_last, log D_V, mu, fx)
 
 The volatility transform at one point t (c is not used: the model carries the c of its regimes), in the form of the
-engine's `mgfparts`: log D_V(t) = sum_j (c_j + theta_j) L_j + log det{I - 2 (t B + Gamma) Sigma} and the reciprocal roots.
+engine's `mgfparts`: log D_V(t) = sum_j (c_j + theta_j) L_j + log det{I - 2 (t B + Gamma) Sigma} and the reciprocal roots
+(with a normal start B, Gamma and Sigma those of (ell, J(0))); fx the data of the fixed start (`FixT`), nothing otherwise.
 """
 function mgfparts(VM::VolModel{SD}, c::Float64, t::ComplexF64, W::VolWork) where {SD}
     ex = vol_tilt!(W, VM, t)
+    VM.start == :fixed && return vol_fixparts(VM, VM.sd, W, t, ex)
     ld, μ = vol_parts(VM, VM.sd, W, t, ex)
     W.th[VM.np], ld, μ, nothing
 end
 function vol_parts(VM::VolModel, sd::SData{N,R}, W::VolWork, t::ComplexF64, ex::ComplexF64) where {N,R}
-    S = SMatrix{N,N,ComplexF64}(W.S)
+    S = SMatrix{N,N,ComplexF64}(W.Sx)
     Q = MMatrix{N,N,ComplexF64}(t * sd.B)
     @inbounds for i in 1:N; Q[i, i] += W.gam[i]; end
     tilt_parts(sd, S, SMatrix(Q), ex)
 end
 function vol_parts(VM::VolModel, ::Nothing, W::VolWork, t::ComplexF64, ex::ComplexF64)
     Q = t .* VM.B
-    for i in 1:VM.Ne; Q[i, i] += W.gam[i]; end
-    tilt_parts_dense(W.M, Q, W.S, VM.Lx, VM.Dv, ex)
+    for i in 1:VM.N; Q[i, i] += W.gam[i]; end
+    tilt_parts_dense(W.M, Q, W.Sx, VM.Lx, VM.Dv, ex)
+end
+"""the parts at t with a fixed start: those of the zero start and the data of the start (`fixdata_s`, `fixdata`) at the
+tilt t B + Gamma, with g_1 = (c_1 + theta_1)/(2 omega_1^2), the coefficient of -J(0)^2 in Girsanov's exponent"""
+function vol_fixparts(VM::VolModel, sd::SData{N,R}, W::VolWork, t::ComplexF64, ex::ComplexF64) where {N,R}
+    S = SMatrix{N,N,ComplexF64}(W.S); h = SVector{N,ComplexF64}(W.h)
+    Qm = MMatrix{N,N,ComplexF64}(t * sd.B)
+    @inbounds for i in 1:N; Qm[i, i] += W.gam[i]; end
+    Q0 = SMatrix(Qm)
+    M = MMatrix{N,N,ComplexF64}(-2 * (Q0 * S))
+    @inbounds for i in 1:N; M[i, i] += 1; end
+    F = slu(SMatrix(M))
+    H, fx = fixdata_s(sd, S, h, Q0, F, (VM.c[1] + W.th[1]) / (2 * VM.om2[1]))
+    W.th[VM.np], ex + slogdet(F), eigs_s(H), fx
+end
+function vol_fixparts(VM::VolModel, ::Nothing, W::VolWork, t::ComplexF64, ex::ComplexF64)
+    Q0 = t .* VM.B
+    for i in 1:VM.N; Q0[i, i] += W.gam[i]; end
+    mul!(W.M, Q0, W.S, -2, false)
+    for i in 1:VM.N; W.M[i, i] += 1; end
+    F = lu(W.M)
+    fx = fixdata(W.S, W.h, Q0, F, (VM.c[1] + W.th[1]) / (2 * VM.om2[1]), VM.Lx, VM.Dv, VM.yb)
+    W.th[VM.np], ex + logdet(F), eigvals(fx.H), fx
 end
 
 """
     vol_dval(VM, s, t; sgn = nothing) -> D(s,t)
 
 The volatility transform's determinant exp{sum_j (c_j + theta_j) L_j} det{I - 2 (s A + t B + Gamma) Sigma}, so that M(s,t) =
-e^{-s/2} D^{-1/2} (a check: sgn, a vector of +-1 per piece multiplying the theta_j, does not change the value).
+e^{-s/2} D^{-1/2} (a check: sgn, a vector of +-1 per piece multiplying the theta_j, does not change the value).  With a
+normal start the determinant of that start, with the matrices of (ell, J(0)); with a fixed start that of the zero start,
+and M_{g0} = e^{-s/2} D^{-1/2} e^{g0^2 Q} with Q = `vol_qf`(VM, s, t).
 """
 function vol_dval(VM::VolModel, s::Number, t::Number; sgn = nothing)
     W = MWork(VM)
     ex = vol_tilt!(W, VM, ComplexF64(t), sgn)
     Q = ComplexF64(s) .* VM.A .+ ComplexF64(t) .* VM.B
-    for i in 1:VM.Ne; Q[i, i] += W.gam[i]; end
-    M = I - 2 .* (Q * W.S)
+    for i in 1:VM.N; Q[i, i] += W.gam[i]; end
+    M = I - 2 .* (Q * W.Sx)
     exp(ex) * det(M)
+end
+"""
+    vol_qf(VM, s, t) -> Q(s,t)
+
+The exponent of the fixed start under the regimes of the model VM (built with start = :fixed; g0 any nonzero number):
+log M_{g0}(s,t) = log M_0(s,t) + g0^2 Q(s,t), M_0 the transform of the zero start.  A normal start of variance v0 is its
+average over g0: D_N = D_0 (1 - 2 v0 Q).
+"""
+function vol_qf(VM::VolModel, s::Number, t::Number)
+    VM.start == :fixed || throw(ArgumentError("vol_qf: the model must have a fixed start (vol_model(D, V, c; start = :fixed, g0 = ...))"))
+    W = MWork(VM)
+    fx = mgfparts(VM, 0.0, ComplexF64(t), W)[4]::FixT
+    fx.cf + fixE1(fx, ComplexF64(s), fixbuf(VM.r)) - VM.Mi.kappa * s
+end
+"""
+    vol_roots(VM, t) -> roots
+
+The roots in s of the determinant D(., t) of the volatility model at a real t below t_*, increasing: the r reciprocals of
+the eigenvalues mu_k(t) (`mgfparts`), rm negative and rp positive.
+"""
+function vol_roots(VM::VolModel, t::Real)
+    μ = mgfparts(VM, 0.0, complex(Float64(t)), MWork(VM))[3]
+    sort(real.(1 ./ μ))
 end
 
 # ---------- t_*: the first positive zero of D_V ----------
 """
     vol_kernel(VM) -> (r, u) -> Cov(J(r), J(u))
 
-The covariance of the path with the regimes, zero start: e^{C(r) + C(u)} int_0^{min(r,u)} omega^2 e^{-2 C(v)} dv with C(r) =
-int_0^r c, piece by piece in closed form, each term with its exponents combined so that nothing overflows far from the unit
-root (the Nystrom estimate of t_*, `eigtop` with kern).
+The covariance of the path with the regimes: e^{C(r) + C(u)} (v0 + int_0^{min(r,u)} omega^2 e^{-2 C(v)} dv) with C(r) =
+int_0^r c and v0 the variance of a normal start (zero otherwise), piece by piece in closed form, each term with its
+exponents combined so that nothing overflows far from the unit root (the Nystrom estimate of t_*, `eigtop` and `eigtop_q`
+with kern).
 """
 function vol_kernel(VM::VolModel)
     br = VM.P.br; np = VM.np
     Cb = zeros(np + 1)
     for j in 1:np; Cb[j+1] = Cb[j] + VM.c[j] * VM.L[j]; end
     Cat(r) = (j = 1; while j < np && r > br[j+1]; j += 1; end; Cb[j] + VM.c[j] * (r - br[j]))
+    v0 = VM.start == :stationary ? VM.v0 : 0.0
     function K(r::Float64, u::Float64)
-        m = min(r, u); E = Cat(r) + Cat(u); acc = 0.0
+        m = min(r, u); E = Cat(r) + Cat(u); acc = v0 * exp(E)
         for j in 1:np
             a = br[j]; a >= m && break
             b = min(br[j+1], m); L = b - a; cj = VM.c[j]
@@ -400,7 +534,7 @@ end
     tstar(VM::VolModel, c) -> (t_*, multiplicity)
 
 The first positive zero of D_V(t) for the volatility model: the Nystrom estimate of the largest eigenvalue of the
-denominator's operator (`eigtop` with the covariance of the regimes, `vol_kernel`); D_V sampled on 81 points of +-2% around
+denominator's operator (`eigtop` with the covariance of the regimes, `vol_kernel`; `eigtop_q` with GLS detrending); D_V sampled on 81 points of +-2% around
 the estimate, bisection at the first change of sign, the golden section for a double zero (lambda_1 = lambda_2, a
 symmetric design at a constant variance); where the estimate is off by more than 2%, D_V scanned from zero in steps of a
 thousandth of the estimate for its first change of sign (or a double zero), up to eight times the estimate.
@@ -409,7 +543,10 @@ tstar(VM::VolModel, c::Real) = blas1(() -> vol_tstar(VM))
 function vol_tstar(VM::VolModel)
     W = MWork(VM)
     f(t) = real(exp(mgfparts(VM, 0.0, complex(Float64(t)), W)[2]))
-    l1, l2 = eigtop(VM.P, minimum(VM.c); m = NYSTROM_M[], kern = vol_kernel(VM))
+    # (with GLS detrending V is not the norm of a projection of the path: the quadratic form itself, `eigtop_q`; the scan
+    # from zero below covers an estimate that is off, so the nodes are those of the least squares designs)
+    l1, l2 = isnan(VM.P.cbar) ? eigtop(VM.P, minimum(VM.c); m = NYSTROM_M[], kern = vol_kernel(VM)) :
+                                eigtop_q(VM.P, minimum(VM.c); m = NYSTROM_M[], kern = vol_kernel(VM))
     te = 1 / (2l1)
     function bisect(a, b)
         for _ in 1:100
@@ -451,10 +588,15 @@ function vol_tstar(VM::VolModel)
 end
 
 # ---------- the outer contour ----------
-"""the outer contour of the volatility model at the angle phi and the step factor hfac (`cpath` on the model: the engine's
-hyperbola, steepened while a root group leaves its side of the imaginary axis, the vertical line beyond), cached"""
+"""
+    vol_path(VM; phi = nothing, hfac = 1) -> CPath
+
+The outer contour of the volatility model at the angle phi and the step factor hfac (`cpath` on the model: the engine's
+hyperbola, steepened while a root group leaves its side of the imaginary axis, the vertical line beyond), with the roots
+and log P continued along it, cached.  `contour_eval` integrates on it.
+"""
 function vol_path(VM::VolModel; phi = nothing, hfac::Real = 1.0)
-    key = hash((:volpath, dkey(VM.D), VM.vol.lam, VM.vol.om, VM.cr, phi === nothing ? -1.0 : Float64(phi), Float64(hfac)))
+    key = hash((:volpath, dkey(VM.D), VM.P.cbar, VM.vol.lam, VM.vol.om, VM.cr, VM.start, VM.g0, VM.v0, phi === nothing ? -1.0 : Float64(phi), Float64(hfac)))
     hit = lock(CPLOCK) do; get(VOLCACHE, key, nothing); end
     hit === nothing || return hit::CPath
     CP = cpath(VM, minimum(VM.cr); phi, hfac)
@@ -462,12 +604,13 @@ function vol_path(VM::VolModel; phi = nothing, hfac::Real = 1.0)
     CP
 end
 """the outer contour of the rule r with the step factor hf (as `rule_path`: :fine keeps the angle of the present rule's
-hyperbola with half its step)"""
-function vol_rule_path(VM::VolModel, phi, hf::Float64, r::Symbol)
+hyperbola with half its step, :finestep with the step of a fixed start without deterministic terms)"""
+function vol_rule_path(VM::VolModel, phi, hf::Float64, r::Symbol, c0::Float64 = 0.0)
     if phi === nothing && r in (:fine, :finestep)
         CP1 = vol_path(VM)
         isnan(CP1.h) && return CP1
         phi = CP1.phi
+        r === :finestep && (hf = CP1.phi < FINESTEP_PHI ? min(0.5, 2.5 / (abs(VM.g0) * abs(c0))) : 1.0)
     end
     vol_path(VM; phi, hfac = hf)
 end
@@ -480,28 +623,37 @@ function vol_variant(VM::VolModel, CP::CPath, level::Int)
 end
 
 # ---------- the t-ratio: distribution function, density, quantiles ----------
-const VOL_START_MSG = "a volatility path (vol) is implemented for the zero start only (J(0) = 0); a fixed or a stationary start is not supported with it"
-const VOL_GLS_MSG = "a volatility path (vol) is implemented for least squares detrending only; GLS detrending (gls) is not supported with it"
-const VOL_FIRST_MSG = "a volatility path (vol) is implemented for the one-step regression only; the statistic that detrends first (detrend_first) is not supported with it"
+const VOL_STAT_MSG = "with a volatility path (vol) the stationary start is that of the first regime, J(0) ~ N(0, omega_1^2/(-2 c_1)), which needs c < 0 on the first regime"
+const VOL_FIXED_MSG = "with a volatility path (vol) the distribution with a fixed start (gamma0 != 0) is not computed: the paths of the engine's fixed start are laid for a constant variance and persistence, and under regimes they fail or lose accuracy for starts of moderate size; the transform of the fixed start under regimes is DFDet.vol_qf, and a zero or a stationary start is computed"
 """the c below which the volatility extension refuses (the general engine's range below the unit root)"""
 const VOL_CMIN = -480.0
 """
     vol_args(fn, D, c, start, gamma0, gls, vol, method) -> VolModel or nothing
 
-The checks of the arguments of the volatility extension and its model; nothing for one regime with a scalar c (the engine
-itself computes).
+The checks of the arguments of the volatility extension and its model; nothing for one regime (the engine itself
+computes).  The variants: least squares detrending with a zero or a stationary start (that of the first regime), and with
+a zero start GLS detrending (gls = cbar) and the statistic that detrends first (`detrend_first`).  A fixed start is
+refused with more than one regime (`VOL_FIXED_MSG`): its transform is computed (`vol_qf`, and the model and the outer
+contour of `vol_model` with start = :fixed), its inversion on the engine's paths is not dependable under regimes.
 """
 function vol_args(fn::String, D::Determ, c, start::Symbol, gamma0::Real, gls, vol, method::Symbol)
     vol isa VolPath || throw(ArgumentError("$fn: vol must be a volatility path, volpath(breaks, omega)"))
     cr = regime_c(fn, vol, c)
-    (start == :zero || (start == :fixed && gamma0 == 0)) || throw(ArgumentError("$fn: " * VOL_START_MSG))
-    gls === nothing || throw(ArgumentError("$fn: " * VOL_GLS_MSG))
-    D.detrend == :onestep || throw(ArgumentError("$fn: " * VOL_FIRST_MSG))
+    start in (:zero, :fixed, :stationary) || throw(ArgumentError("$fn: start must be :zero, :fixed or :stationary"))
+    isfinite(gamma0) || throw(ArgumentError("$fn: gamma0 must be a finite real scalar"))
+    zero0 = start == :zero || (start == :fixed && gamma0 == 0)
+    D.detrend in (:onestep, :first) || throw(ArgumentError("$fn: the statistic of the design must be :onestep or :first"))
+    gls === nothing || (gls isa Real && isfinite(gls) && gls < 0) || throw(ArgumentError("$fn: GLS detrending needs cbar < 0 (a finite number)"))
+    (gls !== nothing && D.detrend == :first) && throw(ArgumentError("$fn: " * FIRST_GLS_MSG))
+    (gls !== nothing && !zero0) && throw(ArgumentError("$fn: " * GLS_START_MSG))
+    (D.detrend == :first && !zero0) && throw(ArgumentError("$fn: " * FIRST_START_MSG))
     method in (:auto, :paths) || throw(ArgumentError("$fn: with a volatility path (vol) the method is the inversion on paths: method must be :auto or :paths (the line integral is not implemented for the volatility transform)"))
     all(<=(0), cr) || throw(ArgumentError("$fn: with a volatility path (vol) every c must be at most 0 (above the unit root the extension is not implemented); c = $(c)"))
     all(>=(VOL_CMIN), cr) || throw(ArgumentError("$fn: with a volatility path (vol) every c must be at least $VOL_CMIN (the range of the general engine); c = $(c)"))
+    (start == :stationary && cr[1] >= 0) && throw(ArgumentError("$fn: " * VOL_STAT_MSG * "; c = $(c)"))
     (nregimes(vol) == 1) && return nothing
-    vol_model(D, vol, cr)
+    zero0 || start == :stationary || throw(ArgumentError("$fn: " * VOL_FIXED_MSG))
+    vol_model(D, vol, cr; start = zero0 ? :zero : :stationary, gls)
 end
 
 """the values of `dist_cdf` (which = 1) or `dist_pdf` (2) with a volatility path: one evaluation of the inversion on paths on
@@ -513,7 +665,7 @@ function vol_eval(D::Determ, xs::AbstractVector, c, which::Int, vol, phi, hfac, 
     check_rule(rule)
     cm = minimum(VM.cr)
     hf, n, nt, rl = path_rule(rule, verified, VM.Mi, cm, c0, hfac, kw)
-    CP = vol_rule_path(VM, phi, hf, rl)
+    CP = vol_rule_path(VM, phi, hf, rl, c0)
     nonfinite(xs, which == 1) do x
         v = verified ? verify_eval((CPv, o) -> contour_eval(CPv, x; o..., kw...)[which], CP, vtol; variant = (C, l) -> vol_variant(VM, C, l)) :
                        contour_eval(CP, x; kw..., n, ntail = nt)[which]
@@ -530,7 +682,7 @@ function vol_quantile_(D::Determ, p::Real, VM::VolModel; x0::Real, tol::Real, ph
     c0 = Float64(get(kw, :c0, 0.0))
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
     hf, n, nt, rl = path_rule(rule, false, VM.Mi, minimum(VM.cr), c0, hfac, kw)
-    CP = vol_rule_path(VM, phi, hf, rl)
+    CP = vol_rule_path(VM, phi, hf, rl, c0)
     FF(y) = (r = contour_eval(CP, [y]; kw..., n, ntail = nt); (r[1][1], r[2][1]))
     x = Float64(x0)
     for _ in 1:30

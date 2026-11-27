@@ -113,6 +113,16 @@ DFLimit.DFDet.TransformModel
 DFLimit.DFDet.VolModel
 ```
 
+The parts of the transform under regimes, for a design with its detrending and its start:
+
+```@docs
+DFLimit.DFDet.vol_model
+DFLimit.DFDet.vol_dval
+DFLimit.DFDet.vol_qf
+DFLimit.DFDet.vol_roots
+DFLimit.DFDet.vol_path
+```
+
 ## The choice of engine
 
 ```@docs

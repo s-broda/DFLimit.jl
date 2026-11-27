@@ -8,6 +8,11 @@ d(t/n), with the usual variance estimate. Its limit is (U - c0 V)/sqrt(V), U and
 of the process dJ = c(r) J dr + omega(r) dW, J(0) = 0, with omega scaled so that the integral of omega^2 is one (the
 variance estimate converges to the average of omega^2, and the statistic does not depend on the scale of omega).
 
+The variants of the engine carry over to the regimes: GLS detrending (`gls = cbar`), the statistic that detrends first
+(`detrend_first`), and a stationary initial observation (`start = :stationary`). Neither the detrending nor the variance
+estimate uses the variance path; the regimes change the law of the path alone. For a fixed initial observation the
+transform is computed and the distribution is not (below).
+
 ## The transform
 
 On the pieces of the design refined at the regime boundaries let theta_j = sqrt(c_j^2 - 2t omega_j^2) and g_j = (c_j +
@@ -30,21 +35,61 @@ refuses them. Without deterministic terms D is
 the first entry of a product of two-by-two transfer matrices of the regimes, which the tests use as an independent
 check.
 
+## Detrending and the start
+
+Each variant enters through the one part of the transform that it changes.
+
+GLS detrending and the statistic that detrends first change the matrices A and B alone. The design is refined at the
+regime boundaries and prepared as the engine prepares it (`prep_gls` at cbar, or the numerator of `detrend_first`): the
+functionals are the path at one and at the dates of the prepared design and its integrals against the basis of that
+design, and the law of the path enters as above, through the exponent, Gamma and Sigma. With GLS detrending the numerator
+has rank one, one positive root, as at a constant variance.
+
+A normal start, J(0) centred normal with variance v0 and independent of W, makes J(0) one more functional. With h the
+mean of the functionals under the tilted process started at one, the covariance of (ell, J(0)) is [Sigma + v0 h h', v0 h;
+v0 h', v0], the matrices are those of the engine's stationary start (A bordered by b/2 and -1/2, B by zeros), and Gamma
+gains -g_1 at the start. `start = :stationary` is the stationary start of the first regime, v0 = omega_1^2/(-2 c_1), which
+needs c < 0 there.
+
+A fixed start J(0) = gamma0 shifts the mean of the functionals to gamma0 h, and log M = log M_0 + gamma0^2 Q(s,t) with M_0
+the transform of the zero start and Q the exponent of the engine's fixed start at the tilt t B + Gamma, with g_1 in place
+of gamma. J(0) is in the units of the path, whose innovation variance averages one over the sample: y_0 = gamma0 sigma
+sqrt(n) with sigma^2 the average innovation variance. A normal start is the average of the fixed one over gamma0, D_N =
+D_0 (1 - 2 v0 Q), which the tests use in both directions. The exponent is `DFLimit.DFDet.vol_qf`. The distribution with a
+fixed start is not computed under regimes, and `dist_cdf`, `dist_pdf`, `dist_quantile` and the classical functions raise
+an `ArgumentError` for `start = :fixed` with a nonzero `gamma0` and more than one regime: the engine lays the paths of a
+fixed start by rules made for a constant variance and persistence, and under regimes they lose accuracy or fail for starts
+of moderate size (the start counts in the units of the first regime's standard deviation; with an intercept and a
+persistence that changes, or far from the unit root, no angle of the outer contour gave a value in November 2026).
+
+A start is combined with least squares detrending in the one-step regression, as in the engine: with GLS detrending or
+with the statistic that detrends first the limit is derived for a zero start, and a start raises an `ArgumentError`.
+
 ## Calls
 
 | call | computes |
 |---|---|
 | `volpath(breaks, omega)` | the regimes: break dates in (0, 1), the standard deviations (any positive scale) |
 | `dist_cdf(D, xs, c; vol)`, `dist_pdf`, `dist_quantile(D, p, c; vol)` | the t-ratio of any design D under the regimes |
-| `ltratio_cdf(x, cas_or_D, c; vol)`, `ltratio_pdf`, `ltratio_icdf` | the same through the classical functions (a case string or a design) |
+| the same with `gls = cbar` | GLS detrending at 1 + cbar/n |
+| the same with `detrend_first(D)` | the statistic that detrends first |
+| the same with `start = :stationary` | the stationary start of the first regime, J(0) ~ N(0, omega_1^2/(-2 c_1)) |
+| `ltratio_cdf(x, cas_or_D, c; vol)`, `ltratio_pdf`, `ltratio_icdf` | the same through the classical functions (a case string or a design; `"SU"`, `"ST"` the stationary start, `"DG"` GLS detrending) |
 | `hegy_t3_cdf(D, xs, c; vol)`, `hegy_t3_pdf`, `hegy_t3_quantile` | the seasonal t-ratio of Dickey-Fuller type under the regimes ([Seasonal unit roots](@ref)) |
 
 The local-to-unity parameter c is a number, or a vector with one value per regime (changing persistence); c0, the local
 null value of the t-ratio, is a number as always. A volatility path with one regime and a scalar c is the engine itself.
-The extension covers the zero start, least squares detrending and the one-step regression (a fixed or stationary start,
-`gls` and `detrend_first` raise an `ArgumentError`), every c at most 0 (above the unit root it is not implemented) and at
-least -480, and the inversion on paths (`method = :auto` or `:paths`; the line integral is not derived for this
-transform). `verified = true` is the engine's checked computation, with the variant contours built for the regimes.
+The extension covers least squares detrending with a zero or a stationary start, and with a zero start GLS detrending and
+the statistic that detrends first, every c at most 0 (above the unit root it is
+not implemented) and at least -480, and the inversion on paths (`method = :auto` or `:paths`; the line integral is not
+derived for this transform). `verified = true` is the engine's checked computation, with the variant contours built for
+the regimes.
+
+The parts of the transform are functions of the general engine, `DFLimit.DFDet`: `vol_model(D, V, c; start, g0, gls)`
+builds the model of a design under the regimes (and takes `v0`, the variance of a normal start other than the stationary
+one), `vol_dval(VM, s, t)` is the determinant, `vol_qf(VM, s, t)` the exponent of the fixed start, `vol_roots(VM, t)` the
+roots in s at a real t, `tstar(VM, 0)` the first zero of D(0, .), and `vol_path(VM)` the outer contour with the roots
+continued along it.
 
 ## Examples
 
@@ -73,6 +118,32 @@ julia> dist_quantile(perron(:C, 0.4), [0.01, 0.05], -5.0; vol = volpath([0.6], [
 The last line is a break in level and slope at 0.4 with the standard deviation falling to a third at 0.6, under the local
 alternative c = -5.
 
+The variants, with the standard deviation tripling at 30% of the sample:
+
+```julia
+julia> V = volpath([0.3], [1.0, 3.0]);
+
+julia> cvg = ltratio_icdf(0.05, "DG")               # GLS detrending, linear trend: the 5% value at a constant variance
+-2.845630826159995
+
+julia> ltratio_cdf(cvg, "DG"; vol = V)              # the size of that test under the variance break
+0.07124632629844938
+
+julia> ltratio_icdf(0.05, "DG"; vol = V)            # its 5% critical value under the break
+-2.996681074104641
+
+julia> dist_quantile(detrend_first(perron(:B, 0.4)), 0.05, 0.0; vol = V)   # a slope break at 0.4, detrended first
+-3.71083413593991
+
+julia> ltratio_cdf(-2.8615688636519616, "SU", -5; vol = V)   # the stationary start of the first regime, c = -5
+0.11821415344519763
+
+julia> DFLimit.DFDet.vol_roots(DFLimit.DFDet.vol_model(trend(0), V, -4.0; start = :stationary), 0.5)   # the roots of D(., 1/2)
+2-element Vector{Float64}:
+ -22.778950831346375
+   7.769016921838749
+```
+
 ## Accuracy and cost
 
 At a constant variance with a dummy boundary the distribution function and the density are those of the engine's paths to
@@ -82,6 +153,30 @@ regression in samples of 200, 400 and 800 agrees with it to 2e-5. The values of 
 eight decimals, its quantiles at four, the power under changing persistence), which were checked there against
 simulations of the regression and of the limit functional, are reproduced to their printed digits. The rule of one
 evaluation is the engine's (`path_region`); on the 36 cells of the table it is within 4e-12 of the present rule.
+
+GLS detrending, the statistic that detrends first and the determinant of a normal start were computed for the lead paper
+by a prototype among its replication code before the package had them; its values are kept in `test/ref/regime_ref.txt`.
+On the prototype's contour and with its nodes (`rule = :present`) the package reproduces the distribution function and
+the density to 2e-15 (291 evaluations, among them the 216 cells of the paper's table of sizes and critical values under
+one variance break and the p-values of its illustration), the determinant, the roots and t_* to 1e-13, and the 369
+quantiles to 2e-10, the tolerance of the searches. The default rule of one evaluation is within 2.2e-10 of the prototype
+in all of these cases but one (the quadratic trend detrended first under three regimes with their own c: 6.5e-9). The
+prototype's determinant of a normal start and its determinant of the zero start yield the exponent of the fixed start,
+which `vol_qf` reproduces to 1.4e-10.
+
+The stationary start, which the prototype did not invert, agrees with the engine's at a constant variance with a dummy
+boundary to 1e-14; its transform agrees with the exact moment generating function of the regression in samples of 200,
+400 and 800, extrapolated in 1/n, to 2e-5; and its distribution function equals the average over a normal start of the
+distribution function with a fixed start, computed from the zero start's roots and the exponent of the start, to 5e-11.
+
+On a wider grid (140 cases: five designs with a stationary start, five with GLS detrending and four detrended first,
+under ten paths with ratios of the standard deviations up to 9 and c down to -150, November 27, 2026) the default rule is within 1e-6 of
+the checked computation in the distribution function, with two exceptions, both announced. Where the computed value in
+the upper tail exceeds one by more than 1e-8 the call fails with the engine's range error (one case, a stationary start
+with a break in level and slope; `rule = :present` or `:fine` computes it). And with GLS detrending at a cbar near zero
+(-2), or beside a standard deviation that rises ninefold late in the sample, no hyperbola keeps the positive root right of the
+origin and the outer contour is the vertical line: the engine warns there, and the values differed by up to 5e-4 between
+rules or the call failed.
 
 Times on warm calls (four threads of an M4 laptop on mains power with nothing else running, November 26, 2026): the
 outer contour with its roots 3 to 19 ms, one value of F and f 2 to 5 ms, a 5% quantile 9 to 45 ms (no deterministic
