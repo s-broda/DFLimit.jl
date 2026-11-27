@@ -2062,7 +2062,8 @@ opposite sign}, x = mean + sd {-4, -2, 0, 2, 4}) and scans of c0 of both signs f
 the contour integral in cases DU, DT (7-15 ms on ten threads against 0.24-0.80 s for the conditional and 0.03-0.36 s for the
 line integral) and the line integral in case DK; at c0 = 0 the line integral (0.5-10 ms); with c0 != 0 the conditional integral (one path) where its one
 evaluation holds: c0 < 0 with a zero start (cases DU, DT; case DK for c <= -5) and a stationary start for -50 <= c < 0
-(case SK for c <= -0.5) and c0 > 0 with a zero start at x < 0 for c >= 0 (cases DU, DT), otherwise the line integral (a zero
+(case SK for c <= -0.5; in cases SU, ST the line integral where it is the faster, `stat_line`: since November 27, 2026)
+and c0 > 0 with a zero start at x < 0 for c >= 0 (cases DU, DT), otherwise the line integral (a zero
 start with c0 > 0 elsewhere: at x >= 0 it has no breakpoint and is the faster one, and for c < 0 the one evaluation of the
 conditional integral is off by up to 1.5e-2 at x < 0, a fault the verified agreement rule only flags; case DK with c0 < 0 for c > -5, off by up
 to 1.2e-2 in the upper tail at c = 2; c < -100 with a zero start and c < -50 with a stationary start, autodouble).  With
@@ -2071,6 +2072,40 @@ ltratio_dist.  With a fixed start in cases DU, DT and c0 < 0 above c = 1 the con
 in the far upper tail there), and in case DU with c0 > 3 above c = 1.5 (the contour integral fails outright at c = 2 for
 c0 >= 5 and g0 >= 1, 4e-8 off at c0 = 4.5, 4e-9 at c = 1.75, c0 = 20)."""
 function automethod(model::Int, stat::Bool, c::Float64, c0::Float64, g0::Float64, x::Float64)
+    m = automethod_cond(model, stat, c, c0, g0, x)
+    (m === :double && stat && stat_line(model, c, c0)) ? :single : m
+end
+"""
+    stat_line(model, c, c0) -> Bool
+
+Where `automethod` takes the line integral with a stationary start and c0 != 0 in place of the conditional integral of
+`automethod_cond`: in cases SU and ST for c0 <= -1/2 at c >= -20, and in case SU also for 1/2 <= c0 <= 10 at c >= -2
+(as before, case SK takes the line integral for c > -0.5 only).  Measured on November 27, 2026 (interleaved warm calls,
+the minima of seven, four threads, F and f at the 1%, 5%, 10% points and at the 90%, 95%, 99% points; c from -0.001 to
+-50, c0 in {c, -5, -2, -0.5, 0.5, 2, 5, 10}): in cases SU, ST with c0 <= -1/2 the line integral is 1.45 to 10 times
+faster than the conditional integral for -20 <= c < 0 in both tails, about as fast at c = -25 and -30 and slower below
+(its finer rules beyond c = -20); with c0 < 0 nearer zero its cost grows in the upper tail (the far root of X(v) at
+about x/|c0|: two times slower than the conditional integral at c = c0 = -0.1, beyond the engine's bounds at c = c0 =
+-1e-3); with 1/2 <= c0 <= 10 in case SU 1.5 to 9.7 times faster for -2 <= c < 0 (the least at c0 = 10), but from c = -3
+on at most 1.1 times in one tail or the other; in case ST with c0 > 0 and in case SK the conditional integral is as
+fast or faster (in case SK by up to 12 times in the upper tail).  In these regions the line integral's one evaluation
+is within 8e-12 of the general engine's checked computation, and next to the unit root (c = -3e-3, -1e-3, where the
+general engine is off by up to 8e-10) within 2.5e-12 of the classical checked computation.
+"""
+stat_line(model::Int, c::Float64, c0::Float64) =
+    (model == 2 || model == 3) && c >= STAT_LINE_CMIN && (c0 <= -0.5 || (model == 2 && 0.5 <= c0 <= 10 && c >= STAT_LINE_C0POS_CMIN))
+const STAT_LINE_CMIN = -20.0
+const STAT_LINE_C0POS_CMIN = -2.0
+"""
+    automethod_cond(model, stat, c, c0, g0, x) -> Symbol
+
+The rule of `automethod` before the stationary start with c0 != 0 moved to the line integral in cases SU, ST
+(`stat_line`): the conditional integral wherever its one evaluation holds and it was the faster representation by the
+measurement of November 2026.  The router keeps it for the tails (`merged_dist`, `route_dist2`): where it gives the
+conditional integral, the general engine's values below 1e-3, whose errors are absolute, go to the classical
+conditional integral, whose error is relative.
+"""
+function automethod_cond(model::Int, stat::Bool, c::Float64, c0::Float64, g0::Float64, x::Float64)
     # (cases DU, DT with c0 < 0 above c = 1: the contour integral fails in the far upper tail, by 2e-6 to 30 at mean + 6 sd at
     # c = 2, which the verified pair flags; the conditional integral is clean there)
     g0 != 0 && return (model == 2 || model == 3) && !stat ? (ctr_fails(model, c, c0) ? :double : :contour) : :single

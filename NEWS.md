@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **The classical engine's line integral with a stationary start and c0 != 0 in cases SU, ST** (`DFExact.stat_line`,
+  November 27, 2026): `method = :auto` of the classical engine took the conditional integral with a stationary start and
+  c0 != 0 for -50 <= c < 0 (case SK for c <= -0.5), where in cases SU and ST the line integral is the faster one. From
+  interleaved timings of the two representations (F and f at three points of each tail, c from -0.001 to -50, c0 of both
+  signs) it now takes the line integral in cases SU and ST for c0 <= -1/2 at c >= -20 (1.45 to 10 times faster) and in
+  case SU also for 1/2 <= c0 <= 10 at c >= -2 (1.5 to 9.7 times); elsewhere, and in case SK, the conditional integral, as
+  before. The line integral is within 8e-12 of the general engine's checked computation there. (The default with a
+  stationary start and c0 != 0 below c = -3e-3 is the general engine, whose tails below 1e-3 keep going to the
+  conditional integral: `DFExact.automethod_cond`.)
+- **The general engine's line integral far above the unit root at large x** (`DFExact.early_bound`): the outer panels
+  of the line integral follow the phase of the saddle factor of its inner integrals, which grows like x^2, and their
+  nodes grow in number with x (case DU at c = 10: 67680 at x = 7860); the bound of the inner rules refused such points
+  only after the general engine's transform at all of those nodes. The bound is now checked on the coarse points of the
+  panels first (with a margin of 2, which a scan of 2172 configurations shows never to refuse a point the check on the
+  nodes accepts), and the paths compute these points without that transform. (In the C engine the same call did not
+  return: the provider's memo had fewer slots than points.) The general engine's paths far above the unit root are
+  themselves slow at large x (their vertical line is refined for an oscillation that grows with x: 2.5 to 6 s a value in
+  case DU at c = 10 for x from 1922 to 13798); the default takes the classical engine there.
+- **`dist_quantile` of designs with breaks no slower than `method = :paths`.** The default asked the line integral's
+  refusal first, whose test `closed_under_derivative` ran a small solve with the default BLAS threads; OpenBLAS's spinning
+  workers then slowed the inversion on paths of that call and of the next by about 1.5 times (Perron's model C with two
+  breaks: 115 against 70 to 77 ms with the path built). The test now runs only where it decides and with one BLAS thread
+  (as `span_has_constant`). Values unchanged.
 - **The LM statistic only for a design whose span contains the constant.** `lm_cdf`, `lm_quantile` and `lm_power`
   computed the limit -1/(2 sqrt V) for any design with a linear trend in its span; that limit holds only when the span
   also contains the constant (the LM regression estimates the level from the first observation; a referee found it false

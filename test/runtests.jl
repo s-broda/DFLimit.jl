@@ -227,6 +227,28 @@ end
     @test D.automethod(2, false, -100.0, 3.0, 0.0, -5.0) == :single                 # (the default is unchanged)
 end
 
+@testset "a stationary start with c0 != 0: the line integral where it is the faster" begin
+    # (November 27, 2026: cases SU, ST for c0 <= -1/2 at c >= -20, case SU for 1/2 <= c0 <= 10 at c >= -2; the conditional
+    # integral elsewhere, as before; DFExact.stat_line)
+    @test D.automethod(2, true, -5.0, -2.0, 0.0, -1.0) === :single && D.automethod(3, true, -20.0, -0.5, 0.0, 1.0) === :single
+    @test D.automethod(2, true, -1.0, 2.0, 0.0, -1.0) === :single && D.automethod(2, true, -2.0, 10.0, 0.0, 1.0) === :single
+    @test D.automethod(2, true, -3.0, 2.0, 0.0, -1.0) === :double && D.automethod(3, true, -1.0, 2.0, 0.0, -1.0) === :double
+    @test D.automethod(1, true, -5.0, -2.0, 0.0, -1.0) === :double && D.automethod(2, true, -25.0, -2.0, 0.0, -1.0) === :double
+    @test D.automethod(2, true, -0.1, -0.1, 0.0, 1.0) === :double && D.automethod(2, true, -1.0, 20.0, 0.0, 1.0) === :double
+    @test D.automethod(3, true, -60.0, -2.0, 0.0, 1.0) === :single                  # (c < -50: the line integral alone, as before)
+    # the router keeps the conditional integral for the general engine's tails there (DFExact.automethod_cond)
+    @test D.automethod_cond(2, true, -5.0, -2.0, 0.0, -1.0) === :double
+    # (not at the double zero x = -sqrt(2 c0) of X(v), where the densities of the two representations differ by 1.6e-6 in
+    # case SU at c = -1, c0 = 2 and the general engine's checked one lies between; F agrees to 4e-11 there)
+    xs = [-3.5, -2.5, 0.5]
+    for (cas, c, c0) in (("SU", -5.0, -2.0), ("ST", -10.0, -10.0), ("SU", -1.0, 2.0))
+        F = ltratio_cdf(xs, cas, c; c0, engine = :classical)
+        @test F == ltratio_cdf(xs, cas, c; c0, method = :single, engine = :classical)
+        @test maximum(abs, F .- ltratio_cdf(xs, cas, c; c0, method = :double, engine = :classical)) < 1e-10
+        @test maximum(abs, ltratio_pdf(xs, cas, c; c0, engine = :classical) .- ltratio_pdf(xs, cas, c; c0, method = :double, engine = :classical)) < 1e-10
+    end
+end
+
 @testset "moments" begin
     for p in readref("mom_ref.txt")
         m, c, c0, g0, st = num(p[1:5]); mr = num(p[6:9]); cas = casecode(m, st)

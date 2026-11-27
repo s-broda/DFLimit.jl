@@ -456,15 +456,20 @@ function merged_dist(kind::Int, x, S::Spec, c::Real; c0::Real, engine::Symbol, m
     F = zeros(length(xs))
     gi = findall(==(:general), eng)
     isempty(gi) || (F[gi] = gen_dist(kind, xs[gi], S, c; c0, verified))
-    # the tails: where the classical engine would take its conditional integral, whose error is relative, the values of
-    # the general engine below 1e-3 (absolute errors) go back to it (as the classical engine's checked computation
-    # recomputes its tails)
+    # the tails: where the classical engine's conditional integral holds by one evaluation (DX.automethod_cond), whose
+    # error is relative, the values of the general engine below 1e-3 (absolute errors) go to it (as the classical engine's
+    # checked computation recomputes its tails); with method = :auto and one evaluation by the conditional integral itself,
+    # also where the classical rule now takes the faster line integral (a stationary start with c0 != 0 in cases SU, ST,
+    # DX.stat_line), so that these values stay those of before
     md = DX.ltratio_args(S.case, c; c0, g0 = S.g0, method)
+    tl = Int[]
     for k in gi
-        F[k] < 1e-3 && DX.automethod(md[1], md[2], Float64(c), Float64(c0), S.g0, xs[k]) === :double && (eng[k] = :classical)
+        F[k] < 1e-3 && DX.automethod_cond(md[1], md[2], Float64(c), Float64(c0), S.g0, xs[k]) === :double && push!(tl, k)
     end
     ci = findall(==(:classical), eng)
     isempty(ci) || (F[ci] = DX.ltratio_dist(kind, xs[ci], S.case, c; c0, g0 = S.g0, method, verified, engine = :classical, kw...))
+    isempty(tl) || (F[tl] = DX.ltratio_dist(kind, xs[tl], S.case, c; c0, g0 = S.g0, method = (md[5] === :auto && !verified) ? :double : method,
+                                            verified, engine = :classical, kw...))
     outshape(F, x)
 end
 """
@@ -484,7 +489,7 @@ function route_dist2(x::Real, cas::AbstractString, c::Real; c0::Real = 0.0, g0::
     # (the tails below 1e-3 where the classical engine would take its conditional integral go back to it, as in
     # `merged_dist`, for F and f each: the search then takes the two evaluations)
     md = DX.ltratio_args(S.case, c; c0, g0 = S.g0, method)
-    ((F[1] < 1e-3 || f[1] < 1e-3) && DX.automethod(md[1], md[2], Float64(c), Float64(c0), S.g0, Float64(x)) === :double) && return nothing
+    ((F[1] < 1e-3 || f[1] < 1e-3) && DX.automethod_cond(md[1], md[2], Float64(c), Float64(c0), S.g0, Float64(x)) === :double) && return nothing
     DX.cdf_range_check("ltratio_cdf", DX.cdf_args(cas, c, c0, g0), x, F)
     F[1], max(f[1], 0.0)
 end
