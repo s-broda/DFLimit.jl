@@ -495,8 +495,8 @@ unchanged bit for bit), then the later repairs.
   read as a link in `Determ`, `coef_cdf`, `ltratio_bisect`), and the module docstring of `DFExact` gives the default
   number of tasks as the code sets it. The examples of the README print the values of this version (the power
   envelope at c = -7 by the single inversion, 0.4994019828155684; the others move in the last digits).
-- **The two papers.** The package cites the lead paper, Bao, Broda and Kan, "The Exact Limiting Distribution of the
-  Dickey-Fuller t-Ratio with General Deterministic Terms" (SSRN 7745921), the paper of the general engine and of the
+- **The two papers.** The package cites the lead paper, Bao, Broda and Kan, "Exact Limiting Distributions of Unit Root
+  t-Ratios" (SSRN 7745921), the paper of the general engine and of the
   inversion formula on paths, and, for the classical engine and its representations, its companion, "Low-Rank
   Representations of the Classical Dickey-Fuller Limits, with an Extension to Predictive Regressions" (SSRN 7725619,
   the posting that carried the former title "... and Some Related Statistics"): README, docstrings, `CITATION.cff`,

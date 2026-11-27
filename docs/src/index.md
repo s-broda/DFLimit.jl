@@ -5,8 +5,8 @@ The exact limiting distribution of the Dickey-Fuller t-ratio in Julia.
 `DFLimit` computes the distribution function, density, quantiles and moments of the limits of the Dickey-Fuller
 t-ratios under local alternatives, phi = 1 + c/n, by the exact representations of two papers. The lead paper,
 
-> Bao, Y., Broda, S. A. and Kan, R., "The Exact Limiting Distribution of the Dickey-Fuller t-Ratio with General
-> Deterministic Terms", working paper, 2026, available at <https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7745921>,
+> Bao, Y., Broda, S. A. and Kan, R., "Exact Limiting Distributions of Unit Root t-Ratios", working paper, 2026,
+> available at <https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7745921>,
 
 gives the inversion formula on paths around the singularities of the joint moment generating function and with it the
 limit for any piecewise smooth deterministic terms; its companion,
@@ -120,7 +120,7 @@ repository up to DF-Limit commit b484d4f; this package is its home since.
 ```bibtex
 @unpublished{BaoBrodaKan2026main,
   author = {Bao, Yong and Broda, Simon A. and Kan, Raymond},
-  title  = {The Exact Limiting Distribution of the {Dickey}--{Fuller} $t$-Ratio with General Deterministic Terms},
+  title  = {Exact Limiting Distributions of Unit Root $t$-Ratios},
   year   = {2026},
   note   = {Working paper, available at SSRN},
   url    = {https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7745921}
