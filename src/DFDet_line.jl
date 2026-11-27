@@ -104,7 +104,9 @@ function line_raw(lm::LineModel, ts::Vector{ComplexF64})
     end
     lock(lm.lock) do
         length(lm.memo) + nm > LINE_MEMO_MAX && empty!(lm.memo)
-        for j in miss; lm.memo[ts[j]] = raw[j]; end
+        # (at most LINE_MEMO_MAX points: a call with more keeps the first ones, as the C engine's memo, which must keep
+        # half of its slots empty)
+        for i in 1:min(nm, LINE_MEMO_MAX); j = miss[i]; lm.memo[ts[j]] = raw[j]; end
     end
     raw
 end
@@ -149,6 +151,10 @@ end
 
 LX.kernel(lm::LineModel, stat::Bool) = lm.r
 LX.default_tau(lm::LineModel, c::Float64, g0::Float64; stat::Bool = false) = lm.tau
+"""the classical integrator checks the bound of its inner rules on the coarse points of its outer panels before it computes
+the transform at their nodes (DFExact.early_bound): far above the unit root at large x the provider's transform at the
+nodes cost more than the inversion on paths that then computed the point"""
+LX.early_bound(::LineModel) = true
 """
     line_tau(lm) -> tau
 
@@ -216,7 +222,11 @@ function line_refusal(D::Determ, c::Float64, start::Symbol, gamma0::Float64, gls
             (jumps ? "a jump" : "d(0) = 0, a numerator of rank one for which the papers do not state the line integral") * ")"
         return nothing
     end
-    (closed_under_derivative(D) && !jumps && !vanish) && return nothing
+    # (closed_under_derivative only where it decides, and with one BLAS thread, as the rest of the engine: its small solve
+    # with the default BLAS threads left OpenBLAS's workers spinning, and the inversion on paths that the default then took
+    # for a design with a jump (dist_quantile of Perron's model C with two breaks) ran 1.5 times slower than with method =
+    # :paths, in that call and the next; November 27, 2026)
+    (!jumps && !vanish && blas1(() -> closed_under_derivative(D))) && return nothing
     "the one-step statistic is covered for continuous designs that do not vanish at the origin and whose span is closed under differentiation (polynomial and trigonometric trends with an intercept) only: " *
         (jumps ? "the design has a jump" : vanish ? "d(0) = 0" : "the span of the design is not closed under differentiation") *
         " (the numerator has rank $(P.r), $(P.rp) positive and $(P.rm) negative roots)"

@@ -112,6 +112,26 @@ end
     @test occursin("more nodes than the engine allows", errl(() -> GL.dist_cdf(GL.trend(2), [1.5], 0.0; c0 = -1e-4, method = :line)))
 end
 
+@testset "far above the unit root at large x: the bound before the transform at the outer nodes" begin
+    # case DU at c = 10, the mean of the law: the outer panels of the line integral have 67680 nodes and its inner rules
+    # exceed their bound; the bound is checked on the coarse points first (DFExact.early_bound), so that the provider's
+    # transform is computed at a few hundred points only, and the paths compute (the C engine's memo hung there until
+    # November 27, 2026)
+    x = 7859.59
+    lm, _ = GL.line_model(GL.trend(0), 10.0, :zero, 0.0, nothing)
+    empty!(lm.memo)
+    @test DXL.pathtoolarge(try GL.line_value(lm, x, 1, 0.0); nothing catch e; e end) !== nothing
+    @test length(lm.memo) < 1000
+    t = @elapsed F = GL.dist_cdf(GL.trend(0), [x], 10.0)
+    @test F == GL.dist_cdf(GL.trend(0), [x], 10.0; method = :paths)
+    @test F[1] ≈ ltratio_cdf(x, "DU", 10.0; engine = :classical) atol = 1e-9
+    @test t < 120
+    # (the memo keeps at most LINE_MEMO_MAX points of one call)
+    lm2, _ = GL.line_model(GL.trend(0), -5.0, :zero, 0.0, nothing)
+    GL.line_raw(lm2, [complex(lm2.tau, w) for w in range(0.01, lm2.wend; length = GL.LINE_MEMO_MAX + 10)])
+    @test length(lm2.memo) <= GL.LINE_MEMO_MAX
+end
+
 @testset "the automatic choice takes the faster method" begin
     xs = [-3.5, -2.5, -1.5]
     for (D, c, c0, st) in ((GL.trend(2), 0.0, 0.0, :zero), (TRIG, -13.5, 0.0, :stationary), (GL.trend(3), 3.0, 0.0, :zero), (GL.trend(0), 2.0, 0.0, :zero),

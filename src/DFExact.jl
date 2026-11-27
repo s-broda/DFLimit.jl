@@ -1543,14 +1543,32 @@ function saddle_phase(kern::Int, q::Float64, ts::Vector{ComplexF64}, s1::Vector{
 end
 
 """PathTooLarge before the smooth part of `outer` is evaluated when the inner integrals at one of its nodes ts need a rule
-beyond RULEMAX (gauss_nmax; only for q > 0, where gaussexp serves)"""
-function gauss_check(kern::Int, q::Float64, ts::Vector{ComplexF64}, s1::Vector{ComplexF64}, s2::Vector{ComplexF64})
+beyond margin times RULEMAX (gauss_nmax; only for q > 0, where gaussexp serves)"""
+function gauss_check(kern::Int, q::Float64, ts::Vector{ComplexF64}, s1::Vector{ComplexF64}, s2::Vector{ComplexF64}; margin::Float64 = 1.0)
     q > 0 || return nothing
     m = 0.0
     for j in eachindex(ts); m = max(m, gauss_nmax(kern, ts[j], q, s1[j], s2[j])); end
-    m > RULEMAX && throw(PathTooLarge(:rule, "the inner integrals of the line integral (the segment to the saddle of the Gaussian factor, whose phase grows like x^2)", m, RULEMAX))
+    m > margin * RULEMAX && throw(PathTooLarge(:rule, "the inner integrals of the line integral (the segment to the saddle of the Gaussian factor, whose phase grows like x^2)", m, RULEMAX))
     nothing
 end
+"""
+    early_bound(model) -> Bool
+
+Whether `outer` checks the bound of the inner rules (`gauss_check`, with the margin EARLY_MARGIN) on the coarse points of
+its panels, which it computes to set their node counts, before it computes the transform at the nodes of the panels.
+False for the case codes, whose closed forms cost little; true for the provider of the general engine's line integral
+(DFDet_line.jl), whose transform at a point is a small eigenvalue problem: far above the unit root at large x the panels
+follow the phase of the saddle factor, which grows like x^2, and their nodes grow in number with x (case DU at c = 10:
+16544 at x = 1922, 67680 at 7860, 116464 at 13798), and the bound refused these points only after the transform at all of
+them (and the C engine's memo of the provider, which then had fewer slots than points, searched forever: the call did
+not return).  The margin: in a scan of cases DK, DU, DT at c from 0.25 to 16 and x from 20 to 1e5 and of the linear and
+the quadratic trend, an intercept with a sine and a cosine and the trend detrended first at c from 1 to 10 (2172
+configurations, November 27, 2026), wherever the largest node count on the coarse points exceeded twice RULEMAX the one
+on the nodes exceeded RULEMAX (by a factor of 2.09 at least), so that the early check refuses only points that the check
+on the nodes refuses.
+"""
+early_bound(model) = false
+const EARLY_MARGIN = 2.0
 
 """The changes of the phase psi between consecutive points, zero where the factor is negligible at either."""
 phase_steps(psi) = [isnan(psi[j]) || isnan(psi[j+1]) ? 0.0 : abs(psi[j+1] - psi[j]) for j in 1:length(psi)-1]
@@ -1596,6 +1614,9 @@ function outer(model, c::Float64, q::Float64, tau::Float64, inner::Function, wei
         push!(wk, Wm)
         te0 = [tau + im * w for w in wk]
         _, s1e, s2e, _ = tparts(model, c, te0; stat)
+        # (a model whose transform is costly, the general engine's provider: the bound of the inner rules on these points
+        # first, before the transform at the nodes of the panels, which grow in number with x; `early_bound`)
+        (batch === nothing && early_bound(model)) && gauss_check(kern, q, te0, s1e, s2e; margin = EARLY_MARGIN)
         steps = phase_steps(saddle_phase(kern, q, te0, s1e, s2e))
         wn = Float64[]; wt = Float64[]
         for p in 1:length(edges0)-1

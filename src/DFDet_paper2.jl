@@ -331,8 +331,12 @@ function span_has_constant(D::Determ; tol::Float64 = 1e-6)
         r = (a + b) / 2 + (b - a) / 2 * cos(pi * (k - 0.5) / m)
         for i in 1:K; X[(j-1)*m+k, i] = evalpoly(r - poff(D, j), view(D.C[j], :, i)); end
     end
-    beta = qr(X, ColumnNorm()) \ ones(np * m)
-    maximum(abs, X * beta .- 1) <= tol
+    # (with one BLAS thread, as the rest of the engine: BLAS with its default threads leaves OpenBLAS's workers spinning,
+    # which slowed the computation that followed by 1.5 times in line_refusal)
+    blas1() do
+        beta = qr(X, ColumnNorm()) \ ones(np * m)
+        maximum(abs, X * beta .- 1) <= tol
+    end
 end
 const LM_CONST_MSG = "the LM statistic: the limit computed here holds only for trend functions whose span contains the constant (the LM regression estimates the level from the first observation, and the limit of the statistic is otherwise a different one); the design"
 """the LM statistic's prepared design, with the checks that the span of the design contains the constant
