@@ -29,7 +29,10 @@ downstream of the determinant is the engine's code: the outer contour (the hyper
 leaves its side of the imaginary axis), the continuation of the roots and of log P along it, the inner integrals around
 the roots, the rules of one evaluation, the checked computation and the quantile search. (The steepening while either
 group leaves its side, where the engine looked at the positive group only, changes no path of the engine's own designs:
-464 configurations with zero, fixed and stationary starts and GLS detrending, c from -480 to 14.) The calls with a
+464 configurations with zero, fixed and stationary starts and GLS detrending, c from -480 to 14.) Two constants differ
+from the engine's: under regimes the hyperbola starts at 70 degrees, where the engine's designs start at 45, and the
+thin outer step of the default rule is twice the step of that hyperbola, where it is 1.5 times for the engine's designs
+(`DFDet.VOL_PHI`, `DFDet.VOL_HFAC`; the reason and the measurements are under "Accuracy" below). The calls with a
 volatility path take the general engine whatever the rule of the engines (`autoengine`), and `engine = :classical`
 refuses them. Without deterministic terms D is
 the first entry of a product of two-by-two transfer matrices of the regimes, which the tests use as an independent
@@ -156,11 +159,13 @@ evaluation is the engine's (`path_region`); on the 36 cells of the table it is w
 
 GLS detrending, the statistic that detrends first and the determinant of a normal start were computed for the lead paper
 by a prototype among its replication code before the package had them; its values are kept in `test/ref/regime_ref.txt`.
-On the prototype's contour and with its nodes (`rule = :present`) the package reproduces the distribution function and
-the density to 2e-15 (291 evaluations, among them the 216 cells of the paper's table of sizes and critical values under
-one variance break and the p-values of its illustration), the determinant, the roots and t_* to 1e-13, and the 369
-quantiles to 2e-10, the tolerance of the searches. The default rule of one evaluation is within 2.2e-10 of the prototype
-in all of these cases but one (the quadratic trend detrended first under three regimes with their own c: 6.5e-9). The
+On the prototype's contour, the engine's 45-degree hyperbola, and with its nodes the package reproduced the distribution
+function and the density to 2e-15 (291 evaluations, among them the 216 cells of the paper's table of sizes and critical
+values under one variance break and the p-values of its illustration); on the 70-degree hyperbola it now takes under
+regimes, `rule = :present` is within 5e-12 of the prototype and the default rule of one evaluation within 1e-11 (on the
+45-degree hyperbola the default rule was off by 6.5e-9 for the quadratic trend detrended first under three regimes with
+their own c). The determinant, the roots and t_* agree to 1e-13, and the 369 quantiles to 2e-10, the tolerance of the
+searches. The
 prototype's determinant of a normal start and its determinant of the zero start yield the exponent of the fixed start,
 which `vol_qf` reproduces to 1.4e-10.
 
@@ -172,15 +177,34 @@ distribution function with a fixed start, computed from the zero start's roots a
 On a wider grid (140 cases: five designs with a stationary start, five with GLS detrending and four detrended first,
 under ten paths with ratios of the standard deviations up to 9 and c down to -150, November 27, 2026) the default rule is within 1e-6 of
 the checked computation in the distribution function, with two exceptions, both announced. Where the computed value in
-the upper tail exceeds one by more than 1e-8 the call fails with the engine's range error (one case, a stationary start
-with a break in level and slope; `rule = :present` or `:fine` computes it). And with GLS detrending at a cbar near zero
-(-2), or beside a standard deviation that rises ninefold late in the sample, no hyperbola keeps the positive root right of the
-origin and the outer contour is the vertical line: the engine warns there, and the values differed by up to 5e-4 between
-rules or the call failed.
+the upper tail exceeded one by more than 1e-8 the call failed with the engine's range error (one case, a stationary start
+with a break in level and slope; the steeper hyperbola of the next paragraph computes it). And with GLS detrending at a
+cbar near zero (-2), or beside a standard deviation that rises ninefold late in the sample, no hyperbola keeps the positive
+root right of the origin and the outer contour is the vertical line: the engine warns there, and the values differed by up
+to 5e-4 between rules or the call failed.
+
+The outer hyperbola under regimes starts at 70 degrees. On the engine's 45-degree hyperbola a root of the transform can
+come close to the imaginary axis far out (an early regime of high variance together with a break in the deterministic
+terms or a persistence that changes: with a break in the trend at 0.5, standard deviations 2, 1, 0.5 on regimes ending at
+0.2 and 0.7 and c = -5, 0, -10 the smallest real part of the positive roots falls from 15 at the vertex to 1.2 at
+|t| = 1200). The part of the outer integrand that belongs to that root is then not damped, and its phase turns faster
+than the outer step resolves, so the trapezoidal rule loses the same amount at every x: 1.4e-6 in that case, where the
+99.9% quantile is -0.67 and the call failed with the range error from x = 1 on. On 1456 cases (14 designs, 13 paths of two
+or three regimes with ratios of the standard deviations up to 9, c constant and changing, zero and stationary start;
+November 28, 2026, against the 80-degree hyperbola with half the step and the inner nodes of the present rule) the
+45-degree hyperbola with the thin step was off by more than 1e-5 in 17 cases and by more than 1e-8 in 71 (3.8e-4 at
+most), and with the present step by more than 1e-5 in 2 (6.8e-5). Starting at 70 degrees with twice the hyperbola's step
+the largest error is 1.7e-8, on 195 nodes on average against 140 of the thin step and 209 of the present step on the
+45-degree hyperbola; 2.5 times the step lost 2.6e-6 in one case. Without regimes the thin step on the 45-degree hyperbola
+is within 1e-13 of the same reference on these designs, and the engine's own contour is unchanged.
 
 Times on warm calls (four threads of an M4 laptop on mains power with nothing else running, November 26, 2026): the
 outer contour with its roots 3 to 19 ms, one value of F and f 2 to 5 ms, a 5% quantile 9 to 45 ms (no deterministic
 terms, an intercept, a linear trend with the variance tripling at mid-sample; a break in level and slope at 0.4 with the
 variance falling at 0.6), 1.4 to 3.6 times faster than the prototype in the same session: the thin rule of one
 evaluation, the engine's static arrays for the small matrices of the transform, its continuation of the roots between the
-nodes only where a step is not safe, and t_* from the Nystrom estimate rather than from two discretized regressions.
+nodes only where a step is not safe, and t_* from the Nystrom estimate rather than from two discretized regressions. On the 70-degree
+hyperbola (November 28, 2026, the same machine, the minimum of 60 to 200 repetitions after a warm-up, the two versions in
+alternating processes): one value of F 2.4 to 7.7 ms and a 5% quantile 13 to 63 ms, 1.2 to 1.4 times the 1.7 to 5.4 ms
+and 9 to 45 ms of the 45-degree hyperbola with the thin step; a first call from empty caches 6 to 28 ms, 0.95 to 1.2
+times.

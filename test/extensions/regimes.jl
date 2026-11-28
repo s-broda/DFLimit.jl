@@ -105,16 +105,19 @@ end
             elseif tag == "dist"
                 c0 = num(v[k]); n = parse(Int, v[k+1]); xs = num.(v[k+2:k+1+n]); F = num.(v[k+2+n:k+1+2n]); f = num.(v[k+2+2n:k+1+3n])
                 Dc, kw = ref_call(D, kind, par)
-                # (the prototype's contour and nodes are those of the rule :present; the default rule of one evaluation beside it)
-                @test note("F, the present rule", maximum(abs, dist_cdf(Dc, xs, c; vol = V, c0, rule = :present, kw...) .- F)) < 1e-12
-                @test note("f, the present rule", maximum(abs, dist_pdf(Dc, xs, c; vol = V, c0, rule = :present, kw...) .- f)) < 1e-12
-                # (the default rule has a thinner outer step: within 2.2e-10 of the prototype in all cases but one, the quadratic
-                # trend detrended first under three regimes with their own c, where it is off by 6.5e-9 in F and 3.0e-8 in f;
-                # on the cells of the paper's table and of its illustration, where it is within 2.2e-10 as well, the test
-                # leaves it out for the time it takes)
+                # (the prototype's nodes are those of the rule :present, its outer contour the engine's 45-degree hyperbola;
+                # the package's hyperbola under regimes starts at 70 degrees since the end of November 2026 (`VOL_PHI`), and
+                # on it the rule :present is within 4.6e-12 of the prototype in F and 1.3e-12 in f, where it was 1.7e-15 on
+                # the prototype's own contour; the default rule of one evaluation beside it)
+                @test note("F, the present rule", maximum(abs, dist_cdf(Dc, xs, c; vol = V, c0, rule = :present, kw...) .- F)) < 2e-11
+                @test note("f, the present rule", maximum(abs, dist_pdf(Dc, xs, c; vol = V, c0, rule = :present, kw...) .- f)) < 2e-11
+                # (the default rule, the thin outer step on the 70-degree hyperbola: within 9.2e-12 of the prototype in F and
+                # 4.7e-12 in f; on the 45-degree hyperbola it was off by 6.5e-9 in F and 3.0e-8 in f for the quadratic trend
+                # detrended first under three regimes with their own c.  On the cells of the paper's table and of its
+                # illustration the test leaves it out for the time it takes)
                 paper && continue
-                @test note("F, the default rule", maximum(abs, dist_cdf(Dc, xs, c; vol = V, c0, kw...) .- F)) < 2e-8
-                @test note("f, the default rule", maximum(abs, dist_pdf(Dc, xs, c; vol = V, c0, kw...) .- f)) < 1e-7
+                @test note("F, the default rule", maximum(abs, dist_cdf(Dc, xs, c; vol = V, c0, kw...) .- F)) < 1e-10
+                @test note("f, the default rule", maximum(abs, dist_pdf(Dc, xs, c; vol = V, c0, kw...) .- f)) < 1e-10
             elseif tag == "quant"
                 c0 = num(v[k]); p = num(v[k+1]); q = num(v[k+2])
                 Dc, kw = ref_call(D, kind, par)
@@ -191,6 +194,25 @@ end
         @test ltratio_cdf(x, detrend_first(perron(:B, 0.4)), [0.0, -5.0]; vol = V2) == dist_cdf(detrend_first(perron(:B, 0.4)), x, [0.0, -5.0]; vol = V2)
         @test abs(ltratio_cdf(ltratio_icdf(0.05, "DG", 0; vol = V2), "DG", 0; vol = V2) - 0.05) < 1e-9
         @test abs(ltratio_cdf(ltratio_icdf(0.05, "SU", -5; vol = V2), "SU", -5; vol = V2) - 0.05) < 1e-9
+    end
+    @testset "the outer contour under regimes: a root near the imaginary axis far out" begin
+        # (cases in which the thin step on the 45-degree hyperbola lost 1.4e-6 to 3.8e-4 at every x, and in the far upper
+        # tail `cdf_range_check` refused the value: an early regime of high variance with a break in the deterministic terms
+        # or a persistence that changes; see `VOL_PHI`)
+        xs = [-4.0, -2.0, -1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
+        for (D, V, c, kw) in ((perron(:B, 0.5), volpath([0.2, 0.7], [2.0, 1.0, 0.5]), [-5.0, 0.0, -10.0], (;)),
+                              (perron(:C, 0.4), volpath([0.3], [3.0, 1.0]), [-5.0, -5.0], (; start = :stationary)),
+                              (perron(:B, 0.3), volpath([0.2], [5.0, 1.0]), [-5.0, -20.0], (;)),
+                              (perron(:B, 0.5), volpath([0.2, 0.7], [2.0, 1.0, 0.5]), [-20.0, 0.0, -10.0], (; c0 = 1.0)))
+            F = dist_cdf(D, xs, c; vol = V, kw...)
+            @test maximum(abs, F .- dist_cdf(D, xs, c; vol = V, verified = true, kw...)) < 1e-10
+            @test all(diff(F) .> -1e-11) && 1 - F[end] < 1e-11
+            @test minimum(dist_pdf(D, xs, c; vol = V, kw...)) > -1e-11
+        end
+        VM = DD.vol_model(perron(:B, 0.5), volpath([0.2, 0.7], [2.0, 1.0, 0.5]), [-5.0, 0.0, -10.0])
+        @test DD.vol_path(VM).phi == DD.VOL_PHI == 70 * pi / 180 && DD.vol_hfac(1.5, :thin) == DD.VOL_HFAC == 2.0 && DD.vol_hfac(1.0, :present) == 1.0
+        # (the engine's designs keep the 45-degree hyperbola)
+        @test DD.cpath_cached(DD.model(DD.prep_cached(trend(1), nothing), :zero, 0.0), -5.0).phi == pi / 4
     end
     @testset "argument errors" begin
         x = [-2.0]

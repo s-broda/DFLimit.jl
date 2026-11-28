@@ -2043,10 +2043,13 @@ function check_cmax(D::Determ, c::Real, start::Symbol, gamma0::Real, what::Abstr
     nothing
 end
 
+"""the asymptotic angle at which the outer hyperbola starts (`cpath_`): 45 degrees for the engine's designs; the volatility
+model starts steeper (`VOL_PHI`)"""
+start_phi(::TransformModel) = pi / 4
 """
     cpath(Mo, c; phi = nothing, hfac = 1, sub = 8, rmax = default_rmax(c), tau = nothing)
 
-As above for the design with its start; phi = nothing: pi/4, except with a fixed start, where `fixed_phi` chooses it.
+As above for the design with its start; phi = nothing: `start_phi` (pi/4 for the engine's designs), except with a fixed start, where `fixed_phi` chooses it.
 """
 cpath(Mo::TransformModel, c::Real; phi = nothing, hfac::Real = 1.0, sub::Int = 8, rmax = nothing, tau = nothing) =
     blas1f(() -> cpath_(Mo, Float64(c), phi, Float64(hfac), sub, rmax, tau), dense_la(Mo))
@@ -2055,7 +2058,7 @@ function cpath_(Mo::TransformModel, c::Float64, phi, hfac::Float64, sub::Int, rm
     ts_ = tstar(Mo, c)[1]
     τ = tau === nothing ? min(1.0, ts_ / 2) : Float64(tau)
     auto = phi === nothing
-    phi === nothing && (phi = (Mo.start == :fixed || c < FAR_CMIN) ? fixed_phi(Mo, c, ts_, τ, Float64(hfac), Float64(rmax)) : pi / 4)
+    phi === nothing && (phi = (Mo.start == :fixed || c < FAR_CMIN) ? max(fixed_phi(Mo, c, ts_, τ, Float64(hfac), Float64(rmax)), start_phi(Mo)) : start_phi(Mo))
     phi = Float64(phi)
     local a, b, h, K, tt, R, lP, FX, minpos, maxneg
     while true

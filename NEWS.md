@@ -84,6 +84,16 @@
   regimes (`start = :fixed` with a nonzero `gamma0` and more than one regime raises an `ArgumentError`): the engine's
   paths of a fixed start are laid for a constant variance and persistence, and under regimes they lost accuracy or
   failed for starts of moderate size.
+- **The outer contour under regimes starts at 70 degrees.** Under regimes a root of the transform can come close to the
+  imaginary axis far out on the engine's 45-degree hyperbola (an early regime of high variance with a break in the
+  deterministic terms or a persistence that changes); its part of the outer integrand is then not damped and turns
+  faster than the outer step resolves. The default rule of one evaluation lost the same amount at every x, more than
+  1e-5 in 17 of 1456 cases (3.8e-4 at most), and in the far upper tail `dist_cdf` refused the value with its range
+  error. The hyperbola of the volatility model now starts at 70 degrees with a thin outer step of twice its own
+  (`DFDet.VOL_PHI`, `DFDet.VOL_HFAC`, `start_phi`): the largest error on those cases is 1.7e-8, on 195 nodes on average
+  against 140, and one value takes 1.2 to 1.4 times as long. The values under regimes move by the error they had: up
+  to 4e-10 in F and 1.2e-8 in f on the cases of the ports' reference file, which is written anew. The engine's own
+  designs keep their contour, bit for bit.
 - **The engine's outer contour for any transform.** The path builder of the general engine (`cpath`, `rootpath_sparse`,
   `linecpath`, `fixed_phi`) takes a transform model (`DFDet.TransformModel`: the engine's `Model` or the volatility
   model), `verify_eval` the variant contours of the model, `eigtop` a covariance kernel. The hyperbola is now steepened

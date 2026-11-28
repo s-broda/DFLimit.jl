@@ -603,6 +603,33 @@ function vol_path(VM::VolModel; phi = nothing, hfac::Real = 1.0)
     lock(CPLOCK) do; cache_put!(VOLCACHE, VOLORDER, key, CP); end
     CP
 end
+"""
+    VOL_PHI, VOL_HFAC
+
+The outer hyperbola of the volatility model starts at VOL_PHI = 70 degrees (`start_phi`; the engine's designs at 45, and
+`cpath_` steepens either while a root group leaves its side of the imaginary axis), and the thin outer step of
+`PATH_RULES` (the rules :thin and :outer, hfac 1.5 for the engine's designs) is VOL_HFAC = 2 times the step of that
+hyperbola (`vol_hfac`).
+
+Under regimes a root of the transform can come close to the imaginary axis far out on a flat hyperbola (an early regime
+of high variance with a break in the deterministic terms or a persistence that changes: the smallest real part of the
+positive group fell from 15 at the vertex to 1.2 at |t| = 1200 with a break in the trend at 0.5, three regimes of
+standard deviations 2, 1, 0.5 and c = -5, 0, -10); its part of the outer integrand is then not damped while its phase
+turns faster than the outer step resolves, and the trapezoidal rule loses the same amount at every x.  On 1456 cases
+(14 designs, 13 paths of two or three regimes, c constant and changing, zero and stationary start; November 2026,
+against the 80-degree hyperbola with half the step and the inner nodes of the present rule) the 45-degree hyperbola
+with the thin step was off by more than 1e-5 in 17 cases and more than 1e-8 in 71 (3.8e-4 at most; in the far upper
+tail `cdf_range_check` then refused values above 1 + 1e-8), with the present step by more than 1e-5 in 2 (6.8e-5);
+starting at 70 degrees with the factor 2 the largest error was 1.7e-8 on 195 nodes on average, against 140 of the
+45-degree hyperbola with the thin step and 209 with the present one (the factor 2.5 lost 2.6e-6 in one case; 65 degrees
+with the factor 2 lost 2.3e-5 where the steepening of `cpath_` ends at 65 degrees itself).  Without regimes the thin step
+on the 45-degree hyperbola is within 1e-13 of the same reference on these designs.
+"""
+const VOL_PHI = 70 * pi / 180
+const VOL_HFAC = 2.0
+start_phi(::VolModel) = VOL_PHI
+"""the factor of the outer step of the rule r under regimes: VOL_HFAC for the rules with the thin outer step"""
+vol_hfac(hf::Float64, r::Symbol) = r in (:thin, :outer) ? VOL_HFAC : hf
 """the outer contour of the rule r with the step factor hf (as `rule_path`: :fine keeps the angle of the present rule's
 hyperbola with half its step, :finestep with the step of a fixed start without deterministic terms)"""
 function vol_rule_path(VM::VolModel, phi, hf::Float64, r::Symbol, c0::Float64 = 0.0)
@@ -665,7 +692,7 @@ function vol_eval(D::Determ, xs::AbstractVector, c, which::Int, vol, phi, hfac, 
     check_rule(rule)
     cm = minimum(VM.cr)
     hf, n, nt, rl = path_rule(rule, verified, VM.Mi, cm, c0, hfac, kw)
-    CP = vol_rule_path(VM, phi, hf, rl, c0)
+    CP = vol_rule_path(VM, phi, vol_hfac(hf, rl), rl, c0)
     nonfinite(xs, which == 1) do x
         v = verified ? verify_eval((CPv, o) -> contour_eval(CPv, x; o..., kw...)[which], CP, vtol; variant = (C, l) -> vol_variant(VM, C, l)) :
                        contour_eval(CP, x; kw..., n, ntail = nt)[which]
@@ -682,7 +709,7 @@ function vol_quantile_(D::Determ, p::Real, VM::VolModel; x0::Real, tol::Real, ph
     c0 = Float64(get(kw, :c0, 0.0))
     isfinite(c0) || throw(ArgumentError("c0 must be a finite real scalar"))
     hf, n, nt, rl = path_rule(rule, false, VM.Mi, minimum(VM.cr), c0, hfac, kw)
-    CP = vol_rule_path(VM, phi, hf, rl, c0)
+    CP = vol_rule_path(VM, phi, vol_hfac(hf, rl), rl, c0)
     FF(y) = (r = contour_eval(CP, [y]; kw..., n, ntail = nt); (r[1][1], r[2][1]))
     x = Float64(x0)
     for _ in 1:30
